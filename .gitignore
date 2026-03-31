@@ -1,0 +1,46 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+dist/
+build/
+.venv/
+venv/
+env/
+
+# Node.js
+node_modules/
+.next/
+out/
+
+# Environment
+.env
+.env.local
+.env.production
+
+# ML models & training artifacts
+data/ml_models/*.joblib
+data/ml_models/archive_*/
+backend/data/ml_models/*.joblib
+backend/data/ml_models/archive_*/
+backend/logs/
+
+# Large data files (History Data)
+History Data/
+*.parquet
+backend/data/*.csv
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Testing
+.coverage
+htmlcov/
+.pytest_cache/

@@ -1,0 +1,139 @@
+"""
+Per-symbol instrument specifications and position sizing.
+"""
+from dataclasses import dataclass
+import math
+
+
+@dataclass
+class InstrumentSpec:
+    symbol: str
+    pip_size: float
+    pip_value: float  # USD per pip per standard lot
+    min_lot: float
+    lot_step: float
+    contract_size: float = 1.0
+
+
+# Default specs — broker-specific overrides applied in calc_lot_size
+INSTRUMENT_SPECS: dict[str, InstrumentSpec] = {
+    "XAUUSD": InstrumentSpec("XAUUSD", pip_size=0.01, pip_value=1.0, min_lot=0.01, lot_step=0.01),
+    "XAGUSD": InstrumentSpec("XAGUSD", pip_size=0.001, pip_value=5.0, min_lot=0.01, lot_step=0.01),
+    "BTCUSD": InstrumentSpec("BTCUSD", pip_size=0.01, pip_value=0.01, min_lot=0.01, lot_step=0.01),
+    "ETHUSD": InstrumentSpec("ETHUSD", pip_size=0.01, pip_value=0.01, min_lot=0.01, lot_step=0.01),
+    "US30":   InstrumentSpec("US30", pip_size=1.0, pip_value=1.0, min_lot=0.01, lot_step=0.01),
+    "NAS100": InstrumentSpec("NAS100", pip_size=0.25, pip_value=0.25, min_lot=0.01, lot_step=0.01),
+    "SPX500": InstrumentSpec("SPX500", pip_size=0.25, pip_value=0.25, min_lot=0.01, lot_step=0.01),
+    "EURUSD": InstrumentSpec("EURUSD", pip_size=0.0001, pip_value=10.0, min_lot=0.01, lot_step=0.01),
+    "GBPUSD": InstrumentSpec("GBPUSD", pip_size=0.0001, pip_value=10.0, min_lot=0.01, lot_step=0.01),
+    "USDJPY": InstrumentSpec("USDJPY", pip_size=0.01, pip_value=6.7, min_lot=0.01, lot_step=0.01),
+    # Oanda uses unit-based sizing (1 unit = smallest tradeable amount)
+}
+
+# Oanda uses units, not standard lots. 1 standard lot = contract_size units.
+OANDA_CONTRACT_SIZES = {
+    "XAUUSD": 1,      # 1 unit = 1 oz gold
+    "BTCUSD": 1,      # 1 unit = 1 BTC
+    "US30": 1,        # 1 unit = $1 per point
+    "EURUSD": 1,      # 1 unit = 1 EUR
+    "GBPUSD": 1,      # 1 unit
+    "USDJPY": 1,
+}
+
+
+def get_spec(symbol: str) -> InstrumentSpec:
+    """Get instrument spec, with fallback for unknown symbols."""
+    return INSTRUMENT_SPECS.get(symbol, InstrumentSpec(
+        symbol=symbol, pip_size=0.0001, pip_value=10.0, min_lot=0.01, lot_step=0.01
+    ))
+
+
+def calc_lot_size(
+    symbol: str,
+    risk_amount: float,
+    sl_distance: float,
+    broker_name: str = "oanda",
+) -> float:
+    """
+    Calculate position size based on risk amount and SL distance.
+    Formula: lot_size = risk_amount / (sl_distance * pip_value_per_lot)
+    For Oanda: returns units (not standard lots).
+    """
+    spec = get_spec(symbol)
+
+    if sl_distance <= 0:
+        return spec.min_lot
+
+    # Convert SL distance to pips
+    sl_pips = sl_distance / spec.pip_size
+
+    if sl_pips <= 0:
+        return spec.min_lot
+
+    # pip_value is per standard lot
+    risk_per_pip = risk_amount / sl_pips
+
+    if broker_name == "oanda":
+        # Oanda uses units directly
+        # For XAUUSD: 1 unit = exposure to 1 oz, pip_value per unit = pip_size
+        # lot_size here represents Oanda units
+        if spec.pip_value > 0:
+            lots = risk_per_pip / spec.pip_value
+        else:
+            lots = spec.min_lot
+    else:
+        # Standard lot sizing
+        if spec.pip_value > 0:
+            lots = risk_per_pip / spec.pip_value
+        else:
+            lots = spec.min_lot
+
+    # Round to lot step
+    if spec.lot_step > 0:
+        lots = math.floor(lots / spec.lot_step) * spec.lot_step
+
+    # Clamp to minimum
+    lots = max(lots, spec.min_lot)
+
+    # Round to reasonable precision
+    lots = round(lots, 8)
+
+    return lots
+
+
+def calc_sl_tp(
+    entry_price: float,
+    direction: int,
+    atr_value: float,
+    sl_multiplier: float = 1.5,
+    tp_multiplier: float = 2.5,
+) -> tuple[float, float]:
+    """
+    Calculate SL and TP based on ATR.
+    direction: 1=buy, -1=sell
+    Returns (stop_loss, take_profit)
+    """
+    sl_distance = atr_value * sl_multiplier
+    tp_distance = atr_value * tp_multiplier
+
+    if direction == 1:  # buy
+        sl = entry_price - sl_distance
+        tp = entry_price + tp_distance
+    else:  # sell
+        sl = entry_price + sl_distance
+        tp = entry_price - tp_distance
+
+    return round(sl, 5), round(tp, 5)
+
+
+def get_session_multiplier(hour_utc: int, symbol: str) -> float:
+    """
+    Session multiplier for risk scaling.
+    0.5x during Asian session for non-crypto (Gold, Indices).
+    """
+    is_asian = 0 <= hour_utc < 8
+    is_crypto = symbol in ("BTCUSD", "ETHUSD")
+
+    if is_asian and not is_crypto:
+        return 0.5
+    return 1.0
