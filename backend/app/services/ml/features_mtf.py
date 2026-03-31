@@ -360,6 +360,14 @@ def compute_expert_features(
         except Exception:
             pass
 
+    # ── COT (Commitment of Traders) features ──────────────────────
+    if include_external and symbol in ("US30", "XAUUSD"):
+        try:
+            from app.services.ml.features_cot import add_cot_features
+            add_cot_features(features, times=times, symbol=symbol)
+        except Exception:
+            pass  # COT features are non-fatal
+
     # ── Regime × feature interactions (highest expected alpha) ─────
     # HMM regime state is: 0 = bear/trending-down, 1 = ranging, 2 = bull/trending-up
     # These interaction features encode: "RSI signal is only reliable in ranging regime"
