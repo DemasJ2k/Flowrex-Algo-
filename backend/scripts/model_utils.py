@@ -165,6 +165,15 @@ def compute_backtest_metrics(
         preds = np.where(bull_regime & (preds == 0), np.int64(1), preds)
         # In bear regime, suppress BUY (2) -> convert to HOLD (1)
         preds = np.where(bear_regime & (preds == 2), np.int64(1), preds)
+
+    # ── ATR regime gate: skip trading in low-volatility environments ────
+    # When current ATR is below the 25th percentile of rolling 100-bar ATR,
+    # the edge compresses and costs eat profits. Convert signals to HOLD.
+    if atr_test is not None and len(atr_test) > 100:
+        atr_ser = pd.Series(atr_test.astype(np.float64))
+        atr_pctile = atr_ser.rolling(100, min_periods=50).rank(pct=True).values
+        low_vol = atr_pctile < 0.25
+        preds = np.where(low_vol & (preds != 1), np.int64(1), preds)
     total_cost = (cost_bps + slippage_bps) / 10_000   # round-trip + slippage
 
     n = len(closes_test)

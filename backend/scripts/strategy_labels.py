@@ -301,6 +301,22 @@ def compute_strategy_labels(
             hold_bars_out[i] = max_h
             pnl_pcts[i] = pnl
 
+    # --- Force HOLD in low-volatility environments ---
+    # When ATR is below the 25th percentile of its 100-bar rolling window,
+    # the edge is compressed and trades are more likely to lose.
+    # Convert those labels to HOLD (0) so the model learns to sit out.
+    atr_ser = pd.Series(atr)
+    atr_pctile = atr_ser.rolling(100, min_periods=50).rank(pct=True).values
+    low_vol_mask = atr_pctile < 0.25
+    labels[low_vol_mask] = 0
+
+    # --- Force HOLD on SL-hit trades with low ICT confluence ---
+    # If the triple barrier hit SL AND the ICT score was low (<3),
+    # this was a bad setup — label it HOLD so the model learns to skip.
+    for i in range(n):
+        if exit_types[i] == "sl" and ict_scores[i] < 3.0:
+            labels[i] = 0
+
     # --- Quality weighting ---
     quality = np.clip(ict_scores[:n], 0.0, 10.0)
     # weight: 0.5 at score 0, 1.0 at score 10
