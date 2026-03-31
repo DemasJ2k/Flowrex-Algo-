@@ -155,6 +155,11 @@ User wants to shift from pure-ML approach to strategy-informed ML. The ML should
 - **Improvement:** Grade C→A, WR 50%→55%, DD unknown→1.6%
 - Both models saved as v6_strategy_informed with +meta tag
 
+### Validation Notes — Walk-Forward & Realism Assessment
+**Was walk-forward done?** Yes. Expanding-window WF with 2 folds. Each fold trains only on past data, tests on genuinely unseen future. True OOS (Oct 2024+) never used in any training/tuning.
+**What is OOS return?** Out-Of-Sample return = performance on data the model never saw. +9.2% means the model would have gained 9.2% trading US30 from Oct 2024 to Mar 2026 (~5 months).
+**How realistic?** Expect 40-60% of backtest in live conditions (industry norm). Backtest Sharpe 2.36 → live estimate 1.0-1.5. WR 55% → live 52-54%. DD 1.6% → live 3-5%. Daily return 2% → live 0.5-1.0% ($50-100/day on $10k). Reasons: OOS only 5 months (may be lucky), Fold 2 was Grade D (model weak in chop), execution assumes 0.5bps slippage, meta-labeler filters 85-94% reducing trade count. Recommendation: paper trade 4-8 weeks before live.
+
 ### Next Steps
 - Retrain BTCUSD → XAUUSD with same pipeline
 

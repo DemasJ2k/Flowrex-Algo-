@@ -358,9 +358,9 @@ _Updated at the end of each phase. Read this to understand what has been built._
 ---
 
 ## Strategy-Informed ML Overhaul (2026-03-31)
-**Status:** Implementation Complete — Retraining Next
+**Status:** US30 Retrained (Grade A) — BTCUSD/XAUUSD Pending
 
-### Implementation Complete (8/10 tasks done)
+### Implementation Complete (9/10 tasks done)
 | # | Task | Status | Tests |
 |---|------|--------|-------|
 | 1 | ICT/SMC feature module | Done | 12/12 |
@@ -373,6 +373,28 @@ _Updated at the end of each phase. Read this to understand what has been built._
 | 8 | Strategy-informed labels | Done | 12/12 |
 | 9 | Retrain US30 | **Done — Grade A** | OOS: Sharpe=2.36, WR=55.2%, DD=1.6% |
 | 10 | Retrain BTCUSD | Pending | — |
+
+### US30 Walk-Forward Results (v6 strategy-informed)
+**Walk-Forward Validation:** Yes — expanding-window, 2 folds, no look-ahead bias.
+| Fold | Train | Test (unseen) | XGBoost | LightGBM |
+|------|-------|---------------|---------|----------|
+| 1 | 2019-07→2021-04 | 2021-04→2023-01 | B Sharpe=2.10 WR=52.5% | B Sharpe=4.12 WR=55.0% |
+| 2 | 2019-07→2023-01 | 2023-01→2024-09 | D Sharpe=0.40 WR=52.8% | D Sharpe=0.31 WR=53.2% |
+| **OOS** | **Full pre-2024-10** | **2024-10→present** | **A Sharpe=2.36 WR=55.2% DD=1.6%** | **A Sharpe=1.91 WR=55.1% DD=1.9%** |
+
+**OOS Return Explained:** +9.2% (XGB) / +7.5% (LGB) on data from Oct 2024 onward that the model never saw during training. This is the closest proxy to live performance.
+
+**Realistic Expectations (live trading estimate):**
+| Metric | Backtest OOS | Conservative Live Estimate |
+|--------|-------------|---------------------------|
+| Sharpe | 2.36 | 1.0 – 1.5 (40-60% of backtest is industry norm) |
+| Win Rate | 55.2% | 52 – 54% (slippage, wider spreads in news) |
+| Max DD | 1.6% | 3 – 5% (OOS was favorable; live will see worse) |
+| Daily Return | ~2% | 0.5 – 1.0% ($50-100/day on $10k) |
+
+**Why the discount:** OOS is only 5 months (could be lucky), Fold 2 was Grade D (choppy markets), execution assumes minimal slippage, meta-labeler filters 85-94% of signals reducing trade count.
+
+**Recommendation:** Paper trade 4-8 weeks before live prop capital.
 
 ### Files Created
 - `backend/app/services/ml/features_ict.py` — 30 ICT/SMC features (604 lines)
@@ -404,7 +426,7 @@ _Updated at the end of each phase. Read this to understand what has been built._
 - Total feature computation: ~5 min on 600k bars (was 15+ min on 1M bars)
 
 ### Remaining Work
-- Retrain US30 with ~210 features + strategy-informed labels + meta-labeling
 - Retrain BTCUSD with same pipeline
 - Retrain XAUUSD (if data quality sufficient)
+- Paper trade US30 for 4-8 weeks to validate live performance
 - Feature count ~240 pre-SHAP → need to verify memory/speed with larger feature set
