@@ -371,30 +371,34 @@ _Updated at the end of each phase. Read this to understand what has been built._
 | 6 | Prop firm risk manager overhaul | Done | 21/21 |
 | 7 | Meta-labeling pipeline (Lopez de Prado) | Done | 11/11 |
 | 8 | Strategy-informed labels | Done | 12/12 |
-| 9 | Retrain US30 | **Done — Grade A** | OOS: Sharpe=2.36, WR=55.2%, DD=1.6% |
+| 9 | Retrain US30 | **Done — Grade B** | OOS: Sharpe=1.83, WR=52.2%, DD=4.9% (4-fold WF) |
 | 10 | Retrain BTCUSD | Pending | — |
 
-### US30 Walk-Forward Results (v6 strategy-informed)
-**Walk-Forward Validation:** Yes — expanding-window, 2 folds, no look-ahead bias.
+### US30 Walk-Forward Results (v6 strategy-informed, 4-fold)
+**Walk-Forward Validation:** Yes — expanding-window, 4 folds, no look-ahead bias.
 | Fold | Train | Test (unseen) | XGBoost | LightGBM |
 |------|-------|---------------|---------|----------|
-| 1 | 2019-07→2021-04 | 2021-04→2023-01 | B Sharpe=2.10 WR=52.5% | B Sharpe=4.12 WR=55.0% |
-| 2 | 2019-07→2023-01 | 2023-01→2024-09 | D Sharpe=0.40 WR=52.8% | D Sharpe=0.31 WR=53.2% |
-| **OOS** | **Full pre-2024-10** | **2024-10→present** | **A Sharpe=2.36 WR=55.2% DD=1.6%** | **A Sharpe=1.91 WR=55.1% DD=1.9%** |
+| 1 | 2020-12→2021-09 | 2021-09→2022-06 | C Sharpe=+2.27 WR=49.5% | B Sharpe=+2.89 WR=50.3% |
+| 2 | 2020-12→2022-06 | 2022-06→2023-03 | B Sharpe=+1.78 WR=50.7% | B Sharpe=+1.28 WR=50.5% |
+| 3 | 2020-12→2023-03 | 2023-03→2023-12 | F Sharpe=-3.24 WR=46.4% | F Sharpe=-3.05 WR=47.2% |
+| 4 | 2020-12→2023-12 | 2023-12→2024-09 | F Sharpe=-1.90 WR=48.5% | F Sharpe=-1.39 WR=49.0% |
+| **OOS** | **Full pre-2024-10** | **2024-10→present** | **B Sharpe=1.83 WR=52.2% DD=4.9%** | **B Sharpe=1.47 WR=51.4% DD=6.0%** |
 
-**OOS Return Explained:** +9.2% (XGB) / +7.5% (LGB) on data from Oct 2024 onward that the model never saw during training. This is the closest proxy to live performance.
+**Key Finding:** Model is regime-dependent. Profitable in trending/volatile markets (Folds 1-2), loses money in low-vol chop (Folds 3-4). Meta-labeler (AUC=0.664) filters 53-58% of low-confidence signals at threshold 0.45.
 
-**Realistic Expectations (live trading estimate):**
+**OOS Return:** +8.2% (XGB) / +7.0% (LGB) on unseen Oct 2024+ data.
+
+**Realistic Expectations (live):**
 | Metric | Backtest OOS | Conservative Live Estimate |
 |--------|-------------|---------------------------|
-| Sharpe | 2.36 | 1.0 – 1.5 (40-60% of backtest is industry norm) |
-| Win Rate | 55.2% | 52 – 54% (slippage, wider spreads in news) |
-| Max DD | 1.6% | 3 – 5% (OOS was favorable; live will see worse) |
-| Daily Return | ~2% | 0.5 – 1.0% ($50-100/day on $10k) |
+| Sharpe | 1.83 | 0.8 – 1.2 |
+| Win Rate | 52.2% | 50 – 52% |
+| Max DD | 4.9% | 5 – 8% |
+| Daily Return | ~1% | 0.3 – 0.7% ($30-70/day on $10k) |
 
-**Why the discount:** OOS is only 5 months (could be lucky), Fold 2 was Grade D (choppy markets), execution assumes minimal slippage, meta-labeler filters 85-94% of signals reducing trade count.
+**Critical insight:** Without the meta-labeler, this model would lose money in choppy markets. The meta-labeler is NOT optional — it's essential for live trading.
 
-**Recommendation:** Paper trade 4-8 weeks before live prop capital.
+**Recommendation:** Paper trade 4-8 weeks. Do NOT trade during low-vol regimes without meta-labeler filtering.
 
 ### Files Created
 - `backend/app/services/ml/features_ict.py` — 30 ICT/SMC features (604 lines)

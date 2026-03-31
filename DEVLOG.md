@@ -179,10 +179,18 @@ User wants to shift from pure-ML approach to strategy-informed ML. The ML should
 - **Caveat:** These Sharpe values (5-8) are almost certainly inflated by the favorable OOS period. Live expect 40-60% of these = Sharpe 2-4 which is still excellent.
 - **Meta-labeler threshold set to 0.45** for production
 
-### US30 v6 Re-run with 4 Folds (in progress)
-- Reduced M5 to 300k bars for memory safety
-- 4 folds for more robust walk-forward validation
-- Meta-labeler threshold updated to 0.45
+### US30 v6 — 4-Fold Walk-Forward (FINAL, honest results)
+- 300k M5 bars, 206 features, 4 expanding-window folds, 15 trials/fold
+- **Fold 1** (2021-09→2022-06): XGB C Sharpe=+2.27 | LGB B Sharpe=+2.89 (trending)
+- **Fold 2** (2022-06→2023-03): XGB B Sharpe=+1.78 | LGB B Sharpe=+1.28 (volatile)
+- **Fold 3** (2023-03→2023-12): XGB F Sharpe=-3.24 | LGB F Sharpe=-3.05 (low-vol chop)
+- **Fold 4** (2023-12→2024-09): XGB F Sharpe=-1.90 | LGB F Sharpe=-1.39 (low-vol trend)
+- **Combined WF:** XGB D Sharpe=+0.13 | LGB D Sharpe=+0.20 (barely positive across all regimes)
+- **True OOS** (2024-10→present): XGB **Grade B Sharpe=1.83 WR=52.2% DD=4.9%** | LGB B Sharpe=1.47
+- **Meta-labeler:** AUC=0.664 (improved from 0.613 with more training data), filters 58% OOS signals
+- **Honest assessment:** 2 profitable folds, 2 losing folds. Model is regime-dependent. The meta-labeler is NOT optional — it must filter signals in choppy markets.
+- Previous 2-fold Grade A was optimistic. 4-fold Grade B is the more realistic assessment.
+- Strategy labels optimization: 20min→37s (vectorised forward rolling max/min)
 
 ### Next Steps
 - Retrain BTCUSD → XAUUSD with same pipeline
