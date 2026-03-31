@@ -2,20 +2,21 @@
 train_walkforward.py - Realistic Walk-Forward Training & Evaluation
 
 What this script does vs train_scalping_pipeline.py:
-  1. ALL 137 features used (no premature SHAP filter during walk-forward)
+  1. ALL features used (ICT/SMC + Williams + Quant + COT + correlations)
   2. Expanding-window walk-forward: 4 folds within train period, each fold retrains
-  3. Realistic execution:
+  3. Strategy-informed labels: triple barrier + ICT quality scoring + sample weights
+  4. Meta-labeling: secondary model filters low-confidence trades (Lopez de Prado)
+  5. Realistic execution:
        - Fill at open[i+1]  (not close[i])
        - TP/SL via intra-bar OHLC detection
        - Slippage + spread cost (per symbol_config)
-  4. Combined WF metrics (all fold OOS predictions concatenated)
-  5. True OOS metrics (Oct 2024+ holdout)
-  6. SHAP feature importance league table (top 20, on final model)
-  7. Overfit score: combined WF Sharpe vs final OOS Sharpe
+  6. Combined WF metrics (all fold OOS predictions concatenated)
+  7. True OOS metrics (Oct 2024+ holdout)
+  8. SHAP feature importance league table (top 20, on final model)
 
 Usage:
     cd backend
-    python -m scripts.train_walkforward --symbol BTCUSD [--trials 20] [--folds 4]
+    python -m scripts.train_walkforward --symbol US30 [--trials 20] [--folds 4]
 """
 import os
 import sys
@@ -46,6 +47,8 @@ from scripts.model_utils import (
     shap_feature_filter,
     save_model_record,
 )
+from scripts.strategy_labels import compute_strategy_labels
+from app.services.ml.meta_labeler_v2 import MetaLabeler
 
 DATA_DIR      = os.path.join(os.path.dirname(__file__), "..", "data")
 MODEL_DIR     = os.path.join(DATA_DIR, "ml_models")
@@ -198,8 +201,9 @@ def _lgb_objective(trial, Xtr, ytr, Xval, yval):
     return m.score(Xval, yval)
 
 
-def train_model(model_type: str, Xtr, ytr, Xval, yval, n_trials: int):
-    """Optuna-tune + refit a model. Returns (model, best_cv_acc)."""
+def train_model(model_type: str, Xtr, ytr, Xval, yval, n_trials: int,
+                sw_tr=None, sw_val=None):
+    """Optuna-tune + refit a model with optional sample weights. Returns (model, best_cv_acc)."""
     if model_type == "xgboost":
         import xgboost as xgb
         obj = lambda t: _xgb_objective(t, Xtr, ytr, Xval, yval)
@@ -216,7 +220,8 @@ def train_model(model_type: str, Xtr, ytr, Xval, yval, n_trials: int):
                      "eval_metric": "mlogloss", "verbosity": 0,
                      "random_state": 42, "early_stopping_rounds": 20})
         model = xgb.XGBClassifier(**best)
-        model.fit(Xtr, ytr, eval_set=[(Xval, yval)], verbose=False)
+        model.fit(Xtr, ytr, eval_set=[(Xval, yval)], verbose=False,
+                  sample_weight=sw_tr)
     else:
         best.update({"objective": "multiclass", "num_class": 3,
                      "metric": "multi_logloss", "verbosity": -1, "random_state": 42})
@@ -224,6 +229,7 @@ def train_model(model_type: str, Xtr, ytr, Xval, yval, n_trials: int):
         with warnings.catch_warnings():
             warnings.simplefilter("ignore")
             model.fit(Xtr, ytr, eval_set=[(Xval, yval)],
+                      sample_weight=sw_tr,
                       callbacks=[lgb.early_stopping(20, verbose=False),
                                  lgb.log_evaluation(-1)])
 
@@ -302,12 +308,35 @@ def run_walkforward(symbol: str, n_trials: int = 20, n_folds: int = 4):
     )
     print(f"  Features: {len(feature_names)}")
 
-    # ── 3. Create labels ONCE on full dataset ────────────────────────────
+    # ── 3. Create strategy-informed labels on full dataset ──────────────
     atr_idx  = feature_names.index("atr_14") if "atr_14" in feature_names else None
     atr_vals = X_all[:, atr_idx] if atr_idx is not None else None
-    y_all    = create_labels(closes, atr_vals, config=cfg)
+
+    # Strategy labels: triple barrier + ICT quality scoring
+    print("  Computing strategy-informed labels (triple barrier + ICT scoring)...", flush=True)
+    strat_labels_df = compute_strategy_labels(
+        m5, symbol=symbol,
+        tp_atr_mult=tp_mult, sl_atr_mult=sl_mult,
+        max_hold_bars=hold_bars,
+        use_dynamic_barriers=True,
+    )
+    # Map strategy labels (-1=short, 0=hold, +1=long) -> model classes (0=sell, 1=hold, 2=buy)
+    raw_labels = strat_labels_df["label"].values
+    y_all = np.where(raw_labels == -1, 0, np.where(raw_labels == 1, 2, 1)).astype(np.int8)
+    # Sample weights from ICT quality (higher = better setup)
+    sample_weights_all = strat_labels_df["label_weighted"].values.astype(np.float32)
+    # Normalize weights: ensure positive, min 0.1
+    sample_weights_all = np.abs(sample_weights_all)
+    sample_weights_all = np.where(sample_weights_all > 0, sample_weights_all, 0.1)
+    # Scale so mean weight = 1.0
+    sw_mean = sample_weights_all.mean()
+    if sw_mean > 0:
+        sample_weights_all = sample_weights_all / sw_mean
+
     print(f"  Labels: sell={np.sum(y_all==0):,}  hold={np.sum(y_all==1):,}  "
           f"buy={np.sum(y_all==2):,}")
+    print(f"  Sample weight range: [{sample_weights_all.min():.2f}, {sample_weights_all.max():.2f}] "
+          f"mean={sample_weights_all.mean():.2f}")
 
     # ── 4. OOS split ────────────────────────────────────────────────────
     oos_ts    = int(pd.Timestamp(OOS_START, tz="UTC").timestamp())
@@ -344,12 +373,15 @@ def run_walkforward(symbol: str, n_trials: int = 20, n_folds: int = 4):
         ts_end    = fold_info["test_end"]
 
         X_tr   = X_all[WARMUP:tr_end];    y_tr   = y_all[WARMUP:tr_end]
+        sw_tr  = sample_weights_all[WARMUP:tr_end]
         X_val  = X_all[ts_start:ts_end];  y_val  = y_all[ts_start:ts_end]
 
         # Use last 20% of train as Optuna eval set (within fold)
         val_split = int(len(X_tr) * 0.8)
         Xtr_opt, ytr_opt = X_tr[:val_split], y_tr[:val_split]
+        sw_tr_opt = sw_tr[:val_split]
         Xv_opt,  yv_opt  = X_tr[val_split:], y_tr[val_split:]
+        sw_v_opt = sw_tr[val_split:]
 
         ts_start_human = pd.to_datetime(timestamps[ts_start], unit="s", utc=True).strftime("%Y-%m")
         ts_end_human   = pd.to_datetime(timestamps[min(ts_end-1, len(timestamps)-1)],
@@ -362,7 +394,8 @@ def run_walkforward(symbol: str, n_trials: int = 20, n_folds: int = 4):
 
         for model_type in ["xgboost", "lightgbm"]:
             print(f"    [{model_type}] {n_trials} trials...", end=" ", flush=True)
-            model, cv_acc = train_model(model_type, Xtr_opt, ytr_opt, Xv_opt, yv_opt, n_trials)
+            model, cv_acc = train_model(model_type, Xtr_opt, ytr_opt, Xv_opt, yv_opt, n_trials,
+                                        sw_tr=sw_tr_opt, sw_val=sw_v_opt)
             print(f"cv_acc={cv_acc:.4f}", flush=True)
 
             # Evaluate on this fold's test slice
@@ -405,14 +438,18 @@ def run_walkforward(symbol: str, n_trials: int = 20, n_folds: int = 4):
 
     X_full_tr = X_all[WARMUP:oos_start_idx]
     y_full_tr = y_all[WARMUP:oos_start_idx]
+    sw_full_tr = sample_weights_all[WARMUP:oos_start_idx]
     val_split = int(len(X_full_tr) * 0.85)
     Xf_tr, yf_tr = X_full_tr[:val_split], y_full_tr[:val_split]
+    swf_tr = sw_full_tr[:val_split]
     Xf_val, yf_val = X_full_tr[val_split:], y_full_tr[val_split:]
+    swf_val = sw_full_tr[val_split:]
 
     final_models = {}
     for model_type in ["xgboost", "lightgbm"]:
         print(f"  [{model_type}] {n_trials*2} trials...", end=" ", flush=True)
-        model, cv_acc = train_model(model_type, Xf_tr, yf_tr, Xf_val, yf_val, n_trials * 2)
+        model, cv_acc = train_model(model_type, Xf_tr, yf_tr, Xf_val, yf_val, n_trials * 2,
+                                    sw_tr=swf_tr, sw_val=swf_val)
         print(f"cv_acc={cv_acc:.4f}", flush=True)
         final_models[model_type] = model
 
@@ -493,7 +530,42 @@ def run_walkforward(symbol: str, n_trials: int = 20, n_folds: int = 4):
             print(f"  {rank:2d}. {fname:<35}  {imp*100:5.2f}%  {bar}")
         print(f"       {'Cumulative top-20':35}  {cumulative*100:.1f}%")
 
-    # ── 10. Save final models ─────────────────────────────────────────────
+    # ── 10. Meta-labeling (Lopez de Prado two-stage) ──────────────────────
+    print(f"\n  {'-'*60}")
+    print(f"  Meta-Labeling: training secondary model per primary model")
+    print(f"  {'-'*60}")
+
+    meta_labelers = {}
+    for model_type, model in final_models.items():
+        try:
+            # Primary model predictions on training data
+            primary_preds = model.predict(X_full_tr)
+            # Map to direction: 0=sell->-1, 1=hold->0, 2=buy->1
+            primary_dirs = np.where(primary_preds == 0, -1,
+                          np.where(primary_preds == 2, 1, 0)).astype(np.float32)
+            # Actual outcomes (same mapping)
+            actual_dirs = np.where(y_full_tr == 0, -1,
+                         np.where(y_full_tr == 2, 1, 0)).astype(np.float32)
+
+            ml = MetaLabeler(threshold=0.55)
+            fit_info = ml.fit(X_full_tr, primary_dirs, actual_dirs,
+                             feature_names=feature_names)
+            meta_labelers[model_type] = ml
+
+            # Evaluate meta-labeler on OOS
+            oos_primary = model.predict(X_oos_full)
+            oos_dirs = np.where(oos_primary == 0, -1,
+                       np.where(oos_primary == 2, 1, 0)).astype(np.float32)
+            oos_conf = ml.predict_confidence(X_oos_full, oos_dirs)
+            n_filtered = np.sum(oos_conf < ml.threshold)
+            n_total = np.sum(oos_dirs != 0)
+            print(f"  [{model_type}] Meta-labeler trained. OOS: {n_filtered}/{n_total} "
+                  f"low-confidence signals filtered ({n_filtered/max(n_total,1)*100:.0f}%)")
+        except Exception as e:
+            print(f"  [{model_type}] Meta-labeler FAILED: {e}")
+            meta_labelers[model_type] = None
+
+    # ── 11. Save final models + meta-labelers ──────────────────────────────
     print(f"\n  {'-'*60}")
     for model_type, model in final_models.items():
         grade, oos_m = oos_results[model_type]
@@ -503,9 +575,9 @@ def run_walkforward(symbol: str, n_trials: int = 20, n_folds: int = 4):
             feat_imp = dict(zip(feature_names, model.feature_importances_.tolist()))
 
         path = os.path.join(MODEL_DIR, f"scalping_{symbol}_M5_{model_type}.joblib")
-        joblib.dump({
+        save_dict = {
             "model":              model,
-            "feature_names":      feature_names,    # all features
+            "feature_names":      feature_names,
             "grade":              grade,
             "oos_metrics":        oos_m,
             "wf_results":         wf_results,
@@ -522,8 +594,17 @@ def run_walkforward(symbol: str, n_trials: int = 20, n_folds: int = 4):
                 "hold_bars":   hold_bars,
             },
             "trained_at": datetime.now(timezone.utc).isoformat(),
-        }, path)
-        print(f"  Saved: {os.path.basename(path)}  (Grade={grade})")
+            "pipeline_version": "v6_strategy_informed",
+        }
+        # Include meta-labeler if trained
+        ml = meta_labelers.get(model_type)
+        if ml is not None:
+            save_dict["meta_labeler"] = ml
+            save_dict["meta_threshold"] = ml.threshold
+
+        joblib.dump(save_dict, path)
+        ml_tag = " +meta" if ml else ""
+        print(f"  Saved: {os.path.basename(path)}  (Grade={grade}{ml_tag})")
         save_model_record(symbol, "M5", model_type, "scalping", path, grade, oos_m)
 
     return wf_results, oos_results
@@ -533,7 +614,7 @@ def run_walkforward(symbol: str, n_trials: int = 20, n_folds: int = 4):
 
 def main():
     parser = argparse.ArgumentParser()
-    parser.add_argument("--symbol",  default="BTCUSD",
+    parser.add_argument("--symbol",  default="US30",
                         choices=["BTCUSD", "XAUUSD", "US30", "ES", "NAS100"])
     parser.add_argument("--trials",  type=int, default=20,
                         help="Optuna trials per fold (default 20; final model uses 2×)")
