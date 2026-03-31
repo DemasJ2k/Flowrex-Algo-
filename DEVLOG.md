@@ -4,6 +4,82 @@ _Chronological record of all changes. Read this before starting any task._
 
 ---
 
+## 2026-03-31 — Strategy-Informed ML Research Phase
+
+### Context
+User wants to shift from pure-ML approach to strategy-informed ML. The ML should learn WHEN proven trading strategies work best, not discover patterns from scratch. Account is $10k prop firm (FTMO) with 5% daily DD / 10% total DD limits. Target: 2%+ daily.
+
+### User Decisions
+- **Methodologies:** ICT/SMC (all concepts except kill zones), Supply/Demand, Price Action/Market Structure, Larry Williams (volatility breakout, trend-day ID), Donchian channels
+- **Trading style:** Hybrid — Scalping (up to 2hr hold) + Swing (overnight OK)
+- **Symbol priority:** US30 first, then BTCUSD, then XAUUSD
+- **Agent structure:** Keep 2 agents (Scalping + Expert/Swing)
+- **Skip Fabio Valentini** — requires tick-level/DOM data we don't have
+- **Larry Williams on H1/H4** — volatility breakout + trend-day identification; keep on daily if difficult to adapt
+
+### Research Stream 1: ICT/SMC (~30 features)
+- **Order Blocks (OB):** Last opposing candle before displacement. Detection: find bearish candle before bullish move that breaks swing high. Zone = [candle low, candle open]. Mitigated when price closes through zone. First touch highest probability.
+- **Fair Value Gaps (FVG):** 3-candle gap where candle1.high < candle3.low (bullish). Consequent Encroachment (CE) = 50% midpoint — key reaction level. FVGs act as price magnets.
+- **Liquidity Sweeps:** Price pierces swing high/low then closes back inside range. Distinguish from breakout by: close location, wick ratio, next candle direction. Equal highs/lows = concentrated liquidity targets. **Most academically validated ICT concept** (Osler 2005, "Stop-loss orders and price cascades in currency markets").
+- **Breaker Blocks:** Failed OBs that flip polarity. Bullish OB mitigated → becomes bearish resistance zone.
+- **OTE (Optimal Trade Entry):** 62-79% Fibonacci retracement of impulsive leg. Key level: 70.5%. Best when OB/FVG sits inside OTE zone.
+- **Premium/Discount (PD):** Divide range by equilibrium (50%). Buy in discount (below 50%), sell in premium (above 50%). Use HTF range (H4/Daily) for context.
+- **Market Structure — BOS vs CHOCH:** BOS = continuation break (swing high in uptrend). CHOCH = first break against trend (reversal signal). Requires candle BODY close beyond level, not just wick.
+- **Displacement:** Large-bodied candle (body > 1.5x ATR, body/range ratio > 0.7). Validates OBs and creates FVGs.
+- **Combined ICT Model:** Score 0-10 based on HTF bias + correct PD zone + liquidity sweep + LTF CHOCH + OB in OTE + FVG confirmation.
+- **Empirical evidence:** Liquidity sweeps strongest (academic backing). HTF trend alignment is essentially trend-following (well-validated). FVG fill = mean reversion (microstructure support). OTE/fib levels = mixed evidence.
+
+### Research Stream 2: Larry Williams (~59 features)
+- **Volatility Breakout (Stretch):** Core of his 1987 championship ($10k→$1.1M). stretch_buy = SMA(|open-low|, 3). Entry: buy at open + stretch. Originally daily, adaptable to H1/H4 by using session open as reference.
+- **Oops Pattern:** Gap below prev_low then reversal back above it. Mean-reversion fade of emotional gap openings. Less applicable to BTCUSD (24/7, few gaps).
+- **Range Expansion:** TR_today / ATR(10). Above 1.5 = trend day. Below 0.6 = range day. NR4/NR7 (narrowest range of 4/7 bars) precedes expansion.
+- **Trend Day Detection:** Prior day compression + inside day + early range > 50% ADR + directional persistence in first hour.
+- **Williams %R Multi-Period:** 5/14/28 periods simultaneously. Key insight: in uptrend, %R staying overbought is BULLISH (not sell signal). Failure swings: oversold → rally → higher low in oversold zone → breakout = buy.
+- **COT Data:** Commercial hedger positioning as contrarian indicator. Available for US30 (DJIA futures), Gold (COMEX GC), partially for BTC (CME). Williams COT Index: (net - min) / (max - min) over 26/52 weeks. Use as weekly directional FILTER.
+- **Seasonality:** US30 strong Nov-Jan, Apr; weak Jun, Sep. Gold strong Aug-Feb. Presidential cycle year 3 = strongest. Day-of-week effects documented.
+- **Smash Day:** New high but close below prior close (bearish reversal), or vice versa.
+- **Adaptation to H1/H4:** Replace "yesterday" with "prior session." Shorten lookbacks (daily 3 → H4 6-12). Reduce stretch factor (0.5→0.3-0.4). US30 best adapted; BTCUSD hardest (no clear sessions).
+
+### Research Stream 3: Donchian + World's Best Quant Strategies
+- **Donchian Channels:** N=20 on M5 for intraday (1.5-2hr of price action). N=55 on H4 for swing. Width percentile as volatility regime filter. Squeeze (percentile < 25) = breakout setup.
+- **Donchian MTF:** H4 55-period as trend filter, M5 20-period for entries. Only take longs when H4 position > 0.5.
+- **Turtle Rules Adapted:** ATR-based position sizing, 2-unit pyramid max (reduced from 4), 2×ATR stop, session filter.
+- **Renaissance Technologies:** Short-term mean reversion primary driver. Z-scores of price vs rolling mean at multiple windows (12/24/48/96 bars). Return autocorrelation as regime indicator.
+- **AQR Momentum:** Time-series momentum (TSMOM) = sign of return over 12-288 bars, skip 1 bar. Volatility-scaled. Sharpe 0.5-1.0 on intraday.
+- **Lopez de Prado — Meta-Labeling:** HIGHEST IMPACT technique not yet implemented. Primary model predicts direction; meta-model predicts probability that THIS SPECIFIC trade will be profitable. Only trade when meta-confidence > 60%. Expected Sharpe boost: +0.5 to +1.0.
+- **Lopez de Prado — Triple Barrier:** Already partially implemented. Verify alignment with canonical formulation.
+- **Lopez de Prado — Fractional Differencing:** d=0.3-0.5 makes series stationary while preserving memory. Moderate impact (+0.1-0.3 Sharpe).
+- **Ernest Chan — Hurst Exponent:** H < 0.5 = mean-reverting, H > 0.5 = trending. Rolling Hurst as regime indicator. BTCUSD shows dramatic regime shifts in H.
+- **Ernest Chan — Half-Life:** Ornstein-Uhlenbeck model. If half_life < 50 bars, mean reversion trades viable.
+
+### Research Stream 4: Prop Firm Risk Management
+- **Position sizing:** 0.75% per trade ($75). Never exceed 1.0%. Kelly criterion capped at fractional (25%).
+- **Daily DD tiers:** -1.5% = yellow (reduce size), -2.5% = red (stop new entries), -3.0% = hard stop (close all).
+- **Total DD recovery:** -2% = caution (0.67x), -4% = warning (0.5x), -6% = critical (0.33x), -8% = stop trading.
+- **Anti-martingale:** After 2 consecutive losses reduce to 0.67x, after 3 reduce to 0.33x. Reset on win.
+- **Daily profit protection:** After +1% day, trail 50% of gains.
+- **Weekly circuit breaker:** -4% weekly = stop trading until next week.
+- **Optimal trade profile:** 55% WR × 1:2 R:R × 4 trades/day × $80 risk = ~$208/day (exceeds 2% target).
+- **US30 sessions:** Primary 13:30-15:30 UTC (cash open), secondary 19:00-20:00 UTC (power hour). Avoid 15:30-17:00 (midday chop).
+- **US30 TP/SL:** Scalp: 15-25pt SL / 20-40pt TP. Intraday: 30-50pt SL / 60-150pt TP. Swing: 80-150pt SL / 200-400pt TP.
+- **Max concurrent positions:** 2. Max correlated positions: 1 (don't long US30 + NAS100 simultaneously).
+
+### Architecture Decision: Feature Count Target
+- Current: 157 features
+- ICT/SMC: +30, Larry Williams: +25, Donchian/Turtle: +15, Quant: +15
+- Target: ~240 features (SHAP filter will prune to ~120-150 active)
+- Meta-labeling adds a second model layer, not more features
+
+### Next Steps (awaiting user approval)
+1. Build ICT/SMC feature module → `features_ict.py`
+2. Build Larry Williams feature module → `features_williams.py`
+3. Build Donchian/Quant feature module → `features_quant.py`
+4. Overhaul prop firm risk manager
+5. Implement meta-labeling pipeline
+6. Retrain US30 → BTCUSD → XAUUSD
+
+---
+
 ## 2026-03-29 (9) — ML Pipeline Upgrade + Real Data Training Prep
 
 ### Data Pipeline

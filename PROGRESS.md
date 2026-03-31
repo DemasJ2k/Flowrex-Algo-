@@ -354,3 +354,55 @@ _Updated at the end of each phase. Read this to understand what has been built._
 - 12/12 correlation tests passing
 - 18/18 feature tests passing
 - TypeScript compiles clean (zero errors)
+
+---
+
+## Strategy-Informed ML Overhaul (2026-03-31)
+**Status:** Research Complete — Awaiting Implementation
+
+### Research Completed
+- **ICT/SMC:** 8 concepts with detection pseudocode (OB, FVG, liquidity sweeps, breakers, OTE, PD arrays, BOS/CHOCH, displacement). ~30 new features. Liquidity sweeps most empirically validated.
+- **Larry Williams:** Volatility breakout (stretch), trend-day ID, Williams %R (multi-period + failure swings), COT data, seasonality, smash day. ~59 new features. Stretch system was core of 1987 championship.
+- **Donchian/Quant:** Donchian MTF channels, Turtle rules adapted, RenTech mean-reversion z-scores, AQR TSMOM, Lopez de Prado meta-labeling + triple barrier + frac diff, Chan Hurst exponent + half-life. ~30 new features + meta-labeling layer.
+- **Prop Firm Risk:** Complete tiered DD management, anti-martingale sizing, session windows, optimal trade math (55% WR × 1:2 R:R × 4 trades = $200/day on $10k).
+
+### User Requirements Captured
+- Account: $10k FTMO prop, 5% daily DD, 10% total DD
+- Target: 2%+ daily
+- Style: Hybrid (scalp up to 2hr + swing overnight)
+- Symbols: US30 → BTCUSD → XAUUSD
+- Agents: Keep 2 (Scalping + Expert/Swing)
+
+### Implementation Plan (10 tasks)
+1. ICT/SMC feature module (`features_ict.py`)
+2. Larry Williams feature module (`features_williams.py`)
+3. Donchian/Quant feature module (`features_quant.py`)
+4. Prop firm risk manager overhaul
+5. Meta-labeling pipeline
+6. Strategy-informed labels (triple barrier + ICT setup scoring)
+7. Retrain US30
+8. Retrain BTCUSD
+9. Retrain XAUUSD
+10. Integration testing + live validation
+
+### Files To Create
+- `backend/app/services/ml/features_ict.py`
+- `backend/app/services/ml/features_williams.py`
+- `backend/app/services/ml/features_quant.py`
+- `backend/app/services/ml/meta_labeler_v2.py`
+- `backend/tests/test_features_ict.py`
+- `backend/tests/test_features_williams.py`
+- `backend/tests/test_features_quant.py`
+
+### Files To Modify
+- `backend/app/services/ml/features_mtf.py` — integrate new feature modules
+- `backend/app/services/agent/risk_manager.py` — prop firm tiered DD system
+- `backend/scripts/model_utils.py` — meta-labeling, strategy-informed labels
+- `backend/scripts/train_walkforward.py` — new feature pipeline
+- `backend/app/services/ml/symbol_config.py` — prop firm TP/SL config
+
+### Open Issues
+- COT data integration requires weekly CFTC download pipeline (new data source)
+- Hurst exponent is computationally expensive (rolling R/S analysis) — may need caching
+- Meta-labeling requires 2-stage training pipeline (architectural change)
+- Feature count ~240 pre-SHAP → need to verify memory/speed with larger feature set

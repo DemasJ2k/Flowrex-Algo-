@@ -8,7 +8,8 @@
 - **Brokers:** Oanda, cTrader, MT5
 
 ## Current Phase
-**POST-MVP: ML Training & Retrain Pipeline** (2026-03-31)
+**POST-MVP: Strategy-Informed ML Overhaul** (2026-03-31)
+- Phase: Research complete → Implementation plan ready → Build next
 
 ## Completed Phases
 - Phase 1 — Foundation (2026-03-28)
@@ -32,6 +33,47 @@
 - Model Feature Toggles UI (correlations, M15, macro features)
 - Retrain UI on Models page (trigger, schedule, history table)
 - Monthly retrain executed: US30 swapped to fresh 12-month model (Sharpe 2.8), BTCUSD kept (gate protected Grade B)
+
+## Strategy-Informed ML Overhaul (2026-03-31 — in progress)
+
+### User Requirements
+- **Trading style:** Hybrid (scalp up to 2hr + swing overnight)
+- **Account:** $10,000 prop firm (FTMO), 5% max daily DD, 10% max total DD
+- **Target:** 2%+ daily ($200+)
+- **Methodologies:** ICT/SMC (full suite), Supply/Demand, Price Action, Larry Williams, Donchian
+- **Symbol priority:** US30 first → BTCUSD → XAUUSD
+- **Agent structure:** Keep 2 agents (Scalping + Expert/Swing)
+
+### Research Completed (4 streams)
+1. **ICT/SMC** — OB, FVG, liquidity sweeps, breakers, OTE, PD arrays, BOS/CHOCH, displacement (~30 features)
+2. **Larry Williams** — Volatility breakout (stretch), trend-day ID, Williams %R, COT data, seasonality (~59 features)
+3. **Donchian + Quant** — Donchian channels, Turtle rules, RenTech mean-reversion, AQR momentum, Lopez de Prado (meta-labeling, triple barrier, frac diff), Ernest Chan (Hurst, half-life, cointegration)
+4. **Prop Firm Risk** — Position sizing (0.75%/trade), tiered DD management, anti-martingale, session windows, R:R math (55% WR × 1:2 R:R × 4 trades = $200/day)
+
+### Implementation Plan (ordered)
+| # | Task | New Features | Priority |
+|---|------|-------------|----------|
+| 1 | ICT/SMC feature module | ~30 (OB, FVG, liq sweeps, BOS/CHOCH, PD, OTE, displacement) | HIGH |
+| 2 | Larry Williams feature module | ~25 (stretch, range expansion, %R multi-period, smash day, NR4/NR7) | HIGH |
+| 3 | Donchian/Turtle feature module | ~15 (MTF channels, squeeze, session breakout) | HIGH |
+| 4 | Quant features module | ~15 (Hurst, half-life, TSMOM, z-scores, key levels) | MEDIUM |
+| 5 | Prop firm risk manager overhaul | Tiered DD, anti-martingale, session windows | HIGH |
+| 6 | Meta-labeling pipeline | Secondary model filters false signals | HIGH |
+| 7 | Strategy-informed labels | Triple barrier + ICT setup quality scoring | HIGH |
+| 8 | Retrain US30 with new features | Walk-forward with ~250 features | HIGH |
+| 9 | Retrain BTCUSD | Same pipeline | MEDIUM |
+| 10 | Retrain XAUUSD | Same pipeline | LOW |
+
+### Key Prop Firm Config
+```
+base_risk_per_trade: 0.75% ($75)
+daily_hard_stop: -3% ($300) — 2% buffer below 5% kill switch
+max_trades_per_day: 5
+max_concurrent_positions: 2
+target_rr: 1:2
+target_wr: 55%
+us30_primary_session: 13:30-15:30 UTC (cash open)
+```
 
 ## Deployed Models (as of 2026-03-31)
 | Symbol | Best Model | Grade | Sharpe | Source |
