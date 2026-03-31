@@ -179,6 +179,25 @@ User wants to shift from pure-ML approach to strategy-informed ML. The ML should
 - **Caveat:** These Sharpe values (5-8) are almost certainly inflated by the favorable OOS period. Live expect 40-60% of these = Sharpe 2-4 which is still excellent.
 - **Meta-labeler threshold set to 0.45** for production
 
+### Databento Data Update (March 2026)
+- Downloaded US30 M5/M15/H1/H4 from Databento API through March 18, 2026
+- M5 bars: 1,028,173 → 1,096,915 (+69k bars, ~11 months of new data)
+- Installed `databento` Python package, updated download script END date to 2026-03-19
+- Added CSV export with `ts_event` column matching pipeline format
+
+### US30 v7 Extended Forward Test (17 months: Oct 2024 → Mar 2026)
+| Quarter | Meta Grade | Meta Sharpe | Meta Return |
+|---------|-----------|-------------|-------------|
+| Q4 2024 | C | +0.63 | +1.5% |
+| Q1 2025 | **B** | +3.17 | +6.7% |
+| Q2 2025 | C | +2.54 | +9.3% |
+| Q3 2025 | **F** | -2.90 | -5.1% |
+| Q4 2025 | F | -0.65 | -1.2% |
+| Q1 2026 | **B** | +2.73 | +5.8% |
+| **Full 17mo** | C | +0.68 | **+10.5%** |
+
+**Honest assessment:** Model profitable overall (+10.5% over 17 months) but Q3/Q4 2025 are Grade F. Max DD 18.8% would blow a prop account. Average ~0.6%/month — far below 2% daily target. Edge is real in trending markets but regime detection needs significant improvement to survive sustained chop.
+
 ### US30 v7 — Improved with ATR Gate + HOLD Labels (4-fold WF)
 - ATR regime gate: suppresses signals when ATR < 25th percentile of 100-bar rolling window
 - HOLD label rebalancing: 1% → 30% hold labels (low-vol + SL-hit low-ICT → HOLD)

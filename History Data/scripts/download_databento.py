@@ -32,7 +32,7 @@ SYMBOLS = {
 
 # Download range — GLBX.MDP3 available from 2010-06-06
 START = "2010-06-06"
-END = "2025-03-25"
+END = "2026-03-19"
 
 RESAMPLE_MAP = {
     "M1":  None,       # already 1-minute
@@ -105,24 +105,28 @@ def download_and_save(name: str, cfg: dict, client: db.Historical):
     if col_map:
         df = df.rename(columns=col_map)
 
-    # Save each timeframe
+    # Save each timeframe — both parquet and CSV with ts_event column
     sym_dir = DATA_DIR / name
     sym_dir.mkdir(parents=True, exist_ok=True)
 
     for tf_name, rule in RESAMPLE_MAP.items():
+        if tf_name == "M1":
+            continue  # Skip M1, we only need M5+
         if rule is None:
             tf_df = df[["open", "high", "low", "close", "volume"]].copy()
         else:
             tf_df = resample_ohlcv(df[["open", "high", "low", "close", "volume"]], rule)
 
+        # Save parquet
         out_path = sym_dir / f"{name}_{tf_name}.parquet"
         tf_df.to_parquet(out_path)
-        print(f"  {tf_name}: {len(tf_df):,} bars -> {out_path.name}")
 
-    # Also save M1 as CSV for easy inspection
-    csv_path = sym_dir / f"{name}_M1.csv"
-    df[["open", "high", "low", "close", "volume"]].to_csv(csv_path)
-    print(f"  CSV: {csv_path.name}")
+        # Save CSV with ts_event column (ISO datetime) — matches pipeline format
+        csv_df = tf_df.reset_index()
+        csv_df = csv_df.rename(columns={csv_df.columns[0]: "ts_event"})
+        csv_path = sym_dir / f"{name}_{tf_name}.csv"
+        csv_df.to_csv(csv_path, index=False)
+        print(f"  {tf_name}: {len(tf_df):,} bars -> {csv_path.name}")
 
 
 def main():
