@@ -179,7 +179,19 @@ User wants to shift from pure-ML approach to strategy-informed ML. The ML should
 - **Caveat:** These Sharpe values (5-8) are almost certainly inflated by the favorable OOS period. Live expect 40-60% of these = Sharpe 2-4 which is still excellent.
 - **Meta-labeler threshold set to 0.45** for production
 
-### US30 v6 — 4-Fold Walk-Forward (FINAL, honest results)
+### US30 v7 — Improved with ATR Gate + HOLD Labels (4-fold WF)
+- ATR regime gate: suppresses signals when ATR < 25th percentile of 100-bar rolling window
+- HOLD label rebalancing: 1% → 30% hold labels (low-vol + SL-hit low-ICT → HOLD)
+- **Fold 1** (2021-09→2022-06): XGB C Sharpe=+2.09 | LGB C Sharpe=+2.63
+- **Fold 2** (2022-06→2023-03): XGB B Sharpe=+1.67 | LGB B Sharpe=+1.73
+- **Fold 3** (2023-03→2023-12): XGB F Sharpe=-0.96 (was -3.24, **70% less loss**) | LGB F Sharpe=-1.07
+- **Fold 4** (2023-12→2024-09): XGB F Sharpe=-1.06 (was -1.90, **44% less loss**) | LGB F Sharpe=-0.29
+- **True OOS** (2024-10→present): XGB **B Sharpe=2.14 WR=53.7% DD=4.1% Return=+8.7%** | LGB B Sharpe=1.86
+- **Combined WF:** XGB C Sharpe=0.51 (was 0.13, **+292%**) | LGB C Sharpe=0.81
+- **Meta-labeler:** AUC=0.677 (best yet), filters 96% OOS signals at threshold 0.45
+- **Improvement over v6:** OOS Sharpe +17%, DD -16%, trades -34% (more selective), bad folds 44-70% less damaging
+
+### US30 v6 — 4-Fold Walk-Forward (previous, before improvements)
 - 300k M5 bars, 206 features, 4 expanding-window folds, 15 trials/fold
 - **Fold 1** (2021-09→2022-06): XGB C Sharpe=+2.27 | LGB B Sharpe=+2.89 (trending)
 - **Fold 2** (2022-06→2023-03): XGB B Sharpe=+1.78 | LGB B Sharpe=+1.28 (volatile)

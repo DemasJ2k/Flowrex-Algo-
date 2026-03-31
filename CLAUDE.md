@@ -79,7 +79,7 @@ us30_primary_session: 13:30-15:30 UTC (cash open)
 | Symbol | Best Model | Grade | Sharpe | Source |
 |--------|-----------|-------|--------|--------|
 | BTCUSD | LightGBM | B | 10.07 | Walk-forward v4 (2020-2024, 4 folds) |
-| US30 | XGBoost | B | 1.83 | Walk-forward v6 strategy-informed (2019-2024, 4 folds) +meta |
+| US30 | XGBoost | B | 2.14 | Walk-forward v7 strategy-informed (2019-2024, 4 folds) +meta +ATR gate |
 | XAUUSD | XGBoost | F | — | Walk-forward v5 (2010-2024, needs fresh data) |
 
 ## Phase Checklist
