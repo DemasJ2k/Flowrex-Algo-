@@ -202,6 +202,7 @@ def compute_expert_features(
     # Store raw HTF arrays for tier1 MTF momentum magnitude
     _h1_c_aligned = None; _h1_atr_aligned = None
     _h4_c_aligned = None; _h4_atr_aligned = None
+    _h4_h_aligned = None; _h4_l_aligned = None
 
     # M15 features — 3 M5 bars per M15 bar (intermediate trend context)
     if m15_bars is not None and len(m15_bars) > 50:
@@ -254,6 +255,8 @@ def compute_expert_features(
         features["h4_rsi"] = _align_htf(rsi(h4_c, 14), n, 48)
         _h4_c_aligned   = _align_htf(h4_c, n, 48)
         _h4_atr_aligned = _align_htf(h4_atr_raw, n, 48)
+        _h4_h_aligned   = _align_htf(h4_h, n, 48)
+        _h4_l_aligned   = _align_htf(h4_l, n, 48)
 
     if d1_bars is not None and len(d1_bars) > 50:
         _, _, d1_h, d1_l, d1_c, _ = _to_arrays(d1_bars)
@@ -385,6 +388,39 @@ def compute_expert_features(
     except Exception:
         for k in ["regime_state", "regime_x_rsi", "regime_x_macd_hist", "regime_x_htf_align"]:
             features[k] = np.zeros(n)
+
+    # ── ICT/SMC v2 features (~30) ────────────────────────────────
+    try:
+        from app.services.ml.features_ict import compute_ict_features
+        ict_feats = compute_ict_features(
+            opens, highs, lows, closes, volumes,
+            h4_highs=_h4_h_aligned, h4_lows=_h4_l_aligned, h4_closes=_h4_c_aligned,
+        )
+        for k, v in ict_feats.items():
+            features[k] = v
+    except Exception:
+        pass  # ICT features are non-fatal
+
+    # ── Larry Williams features (~25) ─────────────────────────────
+    try:
+        from app.services.ml.features_williams import compute_williams_features
+        lw_feats = compute_williams_features(opens, highs, lows, closes, volumes, times)
+        for k, v in lw_feats.items():
+            features[k] = v
+    except Exception:
+        pass  # Williams features are non-fatal
+
+    # ── Quant features (~15) ──────────────────────────────────────
+    try:
+        from app.services.ml.features_quant import compute_quant_features
+        q_feats = compute_quant_features(
+            opens, highs, lows, closes, volumes,
+            h4_highs=_h4_h_aligned, h4_lows=_h4_l_aligned, h4_closes=_h4_c_aligned,
+        )
+        for k, v in q_feats.items():
+            features[k] = v
+    except Exception:
+        pass  # Quant features are non-fatal
 
     # ── Cross-symbol correlation features ─────────────────────────
     if other_m5:
