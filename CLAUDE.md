@@ -121,5 +121,12 @@ us30_primary_session: 13:30-15:30 UTC (cash open)
 - `backend/app/services/ml/symbol_config.py` — Per-symbol TP/SL/cost/trend_filter config
 - `backend/app/services/ml/retrain_scheduler.py` — APScheduler monthly cron
 - `backend/data/ml_models/` — Deployed models (.joblib)
+- `backend/app/services/ml/features_ict.py` — 30 ICT/SMC features (OB, FVG, sweeps, BOS/CHOCH, PD, OTE)
+- `backend/app/services/ml/features_williams.py` — 25 Larry Williams features (stretch, %R, smash day)
+- `backend/app/services/ml/features_quant.py` — 15 Donchian/Quant features (Hurst, TSMOM, z-scores)
+- `backend/app/services/ml/features_cot.py` — 8 COT features (Williams COT Index, commercial positioning)
+- `backend/app/services/ml/meta_labeler_v2.py` — Lopez de Prado two-stage meta-labeling
+- `backend/scripts/strategy_labels.py` — Triple barrier + ICT quality scoring
+- `backend/scripts/fetch_cot_data.py` — CFTC disaggregated futures downloader
 - `backend/data/ml_models/archive_v4_2026-03-31/` — Archived baseline models
 - `History Data/data/` — 15-year CSV history (M1/M5/M15/H1/H4 per symbol)

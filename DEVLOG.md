@@ -135,8 +135,15 @@ User wants to shift from pure-ML approach to strategy-informed ML. The ML should
 - 179/179 tests passing across all modules
 - ICT: 12, Williams: 14, Quant: 15, COT: 12, SMC: 8, Features: 56, Risk Manager: 21, Meta-labeler: 11, Strategy Labels: 12, Correlation: 12, Feature Pipeline: 6
 
+### Performance Optimization (during retrain attempt)
+- **Quant module (features_quant.py):** Hurst exponent was 329s on 1M bars (per-bar Python loop). Vectorised via OLS on pre-computed rolling variance stack. **329s → 1.6s (200x speedup).**
+- **Donchian squeeze:** Replaced `rolling().apply(lambda)` with `rolling().rank(pct=True)`.
+- **Return autocorrelation:** Replaced `rolling().apply(autocorr)` with vectorised `rolling().cov() / rolling().var()`.
+- **Data cap:** M5 bars capped at 600k (most recent ~2 years). 1M bars caused feature computation timeouts (ICT module = 110s of loop-heavy OB/FVG tracking on 1M bars).
+- **Peer correlations skipped** during walk-forward training to save compute time + memory. Can be added in monthly retrain.
+
 ### Next Steps
-- Retrain US30 → BTCUSD → XAUUSD with new ~210 feature pipeline
+- Retrain US30 → BTCUSD → XAUUSD with ~210 feature pipeline (600k bar cap)
 
 ---
 

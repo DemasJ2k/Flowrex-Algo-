@@ -398,6 +398,11 @@ _Updated at the end of each phase. Read this to understand what has been built._
 - **179/179 tests passing** across all new and existing modules
 - Feature count: 157 → 206 (without COT/correlations) → ~214+ with all data
 
+### Performance Optimizations
+- `features_quant.py` Hurst exponent: 329s → 1.6s (200x speedup via vectorised OLS)
+- `train_walkforward.py`: M5 capped at 600k bars, peer correlations skipped for speed
+- Total feature computation: ~5 min on 600k bars (was 15+ min on 1M bars)
+
 ### Remaining Work
 - Retrain US30 with ~210 features + strategy-informed labels + meta-labeling
 - Retrain BTCUSD with same pipeline
