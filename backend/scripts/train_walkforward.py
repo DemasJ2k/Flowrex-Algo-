@@ -58,7 +58,7 @@ HIST_DATA_DIR = os.path.normpath(
 )
 OOS_START = "2024-10-01"
 WARMUP    = 500   # bars before any training slice starts
-MAX_M5_BARS = 400_000  # Cap M5 bars to keep training within memory limits
+MAX_M5_BARS = 300_000  # Cap M5 bars — 300k = ~2 years, safe for 4-fold WF
 
 
 # ── Data loading ────────────────────────────────────────────────────────────
@@ -561,7 +561,7 @@ def run_walkforward(symbol: str, n_trials: int = 20, n_folds: int = 4):
             actual_dirs = np.where(y_full_tr == 0, -1,
                          np.where(y_full_tr == 2, 1, 0)).astype(np.float32)
 
-            ml = MetaLabeler(threshold=0.55)
+            ml = MetaLabeler(threshold=0.45)
             fit_info = ml.fit(X_full_tr, primary_dirs, actual_dirs,
                              feature_names=feature_names)
             meta_labelers[model_type] = ml

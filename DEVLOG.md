@@ -160,6 +160,30 @@ User wants to shift from pure-ML approach to strategy-informed ML. The ML should
 **What is OOS return?** Out-Of-Sample return = performance on data the model never saw. +9.2% means the model would have gained 9.2% trading US30 from Oct 2024 to Mar 2026 (~5 months).
 **How realistic?** Expect 40-60% of backtest in live conditions (industry norm). Backtest Sharpe 2.36 → live estimate 1.0-1.5. WR 55% → live 52-54%. DD 1.6% → live 3-5%. Daily return 2% → live 0.5-1.0% ($50-100/day on $10k). Reasons: OOS only 5 months (may be lucky), Fold 2 was Grade D (model weak in chop), execution assumes 0.5bps slippage, meta-labeler filters 85-94% reducing trade count. Recommendation: paper trade 4-8 weeks before live.
 
+### Fold 2 Grade D Investigation
+- **Root cause:** Fold 2 (2023-2024) had 25% lower volatility (337 pts avg daily range vs 448/439). ATR-scaled TP/SL produces smaller P&L per trade while costs stay fixed. Edge compressed by low vol.
+- **Model outputs 0% HOLD** — always predicting buy/sell, never abstaining. This is a problem — the model should learn to sit out in bad conditions.
+- **Meta-labeler confidence lowest in Fold 2**: avg 0.486 vs 0.515 (Fold 1). Correctly identifies low-vol signals as weaker.
+
+### Meta-Labeler Forward Test (OOS Oct 2024+)
+| Threshold | Sharpe | WR | DD | Return | Trades |
+|-----------|--------|-----|-----|--------|--------|
+| No filter | 2.36 | 55.2% | 1.6% | +9.2% | 2,534 |
+| >= 0.40 | 5.64 | 60.9% | 1.3% | +21.9% | 2,143 |
+| **>= 0.45** | **7.88** | **66.0%** | **0.7%** | **+28.6%** | **1,698** |
+| >= 0.50 | 8.60 | 70.8% | 0.4% | +25.8% | 1,109 |
+| >= 0.55 | 7.47 | 75.8% | 0.5% | +15.5% | 508 |
+| >= 0.60 | 4.13 | 79.0% | 0.2% | +3.6% | 95 |
+- **Sweet spot: 0.45** — best return (+28.6%), strong Sharpe (7.88), 66% WR, 0.7% DD
+- **0.50 also excellent** — highest Sharpe (8.60), 70.8% WR, but fewer trades
+- **Caveat:** These Sharpe values (5-8) are almost certainly inflated by the favorable OOS period. Live expect 40-60% of these = Sharpe 2-4 which is still excellent.
+- **Meta-labeler threshold set to 0.45** for production
+
+### US30 v6 Re-run with 4 Folds (in progress)
+- Reduced M5 to 300k bars for memory safety
+- 4 folds for more robust walk-forward validation
+- Meta-labeler threshold updated to 0.45
+
 ### Next Steps
 - Retrain BTCUSD → XAUUSD with same pipeline
 
