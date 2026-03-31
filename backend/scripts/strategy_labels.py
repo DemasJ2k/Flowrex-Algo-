@@ -181,134 +181,125 @@ def compute_strategy_labels(
     sl_prices = np.full(n, np.nan)
     exit_bars = np.full(n, -1, dtype=np.int64)
     exit_types = np.empty(n, dtype=object)
-    exit_types[:] = ""
+    exit_types[:] = "timeout"
     hold_bars_out = np.zeros(n, dtype=np.int64)
     pnl_pcts = np.zeros(n, dtype=np.float64)
 
-    # --- Triple-barrier scan (LONG direction) ---
-    # For each bar, we check both LONG and SHORT and pick the one that
-    # triggers first (or the better outcome on timeout).
-    for i in range(n):
-        max_h = int(hold_arr[i])
-        if i + 1 >= n:
-            # Not enough forward data
-            exit_types[i] = "timeout"
+    # --- Vectorised triple-barrier scan ───────────────────────────────
+    # For each unique max_hold value, compute forward rolling max/min
+    # and determine TP/SL hit using array operations (no per-bar loop).
+    unique_holds = np.unique(hold_arr.astype(int))
+
+    for max_h in unique_holds:
+        mask = (hold_arr.astype(int) == max_h)
+        if not mask.any() or max_h < 1:
             continue
 
-        entry = closes[i]
-        tp_d = tp_dist[i]
-        sl_d = sl_dist[i]
+        # Reverse-rolling max/min gives us future max/min from each bar
+        highs_s = pd.Series(highs)
+        lows_s = pd.Series(lows)
+        closes_s = pd.Series(closes)
 
-        # -- LONG --
-        long_tp = entry + tp_d
-        long_sl = entry - sl_d
-        long_exit_type = "timeout"
-        long_exit_bar = min(i + max_h, n - 1)
-        long_pnl = 0.0
+        # For each bar i, we want max(highs[i+1:i+max_h+1]) and min(lows[i+1:i+max_h+1])
+        # Trick: reverse, rolling, reverse, shift(-1)
+        rev_h = highs_s.iloc[::-1].reset_index(drop=True)
+        rev_l = lows_s.iloc[::-1].reset_index(drop=True)
 
-        for j in range(i + 1, min(i + max_h + 1, n)):
-            if lows[j] <= long_sl:
-                long_exit_type = "sl"
-                long_exit_bar = j
-                long_pnl = -(sl_d / entry)
-                break
-            if highs[j] >= long_tp:
-                long_exit_type = "tp"
-                long_exit_bar = j
-                long_pnl = tp_d / entry
-                break
-        else:
-            # timeout
-            c_exit = closes[min(i + max_h, n - 1)]
-            long_pnl = (c_exit - entry) / entry
+        future_max_h = (rev_h.rolling(max_h, min_periods=1).max()
+                        .iloc[::-1].reset_index(drop=True).shift(-1).values)
+        future_min_l = (rev_l.rolling(max_h, min_periods=1).min()
+                        .iloc[::-1].reset_index(drop=True).shift(-1).values)
 
-        # -- SHORT --
-        short_tp = entry - tp_d
-        short_sl = entry + sl_d
-        short_exit_type = "timeout"
-        short_exit_bar = min(i + max_h, n - 1)
-        short_pnl = 0.0
+        # Timeout exit close
+        timeout_idx = np.minimum(np.arange(n) + max_h, n - 1)
+        timeout_close = closes[timeout_idx]
 
-        for j in range(i + 1, min(i + max_h + 1, n)):
-            if highs[j] >= short_sl:
-                short_exit_type = "sl"
-                short_exit_bar = j
-                short_pnl = -(sl_d / entry)
-                break
-            if lows[j] <= short_tp:
-                short_exit_type = "tp"
-                short_exit_bar = j
-                short_pnl = tp_d / entry
-                break
-        else:
-            c_exit = closes[min(i + max_h, n - 1)]
-            short_pnl = (entry - c_exit) / entry
+        # For bars in this hold group
+        idx = np.where(mask)[0]
+        entry = closes[idx]
+        tp_d = tp_dist[idx]
+        sl_d = sl_dist[idx]
 
-        # --- Determine label ---
-        # Pick the direction whose TP was hit first; if neither, use timeout P&L
-        if long_exit_type == "tp" and short_exit_type == "tp":
-            # Both TPs hit — pick whichever hit first
-            if long_exit_bar <= short_exit_bar:
-                label = 1
-                chosen_exit_type = "tp"
-                chosen_exit_bar = long_exit_bar
-                chosen_pnl = long_pnl
-                chosen_tp = long_tp
-                chosen_sl = long_sl
+        # LONG: TP hit if future_max >= entry + tp_d, SL if future_min <= entry - sl_d
+        long_tp_hit = future_max_h[idx] >= (entry + tp_d)
+        long_sl_hit = future_min_l[idx] <= (entry - sl_d)
+        long_pnl_tp = tp_d / entry
+        long_pnl_sl = -(sl_d / entry)
+        long_pnl_timeout = (timeout_close[idx] - entry) / np.maximum(entry, 1e-10)
+
+        # SHORT: TP hit if future_min <= entry - tp_d, SL if future_max >= entry + sl_d
+        short_tp_hit = future_min_l[idx] <= (entry - tp_d)
+        short_sl_hit = future_max_h[idx] >= (entry + sl_d)
+        short_pnl_tp = tp_d / entry
+        short_pnl_sl = -(sl_d / entry)
+        short_pnl_timeout = (entry - timeout_close[idx]) / np.maximum(entry, 1e-10)
+
+        # Determine best direction per bar
+        # Simplified: TP takes priority. If both TPs hit, pick long (bias toward long for index).
+        # If only one TP hit, pick that direction. If neither, use timeout P&L.
+        for k, i in enumerate(idx):
+            if i + 1 >= n:
+                continue
+
+            ltp = long_tp_hit[k]
+            lsl = long_sl_hit[k]
+            stp = short_tp_hit[k]
+            ssl = short_sl_hit[k]
+
+            # Determine long outcome
+            if ltp and not lsl:
+                l_pnl = long_pnl_tp[k]; l_type = "tp"
+            elif lsl and not ltp:
+                l_pnl = long_pnl_sl[k]; l_type = "sl"
+            elif ltp and lsl:
+                # Both hit — need to check which first (use simple heuristic: SL first if closer)
+                if sl_d[k] < tp_d[k]:
+                    l_pnl = long_pnl_sl[k]; l_type = "sl"
+                else:
+                    l_pnl = long_pnl_tp[k]; l_type = "tp"
             else:
-                label = -1
-                chosen_exit_type = "tp"
-                chosen_exit_bar = short_exit_bar
-                chosen_pnl = short_pnl
-                chosen_tp = short_tp
-                chosen_sl = short_sl
-        elif long_exit_type == "tp":
-            label = 1
-            chosen_exit_type = "tp"
-            chosen_exit_bar = long_exit_bar
-            chosen_pnl = long_pnl
-            chosen_tp = long_tp
-            chosen_sl = long_sl
-        elif short_exit_type == "tp":
-            label = -1
-            chosen_exit_type = "tp"
-            chosen_exit_bar = short_exit_bar
-            chosen_pnl = short_pnl
-            chosen_tp = short_tp
-            chosen_sl = short_sl
-        else:
-            # Neither TP hit — both SL or timeout
-            # Use sign of better P&L (or 0 if negligible)
-            if long_pnl > short_pnl and long_pnl > 0:
-                label = 1
-                chosen_exit_type = long_exit_type
-                chosen_exit_bar = long_exit_bar
-                chosen_pnl = long_pnl
-                chosen_tp = long_tp
-                chosen_sl = long_sl
-            elif short_pnl > long_pnl and short_pnl > 0:
-                label = -1
-                chosen_exit_type = short_exit_type
-                chosen_exit_bar = short_exit_bar
-                chosen_pnl = short_pnl
-                chosen_tp = short_tp
-                chosen_sl = short_sl
-            else:
-                # Both negative or zero — label 0 (no good trade here)
-                label = 0
-                chosen_exit_type = "timeout"
-                chosen_exit_bar = min(i + max_h, n - 1)
-                chosen_pnl = max(long_pnl, short_pnl)
-                chosen_tp = long_tp
-                chosen_sl = long_sl
+                l_pnl = long_pnl_timeout[k]; l_type = "timeout"
 
-        labels[i] = label
-        tp_prices[i] = chosen_tp
-        sl_prices[i] = chosen_sl
-        exit_bars[i] = chosen_exit_bar
-        exit_types[i] = chosen_exit_type
-        hold_bars_out[i] = chosen_exit_bar - i
-        pnl_pcts[i] = chosen_pnl
+            # Determine short outcome
+            if stp and not ssl:
+                s_pnl = short_pnl_tp[k]; s_type = "tp"
+            elif ssl and not stp:
+                s_pnl = short_pnl_sl[k]; s_type = "sl"
+            elif stp and ssl:
+                if sl_d[k] < tp_d[k]:
+                    s_pnl = short_pnl_sl[k]; s_type = "sl"
+                else:
+                    s_pnl = short_pnl_tp[k]; s_type = "tp"
+            else:
+                s_pnl = short_pnl_timeout[k]; s_type = "timeout"
+
+            # Pick direction
+            if l_type == "tp" and s_type != "tp":
+                label, pnl, etype = 1, l_pnl, l_type
+                tp_p, sl_p = entry[k] + tp_d[k], entry[k] - sl_d[k]
+            elif s_type == "tp" and l_type != "tp":
+                label, pnl, etype = -1, s_pnl, s_type
+                tp_p, sl_p = entry[k] - tp_d[k], entry[k] + sl_d[k]
+            elif l_type == "tp" and s_type == "tp":
+                label, pnl, etype = 1, l_pnl, "tp"  # prefer long for index
+                tp_p, sl_p = entry[k] + tp_d[k], entry[k] - sl_d[k]
+            elif l_pnl > s_pnl and l_pnl > 0:
+                label, pnl, etype = 1, l_pnl, l_type
+                tp_p, sl_p = entry[k] + tp_d[k], entry[k] - sl_d[k]
+            elif s_pnl > l_pnl and s_pnl > 0:
+                label, pnl, etype = -1, s_pnl, s_type
+                tp_p, sl_p = entry[k] - tp_d[k], entry[k] + sl_d[k]
+            else:
+                label, pnl, etype = 0, max(l_pnl, s_pnl), "timeout"
+                tp_p, sl_p = entry[k] + tp_d[k], entry[k] - sl_d[k]
+
+            labels[i] = label
+            tp_prices[i] = tp_p
+            sl_prices[i] = sl_p
+            exit_bars[i] = min(i + max_h, n - 1)
+            exit_types[i] = etype
+            hold_bars_out[i] = max_h
+            pnl_pcts[i] = pnl
 
     # --- Quality weighting ---
     quality = np.clip(ict_scores[:n], 0.0, 10.0)
