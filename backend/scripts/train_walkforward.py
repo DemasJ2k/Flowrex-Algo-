@@ -58,6 +58,7 @@ HIST_DATA_DIR = os.path.normpath(
 )
 OOS_START = "2024-10-01"
 WARMUP    = 500   # bars before any training slice starts
+MAX_M5_BARS = 600_000  # Cap M5 bars to keep feature computation under 5 min
 
 
 # ── Data loading ────────────────────────────────────────────────────────────
@@ -99,7 +100,8 @@ def _load_tf(symbol: str, tf: str) -> pd.DataFrame | None:
 
 
 def load_ohlcv(symbol: str) -> tuple:
-    """Load M5, M15, H1, H4, D1 — prefers History Data folder for max coverage."""
+    """Load M5, M15, H1, H4, D1 — prefers History Data folder for max coverage.
+    Caps M5 to MAX_M5_BARS (most recent) to keep feature computation fast."""
     m5  = _load_tf(symbol, "M5")
     m15 = _load_tf(symbol, "M15")
     h1  = _load_tf(symbol, "H1")
@@ -107,6 +109,20 @@ def load_ohlcv(symbol: str) -> tuple:
     d1  = _load_tf(symbol, "D1")
     if m5 is None:
         raise FileNotFoundError(f"No M5 data for {symbol}")
+    # Cap M5 to most recent MAX_M5_BARS to prevent OOM / timeout on huge datasets
+    if len(m5) > MAX_M5_BARS:
+        print(f"  [INFO] Capping M5 from {len(m5):,} to {MAX_M5_BARS:,} bars (most recent)")
+        m5 = m5.iloc[-MAX_M5_BARS:].reset_index(drop=True)
+        # Also trim HTF data to matching time range
+        start_ts = m5["time"].iloc[0]
+        if m15 is not None:
+            m15 = m15[m15["time"] >= start_ts].reset_index(drop=True)
+        if h1 is not None:
+            h1 = h1[h1["time"] >= start_ts].reset_index(drop=True)
+        if h4 is not None:
+            h4 = h4[h4["time"] >= start_ts].reset_index(drop=True)
+        if d1 is not None:
+            d1 = d1[d1["time"] >= start_ts].reset_index(drop=True)
     return m5, m15, h1, h4, d1
 
 
@@ -286,12 +302,10 @@ def run_walkforward(symbol: str, n_trials: int = 20, n_folds: int = 4):
           f"H1={len(h1) if h1 is not None else 0:,}  "
           f"H4={len(h4) if h4 is not None else 0:,}  D1={len(d1) if d1 is not None else 0:,}")
 
-    # Load peer M5 data for cross-symbol correlation features
-    peer_m5 = load_peer_m5(symbol)
-    if peer_m5:
-        print(f"  Peer symbols loaded: {', '.join(peer_m5.keys())}", flush=True)
-    else:
-        print("  No peer symbol data found (correlation features skipped)", flush=True)
+    # Skip peer correlations during walk-forward (saves ~50% compute time + memory)
+    # Correlation features are low-priority and can be added in monthly retrain
+    peer_m5 = None
+    print("  Peer correlations: skipped (saves compute time)", flush=True)
 
     timestamps = m5["time"].values.astype(np.int64)
     closes     = m5["close"].values
