@@ -371,7 +371,7 @@ _Updated at the end of each phase. Read this to understand what has been built._
 | 6 | Prop firm risk manager overhaul | Done | 21/21 |
 | 7 | Meta-labeling pipeline (Lopez de Prado) | Done | 11/11 |
 | 8 | Strategy-informed labels | Done | 12/12 |
-| 9 | Retrain US30 | Pending | — |
+| 9 | Retrain US30 | **Done — Grade A** | OOS: Sharpe=2.36, WR=55.2%, DD=1.6% |
 | 10 | Retrain BTCUSD | Pending | — |
 
 ### Files Created

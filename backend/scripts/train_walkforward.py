@@ -58,7 +58,7 @@ HIST_DATA_DIR = os.path.normpath(
 )
 OOS_START = "2024-10-01"
 WARMUP    = 500   # bars before any training slice starts
-MAX_M5_BARS = 600_000  # Cap M5 bars to keep feature computation under 5 min
+MAX_M5_BARS = 400_000  # Cap M5 bars to keep training within memory limits
 
 
 # ── Data loading ────────────────────────────────────────────────────────────

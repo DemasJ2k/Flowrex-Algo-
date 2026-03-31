@@ -60,7 +60,7 @@
 | 5 | Prop firm risk manager overhaul | Tiered DD, anti-martingale, session windows | DONE |
 | 6 | Meta-labeling pipeline | Secondary model filters false signals | DONE |
 | 7 | Strategy-informed labels | Triple barrier + ICT setup quality scoring | DONE |
-| 8 | Retrain US30 with new features | Walk-forward with ~210 features | NEXT |
+| 8 | Retrain US30 with new features | Walk-forward with ~210 features | DONE |
 | 9 | Retrain BTCUSD | Same pipeline | PENDING |
 | 10 | Retrain XAUUSD | Same pipeline | PENDING |
 
@@ -79,7 +79,7 @@ us30_primary_session: 13:30-15:30 UTC (cash open)
 | Symbol | Best Model | Grade | Sharpe | Source |
 |--------|-----------|-------|--------|--------|
 | BTCUSD | LightGBM | B | 10.07 | Walk-forward v4 (2020-2024, 4 folds) |
-| US30 | XGBoost | C | 2.80 | Monthly retrain (Mar 2024-2025, 12-month rolling) |
+| US30 | XGBoost | A | 2.36 | Walk-forward v6 strategy-informed (2019-2024, 2 folds) +meta |
 | XAUUSD | XGBoost | F | — | Walk-forward v5 (2010-2024, needs fresh data) |
 
 ## Phase Checklist

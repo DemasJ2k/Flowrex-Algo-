@@ -142,8 +142,21 @@ User wants to shift from pure-ML approach to strategy-informed ML. The ML should
 - **Data cap:** M5 bars capped at 600k (most recent ~2 years). 1M bars caused feature computation timeouts (ICT module = 110s of loop-heavy OB/FVG tracking on 1M bars).
 - **Peer correlations skipped** during walk-forward training to save compute time + memory. Can be added in monthly retrain.
 
+### US30 Retrain Results (v6 strategy-informed)
+- **Data:** 400k M5 bars (capped from 1M), 206 features, 2 WF folds
+- **Strategy labels:** Triple barrier + ICT quality scoring, dynamic barriers
+- **Sample weights:** ICT confluence-based [0.18, 1.57] mean=1.0
+- **Walk-Forward Fold 1** (2021-04→2023-01): XGB Grade B Sharpe=2.10 | LGB Grade B Sharpe=4.12 WR=55%
+- **Walk-Forward Fold 2** (2023-01→2024-09): XGB Grade D Sharpe=0.40 | LGB Grade D Sharpe=0.31 (choppy market)
+- **True OOS** (2024-10→present, 33k bars):
+  - XGBoost: **Grade A, Sharpe=2.36, WR=55.2%, DD=1.6%, Return=+9.2%**
+  - LightGBM: **Grade A, Sharpe=1.91, WR=55.1%, DD=1.9%, Return=+7.5%**
+- **Meta-labeling:** XGB AUC=0.613 (filters 94% OOS signals), LGB AUC=0.620 (filters 85%)
+- **Improvement:** Grade C→A, WR 50%→55%, DD unknown→1.6%
+- Both models saved as v6_strategy_informed with +meta tag
+
 ### Next Steps
-- Retrain US30 → BTCUSD → XAUUSD with ~210 feature pipeline (600k bar cap)
+- Retrain BTCUSD → XAUUSD with same pipeline
 
 ---
 
