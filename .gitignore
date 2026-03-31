@@ -18,17 +18,16 @@ out/
 .env.local
 .env.production
 
-# ML models & training artifacts
-data/ml_models/*.joblib
+# ML model archives (keep deployed models, exclude old archives)
 data/ml_models/archive_*/
-backend/data/ml_models/*.joblib
 backend/data/ml_models/archive_*/
 backend/logs/
 
-# Large data files (History Data)
-History Data/
+# Parquet duplicates (CSVs are the source of truth)
 *.parquet
-backend/data/*.csv
+
+# M1 data too large for GitHub (>100MB per file). Keep M5/M15/H1/H4.
+*_M1.csv
 
 # IDE
 .vscode/
