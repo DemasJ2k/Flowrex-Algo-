@@ -53,16 +53,16 @@
 ### Implementation Plan (ordered)
 | # | Task | New Features | Priority |
 |---|------|-------------|----------|
-| 1 | ICT/SMC feature module | ~30 (OB, FVG, liq sweeps, BOS/CHOCH, PD, OTE, displacement) | HIGH |
-| 2 | Larry Williams feature module | ~25 (stretch, range expansion, %R multi-period, smash day, NR4/NR7) | HIGH |
-| 3 | Donchian/Turtle feature module | ~15 (MTF channels, squeeze, session breakout) | HIGH |
-| 4 | Quant features module | ~15 (Hurst, half-life, TSMOM, z-scores, key levels) | MEDIUM |
-| 5 | Prop firm risk manager overhaul | Tiered DD, anti-martingale, session windows | HIGH |
-| 6 | Meta-labeling pipeline | Secondary model filters false signals | HIGH |
-| 7 | Strategy-informed labels | Triple barrier + ICT setup quality scoring | HIGH |
-| 8 | Retrain US30 with new features | Walk-forward with ~250 features | HIGH |
-| 9 | Retrain BTCUSD | Same pipeline | MEDIUM |
-| 10 | Retrain XAUUSD | Same pipeline | LOW |
+| 1 | ICT/SMC feature module | 30 features (OB, FVG, liq sweeps, BOS/CHOCH, PD, OTE, displacement) | DONE |
+| 2 | Larry Williams feature module | 25 features (stretch, range expansion, %R multi-period, smash day) | DONE |
+| 3 | Donchian/Turtle feature module | 15 features (MTF channels, squeeze, Hurst, TSMOM) | DONE |
+| 4 | COT data pipeline | 8 features (Williams COT Index, commercial positioning) | DONE |
+| 5 | Prop firm risk manager overhaul | Tiered DD, anti-martingale, session windows | DONE |
+| 6 | Meta-labeling pipeline | Secondary model filters false signals | DONE |
+| 7 | Strategy-informed labels | Triple barrier + ICT setup quality scoring | DONE |
+| 8 | Retrain US30 with new features | Walk-forward with ~210 features | NEXT |
+| 9 | Retrain BTCUSD | Same pipeline | PENDING |
+| 10 | Retrain XAUUSD | Same pipeline | PENDING |
 
 ### Key Prop Firm Config
 ```

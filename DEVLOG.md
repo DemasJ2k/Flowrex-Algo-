@@ -70,13 +70,73 @@ User wants to shift from pure-ML approach to strategy-informed ML. The ML should
 - Target: ~240 features (SHAP filter will prune to ~120-150 active)
 - Meta-labeling adds a second model layer, not more features
 
-### Next Steps (awaiting user approval)
-1. Build ICT/SMC feature module → `features_ict.py`
-2. Build Larry Williams feature module → `features_williams.py`
-3. Build Donchian/Quant feature module → `features_quant.py`
-4. Overhaul prop firm risk manager
-5. Implement meta-labeling pipeline
-6. Retrain US30 → BTCUSD → XAUUSD
+### Build Phase (2026-03-31)
+
+**Task 1: ICT/SMC Feature Module — `features_ict.py`** (30 features, 12 tests)
+- Enhanced BOS/CHOCH with close-based confirmation
+- Liquidity sweeps: wick-above-swing-high + close-back-below detection
+- Order blocks with mitigation tracking (ring buffer of 50 OBs)
+- FVG tracking with fill detection + consequent encroachment touch
+- Premium/discount (50-bar + H4 forward-fill)
+- OTE zone (62-79% fib, trend-aware direction)
+- Displacement (1.5x ATR body threshold)
+- Breaker blocks (failed OBs that flip polarity)
+- Confluence score 0-10 + discretized grade (0-3)
+
+**Task 2: Larry Williams Feature Module — `features_williams.py`** (25 features, 14 tests)
+- Volatility breakout: stretch_up/down (3-bar rolling |open-low|/|high-open|)
+- Range expansion: TR/ATR(10), NR4, NR7, inside bar
+- Williams %R multi-period: 5/28 + slopes + aligned bull/bear + divergences
+- Smash day/key reversal: new high+close below prev (bear), mirror for bull
+- Trend filter: above 20-period SMA of typical price + slope
+- Oops pattern: gap reversal detection
+
+**Task 3: Donchian/Quant Feature Module — `features_quant.py`** (15 features, 15 tests)
+- Donchian channels: 20/55-bar position, breakout signal, squeeze detection, width ROC
+- Mean reversion: z-scores at 24/96 bars, return autocorrelation
+- AQR TSMOM: 48/96-bar time-series momentum, volatility-scaled
+- Hurst exponent: multi-lag variance ratio over 100-bar rolling window, discretized regime
+- Key levels: distance to previous day high/low normalized by ATR
+
+**Task 4: Pipeline Integration** (157 → 206 features)
+- All 3 modules wired into `features_mtf.py` as non-fatal try/except blocks
+- H4 data passed through for multi-timeframe context
+- 123/123 feature tests passing
+
+**Task 5: COT Data Pipeline** (8 features, 12 tests)
+- `fetch_cot_data.py`: CFTC disaggregated futures downloader (US30 code 124603, Gold 088691)
+- Williams COT Index: (net - min) / (max - min) over 26w/52w
+- `features_cot.py`: Forward-fills weekly COT to M5 with no lookahead (Friday 21:00 UTC gate)
+- Integrated into pipeline for US30 and XAUUSD
+
+**Task 6: Prop Firm Risk Manager Overhaul** (21 tests)
+- Tiered daily DD: yellow (-1.5% reduce), red (-2.5% stop entries), hard stop (-3% close all)
+- Total DD recovery: caution/warning/critical/emergency with 1.0/0.67/0.50/0.33 multipliers
+- Anti-martingale: reduce to 0.67x after 2 losses, 0.33x after 3, reset on win
+- Session windows: US30 13:30-15:30+19:00-20:00, XAUUSD 7-9+13:30-15:30, BTC 24/7
+- Daily profit protection: trail 50% of gains after +1% day
+- Position sizing: 0.75% base, 0.25-1.0% range, max 5 trades/day, max 2 concurrent
+
+**Task 7: Meta-Labeling Pipeline** (11 tests)
+- `meta_labeler_v2.py`: Lopez de Prado two-stage system
+- Meta-labels: binary (1 = primary matched outcome, 0 = didn't), trained on non-HOLD bars only
+- LightGBM meta-model with exponential decay sample weighting (half-life = n/4)
+- Augmented features: primary direction, confidence, regime, ATR, hour
+- filter_signals(): removes low-confidence trades below threshold (default 0.6)
+- Joblib save/load for persistence
+
+**Task 8: Strategy-Informed Labels** (12 tests)
+- `strategy_labels.py`: Triple-barrier enhanced with ICT confluence scoring
+- Quality-weighted labels: high-confluence (6+) get weight 0.8-1.0, low (0-2) get 0.5-0.6
+- Dynamic barriers: high confluence → wider TP (2.5x ATR), tighter SL (0.8x), longer hold (36 bars)
+- Computes: label, label_quality, label_weighted, tp/sl_price, exit_bar, exit_type, hold_bars, pnl_pct
+
+### Test Results
+- 179/179 tests passing across all modules
+- ICT: 12, Williams: 14, Quant: 15, COT: 12, SMC: 8, Features: 56, Risk Manager: 21, Meta-labeler: 11, Strategy Labels: 12, Correlation: 12, Feature Pipeline: 6
+
+### Next Steps
+- Retrain US30 → BTCUSD → XAUUSD with new ~210 feature pipeline
 
 ---
 
