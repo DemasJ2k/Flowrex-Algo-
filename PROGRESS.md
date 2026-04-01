@@ -429,8 +429,12 @@ _Updated at the end of each phase. Read this to understand what has been built._
 - `train_walkforward.py`: M5 capped at 600k bars, peer correlations skipped for speed
 - Total feature computation: ~5 min on 600k bars (was 15+ min on 1M bars)
 
+### XAUUSD Assessment
+- Only 128k M5 bars (sparse data). OOS only 1,141 bars (unreliable).
+- Works in trending gold (Fold 1 Grade A, Fold 4 Grade B), fails in range (Folds 2-3 Grade F).
+- Needs more data or H1/H4 approach for production use.
+
 ### Remaining Work
-- Retrain BTCUSD with same pipeline
-- Retrain XAUUSD (if data quality sufficient)
-- Paper trade US30 for 4-8 weeks to validate live performance
+- Paper trade US30 + BTCUSD (models are production-ready)
+- XAUUSD needs data quality improvement or higher-timeframe strategy
 - Feature count ~240 pre-SHAP → need to verify memory/speed with larger feature set

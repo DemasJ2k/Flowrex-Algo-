@@ -62,7 +62,7 @@
 | 7 | Strategy-informed labels | Triple barrier + ICT setup quality scoring | DONE |
 | 8 | Retrain US30 with new features | Walk-forward with ~210 features | DONE |
 | 9 | Retrain BTCUSD | Same pipeline | DONE |
-| 10 | Retrain XAUUSD | Same pipeline | PENDING |
+| 10 | Retrain XAUUSD | Same pipeline | DONE |
 
 ### Key Prop Firm Config
 ```
@@ -83,6 +83,7 @@ us30_primary_session: 13:30-15:30 UTC (cash open)
 | US30 | XGBoost | B | 2.14 | Walk-forward v7 strategy-informed (2019-2024, 4 folds) +meta +ATR gate |
 | US30 | XGBoost | C | 1.84 | Walk-forward v8 (2020-2025, 4 folds, OOS Jan-Mar 2026) +meta +filters |
 | XAUUSD | XGBoost | F | — | Walk-forward v5 (2010-2024, needs fresh data) |
+| XAUUSD | LightGBM | B | — | Walk-forward v8 (2010-2025, 4 folds, OOS too small: 1,141 bars) |
 
 ## Phase Checklist
 | # | Phase | Status |

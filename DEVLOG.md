@@ -198,6 +198,20 @@ User wants to shift from pure-ML approach to strategy-informed ML. The ML should
 
 **Honest assessment:** Model profitable overall (+10.5% over 17 months) but Q3/Q4 2025 are Grade F. Max DD 18.8% would blow a prop account. Average ~0.6%/month — far below 2% daily target. Edge is real in trending markets but regime detection needs significant improvement to survive sustained chop.
 
+### XAUUSD v8 — Retrained (4-fold WF, OOS Jan-Mar 2026)
+- Downloaded fresh XAUUSD from Databento: 128,482 M5 bars (Jun 2010 → Mar 18, 2026)
+- Data is sparse: only 5k bars in 2024, 8k in 2025, 1k in 2026 (Gold futures limited hours)
+- 208 features, 4 folds, 15 trials/fold
+- Labels: sell=33k, hold=34k, buy=61k (buy-heavy due to gold bull)
+- **Walk-Forward Folds:**
+  - Fold 1 (2012-08→2015-03): XGB **A** Sharpe=3.62 | LGB **A** Sharpe=3.64 (post-GFC gold run)
+  - Fold 2 (2015-03→2017-12): XGB **F** Sharpe=-3.53 | LGB **F** Sharpe=-4.46 (gold bear/range)
+  - Fold 3 (2017-12→2021-12): XGB **F** Sharpe=-0.51 | LGB **F** Sharpe=-0.48 (gold range)
+  - Fold 4 (2021-12→2025-12): XGB **B** Sharpe=1.11 | LGB **D** Sharpe=0.36 (gold bull)
+- **True OOS** (Jan-Mar 2026, only 1,141 bars): XGB F Sharpe=-2.70 | LGB B Sharpe=35.77
+- **OOS is unreliable** — only 77-102 trades, too small for statistical significance
+- **Assessment:** XAUUSD model works in trending gold (Fold 1 Grade A, Fold 4 Grade B) but fails in 2015-2021 range. Same regime dependency as US30 but more pronounced. Needs more M5 data or higher-timeframe approach.
+
 ### BTCUSD v8 — Retrained with 2025 Data (4-fold WF, OOS Jan-Mar 2026)
 - Downloaded fresh BTCUSD from Databento: 522,897 M5 bars (Dec 2017 → Mar 18, 2026)
 - 400k M5 bars, 214 features (more than US30's 206 — crypto-specific extras), 4 folds
