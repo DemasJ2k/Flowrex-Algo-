@@ -432,9 +432,12 @@ _Updated at the end of each phase. Read this to understand what has been built._
 ### XAUUSD Assessment
 - Only 128k M5 bars (sparse data). OOS only 1,141 bars (unreliable).
 - Works in trending gold (Fold 1 Grade A, Fold 4 Grade B), fails in range (Folds 2-3 Grade F).
-- Needs more data or H1/H4 approach for production use.
+- **PAUSED** — user will upload more data before continuing. Skipped for now.
 
 ### Remaining Work
-- Paper trade US30 + BTCUSD (models are production-ready)
-- XAUUSD needs data quality improvement or higher-timeframe strategy
+- Build Expert/Swing agent for US30 (H4 entries, overnight holds)
+- Explore ensemble of specialists (trending vs ranging models)
+- Explore rule-based + ML hybrid
+- Paper trade US30 scalping + BTCUSD (models are production-ready)
+- XAUUSD paused until more data uploaded
 - Feature count ~240 pre-SHAP → need to verify memory/speed with larger feature set

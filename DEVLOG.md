@@ -198,6 +198,14 @@ User wants to shift from pure-ML approach to strategy-informed ML. The ML should
 
 **Honest assessment:** Model profitable overall (+10.5% over 17 months) but Q3/Q4 2025 are Grade F. Max DD 18.8% would blow a prop account. Average ~0.6%/month — far below 2% daily target. Edge is real in trending markets but regime detection needs significant improvement to survive sustained chop.
 
+### XAUUSD — PAUSED (user will upload more data)
+- v8 trained but OOS only 1,141 bars — unreliable. Skipping until more M5 data available.
+
+### Next Phase: US30 Expert/Swing Agent + Alternative Approaches
+- Keep current US30 scalping agent (v8, M5 entries, up to 2hr hold)
+- Build new Expert/Swing agent (H4 entries, overnight holds)
+- Explore: ensemble of specialists, rule-based + ML hybrid
+
 ### XAUUSD v8 — Retrained (4-fold WF, OOS Jan-Mar 2026)
 - Downloaded fresh XAUUSD from Databento: 128,482 M5 bars (Jun 2010 → Mar 18, 2026)
 - Data is sparse: only 5k bars in 2024, 8k in 2025, 1k in 2026 (Gold futures limited hours)
