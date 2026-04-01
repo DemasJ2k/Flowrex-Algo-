@@ -206,6 +206,13 @@ User wants to shift from pure-ML approach to strategy-informed ML. The ML should
 - Signal aggregator: highest confidence wins
 - Benefits: per-strategy diagnostics, independent kill switches, regime specialization
 
+### Build Progress:
+- Phase 1: FVG cap 500 + MAX_M5_BARS=900k (ICT 110s→60s on 900k) — DONE
+- Phase 2: ICT expanded 30→40 features (kill zones, sessions, mitigation, inducement, inst candle) — DONE
+- Phase 3: features_momentum.py (20 features: ROC cascades, acceleration, VWAP, divergence, quality) — DONE, 12/12 tests
+- Phase 4: features_ofi.py (15 features: OFI, VPIN, volume analysis, microstructure, tick+proxy) — DONE, 11/11 tests
+- Phase 5: train_strategy_model.py + train 5 separate models — IN PROGRESS
+
 ### Strategies (5 models):
 1. **ICT/SMC Full** (~40 features) — expand with kill zones, mitigation blocks, sessions
 2. **Momentum Scalping** (~20 features) — new: ROC cascades, acceleration, VWAP momentum
