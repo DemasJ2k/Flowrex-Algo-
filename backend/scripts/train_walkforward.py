@@ -49,6 +49,7 @@ from scripts.model_utils import (
 )
 from scripts.strategy_labels import compute_strategy_labels
 from app.services.ml.meta_labeler_v2 import MetaLabeler
+from app.services.agent.m5_signal_generator import generate_scalp_signals
 
 DATA_DIR      = os.path.join(os.path.dirname(__file__), "..", "data")
 MODEL_DIR     = os.path.join(DATA_DIR, "ml_models")
@@ -346,6 +347,19 @@ def run_walkforward(symbol: str, n_trials: int = 20, n_folds: int = 4):
     sw_mean = sample_weights_all.mean()
     if sw_mean > 0:
         sample_weights_all = sample_weights_all / sw_mean
+
+    # ── 3b. Rule-based pre-filter: force HOLD where ICT rules don't fire ──
+    # This teaches the ML to only predict BUY/SELL when strategy rules align.
+    print("  Applying ICT rule-based pre-filter (min 3 rules)...", flush=True)
+    h1_trend_arr = X_all[:, feature_names.index("h1_trend")] if "h1_trend" in feature_names else None
+    rule_signals = generate_scalp_signals(m5, h1_trend=h1_trend_arr, min_rules=3)
+    # Where rules say "no signal" AND label is BUY/SELL, force to HOLD
+    no_rule = rule_signals == 0
+    forced_hold = no_rule & (y_all != 1)
+    y_all[forced_hold] = 1
+    sample_weights_all[forced_hold] = 0.1  # low weight for forced holds
+    print(f"  Rule filter: {forced_hold.sum():,} labels forced to HOLD "
+          f"({forced_hold.sum()/len(y_all)*100:.1f}%)")
 
     print(f"  Labels: sell={np.sum(y_all==0):,}  hold={np.sum(y_all==1):,}  "
           f"buy={np.sum(y_all==2):,}")
