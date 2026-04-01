@@ -42,7 +42,7 @@
 - **Target:** 2%+ daily ($200+)
 - **Methodologies:** ICT/SMC (full suite), Supply/Demand, Price Action, Larry Williams, Donchian
 - **Symbol priority:** US30 first → BTCUSD → XAUUSD
-- **Agent structure:** Keep 2 agents (Scalping + Expert/Swing)
+- **Agent structure:** Rapid Agent (multi-strategy, separate models per strategy, highest confidence wins)
 
 ### Research Completed (4 streams)
 1. **ICT/SMC** — OB, FVG, liquidity sweeps, breakers, OTE, PD arrays, BOS/CHOCH, displacement (~30 features)

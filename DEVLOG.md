@@ -198,6 +198,27 @@ User wants to shift from pure-ML approach to strategy-informed ML. The ML should
 
 **Honest assessment:** Model profitable overall (+10.5% over 17 months) but Q3/Q4 2025 are Grade F. Max DD 18.8% would blow a prop account. Average ~0.6%/month — far below 2% daily target. Edge is real in trending markets but regime detection needs significant improvement to survive sustained chop.
 
+## 2026-04-01 — Rapid Agent Multi-Strategy Architecture
+
+### Decision: Separate Models per Strategy (Option B)
+- Rename Scalping Agent → **Rapid Agent**
+- Each strategy gets its own ML model (~30 features each, trained on 900k M5 bars)
+- Signal aggregator: highest confidence wins
+- Benefits: per-strategy diagnostics, independent kill switches, regime specialization
+
+### Strategies (5 models):
+1. **ICT/SMC Full** (~40 features) — expand with kill zones, mitigation blocks, sessions
+2. **Momentum Scalping** (~20 features) — new: ROC cascades, acceleration, VWAP momentum
+3. **Order Flow Imbalance** (~15 features) — new: tick data from Databento, OFI, VPIN
+4. **Larry Williams** (~25 features) — existing
+5. **Donchian/Turtle** (~15 features) — existing
+
+### Technical Changes:
+- MAX_M5_BARS raised to 900k (optimize FVG list to enable this)
+- Per-strategy training: `train_strategy_model.py`
+- `RapidAgent` class replaces `ScalpingAgent`
+- `signal_aggregator.py` compares confidence across models
+
 ### H1 vs H4 for Swing Trading — Comparison Test
 - **H1 (93k bars):** Rules + meta at 0.45 = WR=35%, Return=-29.5% (FAILED)
 - **H4 (25k bars):** Rules + meta at 0.45 = WR=35.9%, Return=+25.2% (WORKS)
