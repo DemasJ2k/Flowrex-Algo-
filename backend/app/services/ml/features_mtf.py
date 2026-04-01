@@ -368,6 +368,37 @@ def compute_expert_features(
         except Exception:
             pass  # COT features are non-fatal
 
+    # ── Momentum Scalping features (20) ──────────────────────────
+    try:
+        from app.services.ml.features_momentum import compute_momentum_features
+        mom = compute_momentum_features(opens, highs, lows, closes, volumes)
+        for k, v in mom.items():
+            features[k] = v
+    except Exception:
+        pass  # Momentum features are non-fatal
+
+    # ── Order Flow Imbalance features (15) ────────────────────────
+    try:
+        from app.services.ml.features_ofi import compute_ofi_features
+        ofi = compute_ofi_features(opens, highs, lows, closes, volumes)
+        for k, v in ofi.items():
+            features[k] = v
+    except Exception:
+        pass  # OFI features are non-fatal
+
+    # ── Expanded ICT features with kill zones + sessions ──────────
+    # Pass timestamps to ICT for kill zone detection
+    try:
+        from app.services.ml.features_ict import compute_ict_features
+        ict_expanded = compute_ict_features(opens, highs, lows, closes, volumes, times=times)
+        # Add only the NEW expanded features (kill zones, sessions, advanced SMC)
+        # The base ICT features are already added via smc_features above
+        new_ict_keys = [k for k in ict_expanded if k.startswith("ict_") and k not in features]
+        for k in new_ict_keys:
+            features[k] = ict_expanded[k]
+    except Exception:
+        pass  # Expanded ICT features are non-fatal
+
     # ── Regime × feature interactions (highest expected alpha) ─────
     # HMM regime state is: 0 = bear/trending-down, 1 = ranging, 2 = bull/trending-up
     # These interaction features encode: "RSI signal is only reliable in ranging regime"
