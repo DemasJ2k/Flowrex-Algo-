@@ -63,8 +63,9 @@ def compute_ict_features(
     h4_lows: np.ndarray | None = None,
     h4_closes: np.ndarray | None = None,
     swing_window: int = 10,
+    times: np.ndarray | None = None,
 ) -> dict[str, np.ndarray]:
-    """Compute ~30 ICT/SMC features. All outputs are float32, same length as input."""
+    """Compute ~40 ICT/SMC features. All outputs are float32, same length as input."""
 
     n = len(closes)
     atr = _rolling_atr(highs, lows, closes)
@@ -570,6 +571,65 @@ def compute_ict_features(
 
     features["ict_breaker_bull"] = breaker_bull
     features["ict_breaker_bear"] = breaker_bear
+
+    # ===================================================================
+    # 8a. Kill Zone Features (4) — requires times (Unix seconds)
+    # ===================================================================
+    if times is not None and len(times) == n:
+        hour_utc = (times.astype(np.int64) % 86400) // 3600
+        features["ict_in_london_kz"] = ((hour_utc >= 2) & (hour_utc < 5)).astype(np.float32)
+        features["ict_in_ny_kz"] = ((hour_utc >= 12) & (hour_utc < 15)).astype(np.float32)
+        features["ict_in_ny_lunch"] = ((hour_utc >= 16) & (hour_utc < 18)).astype(np.float32)
+        features["ict_in_asian_range"] = ((hour_utc >= 22) | (hour_utc < 7)).astype(np.float32)
+    else:
+        for k in ["ict_in_london_kz", "ict_in_ny_kz", "ict_in_ny_lunch", "ict_in_asian_range"]:
+            features[k] = np.zeros(n)
+
+    # ===================================================================
+    # 8b. Session Level Features (3) — rolling proxies
+    # ===================================================================
+    import pandas as pd
+    h_s = pd.Series(highs)
+    l_s = pd.Series(lows)
+    # Asian session proxy: 108 bars = 9 hours × 12 M5 bars/hour
+    asian_high = h_s.rolling(108, min_periods=20).max().values
+    asian_low = l_s.rolling(108, min_periods=20).min().values
+    features["ict_dist_asian_high"] = np.where(atr > 0, (closes - asian_high) / atr, 0)
+    features["ict_dist_asian_low"] = np.where(atr > 0, (closes - asian_low) / atr, 0)
+    # London session proxy: 60 bars = 5 hours
+    london_high = h_s.rolling(60, min_periods=20).max().values
+    features["ict_dist_london_high"] = np.where(atr > 0, (closes - london_high) / atr, 0)
+
+    # ===================================================================
+    # 8c. Advanced SMC Features (3)
+    # ===================================================================
+    # Mitigation block: breaker was touched (price returned to failed OB zone)
+    mit_block = np.zeros(n)
+    # Reuse breaker detection — if breaker is active AND price is in zone, it's mitigation
+    mit_block = np.where((breaker_bull > 0) | (breaker_bear > 0), 1.0, 0.0)
+    features["ict_mitigation_block"] = mit_block
+
+    # Inducement: minor swing within 0.3% of a major swing level
+    inducement = np.zeros(n)
+    minor_sh, minor_sl = _detect_swings(highs, lows, max(3, swing_window // 2))
+    for i in range(swing_window, n):
+        if minor_sh[i] > 0:
+            for j in range(max(0, i - 20), i):
+                if swing_highs[j] > 0 and abs(minor_sh[i] - swing_highs[j]) / swing_highs[j] < 0.003:
+                    inducement[i] = 1.0
+                    break
+        if minor_sl[i] > 0:
+            for j in range(max(0, i - 20), i):
+                if swing_lows[j] > 0 and abs(minor_sl[i] - swing_lows[j]) / swing_lows[j] < 0.003:
+                    inducement[i] = 1.0
+                    break
+    features["ict_inducement"] = inducement
+
+    # Institutional candle: large body (> 2x ATR) + high volume (> 1.5x 20-bar avg)
+    abs_body = np.abs(closes - opens)
+    vol_avg_20 = pd.Series(volumes).rolling(20, min_periods=1).mean().values
+    inst_candle = ((abs_body > 2.0 * atr) & (volumes > 1.5 * vol_avg_20)).astype(np.float32)
+    features["ict_institutional_candle"] = inst_candle
 
     # ===================================================================
     # 9. Confluence Score (2)
