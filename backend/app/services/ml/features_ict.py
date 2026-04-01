@@ -328,6 +328,8 @@ def compute_ict_features(
     fvg_nearest_dist = np.zeros(n)
     fvg_ce_touch = np.zeros(n)
 
+    MAX_FVGS = 500  # Cap FVG list to prevent O(n*k) blowup on large datasets
+
     for i in range(2, n):
         # Detect new FVGs
         if lows[i] > highs[i - 2]:
@@ -340,6 +342,14 @@ def compute_ict_features(
             fvg_list_bot.append(highs[i])
             fvg_list_dir.append(-1)
             fvg_list_filled.append(False)
+
+        # Trim old FVGs to prevent unbounded growth
+        if len(fvg_list_top) > MAX_FVGS:
+            trim = len(fvg_list_top) - MAX_FVGS
+            fvg_list_top = fvg_list_top[trim:]
+            fvg_list_bot = fvg_list_bot[trim:]
+            fvg_list_dir = fvg_list_dir[trim:]
+            fvg_list_filled = fvg_list_filled[trim:]
 
         # Check fills and count
         bull_cnt = 0
