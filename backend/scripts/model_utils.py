@@ -100,6 +100,7 @@ def compute_backtest_metrics(
     highs_test: np.ndarray  = None,
     lows_test: np.ndarray   = None,
     atr_test: np.ndarray    = None,
+    times_test: np.ndarray  = None,
     cost_bps: float         = 5.0,
     slippage_bps: float     = 1.0,
     bars_per_day: int       = 288,
@@ -174,6 +175,31 @@ def compute_backtest_metrics(
         atr_pctile = atr_ser.rolling(100, min_periods=50).rank(pct=True).values
         low_vol = atr_pctile < 0.25
         preds = np.where(low_vol & (preds != 1), np.int64(1), preds)
+
+    # ── Donchian squeeze gate: skip trading during channel compression ────
+    # Squeeze = 20-bar Donchian width < 25th percentile of 100-bar rolling.
+    # Choppy, range-bound markets where breakout signals are false.
+    if highs_test is not None and lows_test is not None and len(closes_test) > 100:
+        h_ser = pd.Series(highs_test.astype(np.float64))
+        l_ser = pd.Series(lows_test.astype(np.float64))
+        dcw = h_ser.rolling(20).max() - l_ser.rolling(20).min()
+        dcw_rank = dcw.rolling(100, min_periods=50).rank(pct=True).values
+        squeeze = dcw_rank < 0.20
+        preds = np.where(squeeze & (preds != 1), np.int64(1), preds)
+
+    # ── Session filter: only trade during high-edge hours ──────────────
+    # US30 edge concentrates during 13:30-16:00 UTC (cash open).
+    # Outside this window, suppress signals to reduce noise trades.
+    if times_test is not None and len(times_test) > 0 and bars_per_day < 200:
+        # bars_per_day < 200 means index/commodity (not 24/7 crypto)
+        hours = pd.to_datetime(times_test, unit='s', utc=True).hour
+        minutes = pd.to_datetime(times_test, unit='s', utc=True).minute
+        hour_frac = hours + minutes / 60.0
+        # US30 primary session: 13:30-16:00 UTC, secondary: 19:00-20:30 UTC
+        in_session = ((hour_frac >= 13.5) & (hour_frac < 16.0)) | \
+                     ((hour_frac >= 19.0) & (hour_frac < 20.5))
+        preds = np.where(~in_session & (preds != 1), np.int64(1), preds)
+
     total_cost = (cost_bps + slippage_bps) / 10_000   # round-trip + slippage
 
     n = len(closes_test)
@@ -187,11 +213,25 @@ def compute_backtest_metrics(
 
     equity_curve  = np.zeros(n)
     trade_returns = []
+    daily_pnl     = 0.0        # track intraday P&L for daily loss limit
+    last_day_bar  = 0           # track day boundaries
+    day_stopped   = False       # flag: stopped for the day
     i = 0
 
     while i < n - hold_bars - 1:
+        # ── Daily loss limit: stop trading after -1% in a day ──────────
+        # Reset daily P&L every bars_per_day bars
+        day_idx = i // bars_per_day
+        if day_idx != last_day_bar // bars_per_day:
+            daily_pnl = 0.0
+            day_stopped = False
+        last_day_bar = i
+
+        if daily_pnl <= -0.01:  # -1% daily loss limit
+            day_stopped = True
+
         sig = preds[i]
-        if sig not in (0, 2):
+        if sig not in (0, 2) or day_stopped:
             i += 1
             continue
 
@@ -251,6 +291,7 @@ def compute_backtest_metrics(
         if exit_bar < n:
             equity_curve[exit_bar] += exit_ret
         trade_returns.append(exit_ret)
+        daily_pnl += exit_ret  # track daily P&L for loss limit
         # Enforce full cooldown: always wait hold_bars from entry_bar before next trade
         # (prevents over-trading when TP/SL hits within 1-2 bars)
         i = entry_bar + hold_bars

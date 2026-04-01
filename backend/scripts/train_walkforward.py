@@ -418,10 +418,12 @@ def run_walkforward(symbol: str, n_trials: int = 20, n_folds: int = 4):
             h_val  = highs[ts_start:ts_end]
             lo_val = lows[ts_start:ts_end]
             a_val  = atr_vals[ts_start:ts_end] if atr_vals is not None else None
+            t_val  = timestamps[ts_start:ts_end]
 
             metrics = compute_backtest_metrics(
                 model, X_val, y_val, c_val,
-                opens_test=o_val, highs_test=h_val, lows_test=lo_val, atr_test=a_val,
+                opens_test=o_val, highs_test=h_val, lows_test=lo_val,
+                atr_test=a_val, times_test=t_val,
                 cost_bps=cost_bps, slippage_bps=slippage_bps,
                 bars_per_day=bpd, hold_bars=hold_bars,
                 tp_atr_mult=tp_mult, sl_atr_mult=sl_mult,
@@ -474,10 +476,11 @@ def run_walkforward(symbol: str, n_trials: int = 20, n_folds: int = 4):
 
     oos_results = {}
     for model_type, model in final_models.items():
+        times_oos = timestamps[oos_start_idx:]
         m = compute_backtest_metrics(
             model, X_oos_full, y_oos, closes_oos,
             opens_test=opens_oos, highs_test=highs_oos,
-            lows_test=lows_oos, atr_test=atr_oos,
+            lows_test=lows_oos, atr_test=atr_oos, times_test=times_oos,
             cost_bps=cost_bps, slippage_bps=slippage_bps,
             bars_per_day=bpd, hold_bars=hold_bars,
             tp_atr_mult=tp_mult, sl_atr_mult=sl_mult,
