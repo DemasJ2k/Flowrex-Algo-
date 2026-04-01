@@ -198,6 +198,12 @@ User wants to shift from pure-ML approach to strategy-informed ML. The ML should
 
 **Honest assessment:** Model profitable overall (+10.5% over 17 months) but Q3/Q4 2025 are Grade F. Max DD 18.8% would blow a prop account. Average ~0.6%/month — far below 2% daily target. Edge is real in trending markets but regime detection needs significant improvement to survive sustained chop.
 
+### H1 vs H4 for Swing Trading — Comparison Test
+- **H1 (93k bars):** Rules + meta at 0.45 = WR=35%, Return=-29.5% (FAILED)
+- **H4 (25k bars):** Rules + meta at 0.45 = WR=35.9%, Return=+25.2% (WORKS)
+- **Conclusion:** H4 is the right timeframe for swing. H1 generates 4x more signals but they're lower quality. H4's wider ATR gives more room for TP. Less data but better signal-to-noise ratio.
+- **Going forward:** Expert/Swing agent will use H4 + rule-based hybrid approach.
+
 ### Expert/Swing Agent Build (2026-04-01)
 - Built `features_swing.py` (71 H4 features), `train_swing.py`, `ict_signal_generator.py`
 - **Pure ML swing on H4: FAILED** (Grade F, only 25k bars insufficient)
