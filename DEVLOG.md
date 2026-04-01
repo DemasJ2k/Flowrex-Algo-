@@ -198,6 +198,16 @@ User wants to shift from pure-ML approach to strategy-informed ML. The ML should
 
 **Honest assessment:** Model profitable overall (+10.5% over 17 months) but Q3/Q4 2025 are Grade F. Max DD 18.8% would blow a prop account. Average ~0.6%/month — far below 2% daily target. Edge is real in trending markets but regime detection needs significant improvement to survive sustained chop.
 
+### Expert/Swing Agent Build (2026-04-01)
+- **Goal:** H4-entry swing agent for US30. Holds 1-8 days. Complements existing M5 scalping agent.
+- Built `features_swing.py` (71 H4 features), `train_swing.py`, 10/10 tests passing
+- **Walk-forward results: FAILED (Grade F across all folds)**
+  - Fold 1: F Sharpe=-0.93 WR=28% | Fold 2: D Sharpe=0.72 WR=45%
+  - Fold 3: F Sharpe=-0.53 WR=37% | Fold 4: F Sharpe=-1.36 WR=31%
+  - OOS: F Sharpe=-3.35 WR=17% (only 12 trades, meaningless)
+- **Root cause:** Only 25k H4 bars — not enough for ML to learn swing patterns. 3x ATR TP too aggressive (WR 28-36%).
+- **Conclusion:** Pure ML on H4 doesn't work with this data volume. Need rule-based + ML hybrid approach for swing.
+
 ### XAUUSD — PAUSED (user will upload more data)
 - v8 trained but OOS only 1,141 bars — unreliable. Skipping until more M5 data available.
 
