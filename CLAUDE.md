@@ -61,7 +61,7 @@
 | 6 | Meta-labeling pipeline | Secondary model filters false signals | DONE |
 | 7 | Strategy-informed labels | Triple barrier + ICT setup quality scoring | DONE |
 | 8 | Retrain US30 with new features | Walk-forward with ~210 features | DONE |
-| 9 | Retrain BTCUSD | Same pipeline | IN PROGRESS |
+| 9 | Retrain BTCUSD | Same pipeline | DONE |
 | 10 | Retrain XAUUSD | Same pipeline | PENDING |
 
 ### Key Prop Firm Config
@@ -79,6 +79,7 @@ us30_primary_session: 13:30-15:30 UTC (cash open)
 | Symbol | Best Model | Grade | Sharpe | Source |
 |--------|-----------|-------|--------|--------|
 | BTCUSD | LightGBM | B | 10.07 | Walk-forward v4 (2020-2024, 4 folds) |
+| BTCUSD | XGBoost | C | 7.96 | Walk-forward v8 (2020-2025, 4 folds, OOS Jan-Mar 2026) +meta +filters |
 | US30 | XGBoost | B | 2.14 | Walk-forward v7 strategy-informed (2019-2024, 4 folds) +meta +ATR gate |
 | US30 | XGBoost | C | 1.84 | Walk-forward v8 (2020-2025, 4 folds, OOS Jan-Mar 2026) +meta +filters |
 | XAUUSD | XGBoost | F | — | Walk-forward v5 (2010-2024, needs fresh data) |

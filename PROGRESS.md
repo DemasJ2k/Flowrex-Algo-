@@ -372,7 +372,7 @@ _Updated at the end of each phase. Read this to understand what has been built._
 | 7 | Meta-labeling pipeline (Lopez de Prado) | Done | 11/11 |
 | 8 | Strategy-informed labels | Done | 12/12 |
 | 9 | Retrain US30 | **Done — v8** | 4-fold all profitable, OOS Sharpe=1.84 DD=1.4% (v8+2025 data) |
-| 10 | Retrain BTCUSD | Pending | — |
+| 10 | Retrain BTCUSD | **Done** | OOS Sharpe=7.96, WR=48.6%, DD=4.5%, Return=+44.1% (v8) |
 
 ### US30 Walk-Forward Results (v6 strategy-informed, 4-fold)
 **Walk-Forward Validation:** Yes — expanding-window, 4 folds, no look-ahead bias.

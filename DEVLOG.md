@@ -198,12 +198,20 @@ User wants to shift from pure-ML approach to strategy-informed ML. The ML should
 
 **Honest assessment:** Model profitable overall (+10.5% over 17 months) but Q3/Q4 2025 are Grade F. Max DD 18.8% would blow a prop account. Average ~0.6%/month — far below 2% daily target. Edge is real in trending markets but regime detection needs significant improvement to survive sustained chop.
 
-### BTCUSD Data Update + Retrain (in progress)
+### BTCUSD v8 — Retrained with 2025 Data (4-fold WF, OOS Jan-Mar 2026)
 - Downloaded fresh BTCUSD from Databento: 522,897 M5 bars (Dec 2017 → Mar 18, 2026)
-- Previous data ended Mar 24, 2025 — gained ~65k bars of 2025-2026 data
-- OOS boundary: Jan 2026 (same as US30 v8). Model trains on everything through Dec 2025.
-- Config: 2x ATR TP, 0.8x ATR SL, 5bps cost, no trend filter (BTC reverses too fast), 24/7 session
-- Training with same pipeline: strategy labels + ICT quality + meta-labeling + ATR gate + Donchian squeeze
+- 400k M5 bars, 214 features (more than US30's 206 — crypto-specific extras), 4 folds
+- Labels: sell=87k, **hold=224k (56%)**, buy=88k — HOLD rebalancing working well
+- Config: 2x ATR TP, 0.8x ATR SL, 5bps cost, no trend filter, 24/7 session (no session filter for crypto)
+- **ALL 4 FOLDS PROFITABLE** (zero Grade F):
+  - Fold 1 (2021-04→2022-06): XGB C Sharpe=5.89 | LGB D Sharpe=5.86
+  - Fold 2 (2022-06→2023-08): XGB C Sharpe=4.58 | LGB C Sharpe=3.86
+  - Fold 3 (2023-08→2024-10): XGB C Sharpe=3.46 | LGB D Sharpe=1.86
+  - Fold 4 (2024-10→2025-12): XGB C Sharpe=3.12 | LGB C Sharpe=3.86
+- **Combined WF:** XGB C Sharpe=4.15 | LGB D Sharpe=3.72
+- **True OOS** (Jan-Mar 2026, 13,759 bars): XGB **C Sharpe=7.96 WR=48.6% DD=4.5% Return=+44.1%** | LGB C Sharpe=7.23 DD=7.5% Return=+44.3%
+- **Meta-labeler:** AUC trained on 287k+ samples
+- **Note:** OOS Sharpe 7-8 is likely inflated by favorable BTC market in Q1 2026. Live expect 2-4. WR 48-50% at 2x TP / 0.8x SL is correct — break-even is 28.6%.
 
 ### US30 v8 — Retrained with 2025 Data (4-fold WF, OOS Jan-Mar 2026)
 - v7 models archived to `archive_v7_2026-03-31/`
