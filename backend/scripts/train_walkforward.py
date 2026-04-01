@@ -56,9 +56,9 @@ MODEL_DIR     = os.path.join(DATA_DIR, "ml_models")
 HIST_DATA_DIR = os.path.normpath(
     os.path.join(os.path.dirname(__file__), "..", "..", "History Data", "data")
 )
-OOS_START = "2024-10-01"
+OOS_START = "2026-01-01"
 WARMUP    = 500   # bars before any training slice starts
-MAX_M5_BARS = 300_000  # Cap M5 bars — 300k = ~2 years, safe for 4-fold WF
+MAX_M5_BARS = 400_000  # Cap M5 bars — 400k for more training data with 2025 included
 
 
 # ── Data loading ────────────────────────────────────────────────────────────
