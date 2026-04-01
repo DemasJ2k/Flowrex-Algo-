@@ -61,7 +61,7 @@
 | 6 | Meta-labeling pipeline | Secondary model filters false signals | DONE |
 | 7 | Strategy-informed labels | Triple barrier + ICT setup quality scoring | DONE |
 | 8 | Retrain US30 with new features | Walk-forward with ~210 features | DONE |
-| 9 | Retrain BTCUSD | Same pipeline | PENDING |
+| 9 | Retrain BTCUSD | Same pipeline | IN PROGRESS |
 | 10 | Retrain XAUUSD | Same pipeline | PENDING |
 
 ### Key Prop Firm Config

@@ -198,6 +198,13 @@ User wants to shift from pure-ML approach to strategy-informed ML. The ML should
 
 **Honest assessment:** Model profitable overall (+10.5% over 17 months) but Q3/Q4 2025 are Grade F. Max DD 18.8% would blow a prop account. Average ~0.6%/month — far below 2% daily target. Edge is real in trending markets but regime detection needs significant improvement to survive sustained chop.
 
+### BTCUSD Data Update + Retrain (in progress)
+- Downloaded fresh BTCUSD from Databento: 522,897 M5 bars (Dec 2017 → Mar 18, 2026)
+- Previous data ended Mar 24, 2025 — gained ~65k bars of 2025-2026 data
+- OOS boundary: Jan 2026 (same as US30 v8). Model trains on everything through Dec 2025.
+- Config: 2x ATR TP, 0.8x ATR SL, 5bps cost, no trend filter (BTC reverses too fast), 24/7 session
+- Training with same pipeline: strategy labels + ICT quality + meta-labeling + ATR gate + Donchian squeeze
+
 ### US30 v8 — Retrained with 2025 Data (4-fold WF, OOS Jan-Mar 2026)
 - v7 models archived to `archive_v7_2026-03-31/`
 - OOS boundary moved to 2026-01-01. Model now trains on ALL 2025 data.
