@@ -211,12 +211,14 @@ User wants to shift from pure-ML approach to strategy-informed ML. The ML should
 - Phase 2: ICT expanded 30→40 features (kill zones, sessions, mitigation, inducement, inst candle) — DONE
 - Phase 3: features_momentum.py (20 features: ROC cascades, acceleration, VWAP, divergence, quality) — DONE, 12/12 tests
 - Phase 4: features_ofi.py (15 features: OFI, VPIN, volume analysis, microstructure, tick+proxy) — DONE, 11/11 tests
-- Phase 5: train_strategy_model.py built. Training 5 separate models on 900k bars — IN PROGRESS
-  - **CRITICAL FINDING:** Individual strategies as standalone models (15-25 features) perform MUCH WORSE than combined (Grade F vs Grade B). Strategies complement each other — ICT provides structure, Williams provides momentum, Donchian provides trend context. Separation loses these synergies.
-  - Donchian standalone: OOS Grade F, Sharpe -6.3
-  - Williams standalone: OOS Grade F, Sharpe -7.0
-  - Remaining: Momentum, OFI, ICT still training
-  - **Implication:** May need to keep combined model + add per-strategy diagnostics via SHAP feature importance rather than full model separation
+- Phase 5: Separate strategy model experiment COMPLETE. Results:
+  - Donchian: OOS Grade F, Sharpe -5.6
+  - Williams: OOS Grade F, Sharpe -7.0
+  - Momentum: OOS Grade F, Sharpe -4.5
+  - OFI: OOS Grade F, Sharpe -4.7
+  - **ICT: OOS Grade D, Sharpe +0.10, WR 51%** — only breakeven strategy standalone
+  - **CONCLUSION:** Separate models failed. Strategies need synergy. Combined v8 (Grade B) >> any standalone.
+  - **DECISION:** Abandon Option B. Proceed with combined v10 model (250 features) + SHAP diagnostics per strategy group.
 
 ### Strategies (5 models):
 1. **ICT/SMC Full** (~40 features) — expand with kill zones, mitigation blocks, sessions
