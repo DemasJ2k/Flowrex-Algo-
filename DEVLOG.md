@@ -198,12 +198,19 @@ User wants to shift from pure-ML approach to strategy-informed ML. The ML should
 
 **Honest assessment:** Model profitable overall (+10.5% over 17 months) but Q3/Q4 2025 are Grade F. Max DD 18.8% would blow a prop account. Average ~0.6%/month — far below 2% daily target. Edge is real in trending markets but regime detection needs significant improvement to survive sustained chop.
 
-### US30 v7 Model Archived + Retrain with 2025 Data (in progress)
-- Archived v7 models to `archive_v7_2026-03-31/` (XGBoost Grade B + LightGBM Grade B)
-- OOS boundary moved from 2024-10-01 to 2026-01-01 (model now trains on 2025 data)
-- M5 cap raised to 400k bars (more training data with 2025 included)
-- OOS holdout: Jan-Mar 2026 (14,819 bars, ~2.5 months truly unseen)
-- Expected improvement: model learns 2025 patterns (low-vol chop, session behavior changes)
+### US30 v8 — Retrained with 2025 Data (4-fold WF, OOS Jan-Mar 2026)
+- v7 models archived to `archive_v7_2026-03-31/`
+- OOS boundary moved to 2026-01-01. Model now trains on ALL 2025 data.
+- 400k M5 bars, 206 features, 4 folds, 15 trials/fold
+- **ALL 4 FOLDS PROFITABLE** (first time ever — zero Grade F):
+  - Fold 1 (2021-08→2022-09): XGB B Sharpe=1.88 | LGB B Sharpe=2.22
+  - Fold 2 (2022-09→2023-10): XGB B Sharpe=1.50 | LGB B Sharpe=1.62
+  - Fold 3 (2023-10→2024-11): XGB D Sharpe=0.34 (was F -3.24 in v6!) | LGB C Sharpe=0.53
+  - Fold 4 (2024-11→2025-12): XGB B Sharpe=1.83 | LGB B Sharpe=1.73
+- **True OOS** (Jan-Mar 2026, 14,819 bars): XGB C Sharpe=1.84 DD=1.4% +2.0% | LGB C Sharpe=1.05 DD=0.9%
+- **Combined WF**: XGB C Sharpe=0.99 | LGB **B Sharpe=1.23** (first Grade B combined WF)
+- **Meta-labeler:** AUC=0.675, trained on 287k samples
+- **Improvement over v7:** Zero Grade F folds (was 2), combined WF Sharpe +94% (0.51→0.99), max fold DD 9.0%→5.4%
 
 ### US30 v7 Execution Filters — Session + Squeeze + Daily Limit
 - **Session filter:** US30 only trades 13:30-16:00 UTC + 19:00-20:30 UTC (cash open + power hour)

@@ -80,6 +80,7 @@ us30_primary_session: 13:30-15:30 UTC (cash open)
 |--------|-----------|-------|--------|--------|
 | BTCUSD | LightGBM | B | 10.07 | Walk-forward v4 (2020-2024, 4 folds) |
 | US30 | XGBoost | B | 2.14 | Walk-forward v7 strategy-informed (2019-2024, 4 folds) +meta +ATR gate |
+| US30 | XGBoost | C | 1.84 | Walk-forward v8 (2020-2025, 4 folds, OOS Jan-Mar 2026) +meta +filters |
 | XAUUSD | XGBoost | F | — | Walk-forward v5 (2010-2024, needs fresh data) |
 
 ## Phase Checklist
