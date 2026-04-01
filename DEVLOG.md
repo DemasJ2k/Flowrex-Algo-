@@ -198,6 +198,18 @@ User wants to shift from pure-ML approach to strategy-informed ML. The ML should
 
 **Honest assessment:** Model profitable overall (+10.5% over 17 months) but Q3/Q4 2025 are Grade F. Max DD 18.8% would blow a prop account. Average ~0.6%/month — far below 2% daily target. Edge is real in trending markets but regime detection needs significant improvement to survive sustained chop.
 
+### US30 v7 Execution Filters — Session + Squeeze + Daily Limit
+- **Session filter:** US30 only trades 13:30-16:00 UTC + 19:00-20:30 UTC (cash open + power hour)
+- **Donchian squeeze gate:** Suppress signals when 20-bar Donchian width < 20th percentile of 100-bar rolling
+- **Daily loss limit:** Stop trading for the day after -1% cumulative loss
+- **17-month forward test (Oct 2024 → Mar 2026) with all filters + meta-labeler:**
+  - Max DD: 18.8% → **3.3%** (FTMO safe)
+  - Every quarter now profitable (Q3 2025: -5.1% → +0.7%, Q4 2025: -1.2% → +1.5%)
+  - Full return: +10.5% → **+14.2%** with **70% fewer trades** (1,262 vs 4,470)
+  - Trades/day: ~3-4 (realistic for prop firm)
+  - 1yr unseen (Apr 25 → Mar 26): +8.2% return, 3.0% DD
+- **Prop firm math:** +14.2% / 17 months = ~$835/month = ~$42/day on $10k. Max DD $330 (within $500 FTMO daily limit)
+
 ### US30 v7 — Improved with ATR Gate + HOLD Labels (4-fold WF)
 - ATR regime gate: suppresses signals when ATR < 25th percentile of 100-bar rolling window
 - HOLD label rebalancing: 1% → 30% hold labels (low-vol + SL-hit low-ICT → HOLD)
