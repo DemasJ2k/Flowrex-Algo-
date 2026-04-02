@@ -59,7 +59,7 @@ HIST_DATA_DIR = os.path.normpath(
 )
 OOS_START = "2026-01-01"
 WARMUP    = 500   # bars before any training slice starts
-MAX_M5_BARS = 900_000  # 900k bars (~3 years). FVG list capped at 500 to keep ICT features fast.
+MAX_M5_BARS = 700_000  # 700k bars — safe for 246-feature combined pipeline
 
 
 # ── Data loading ────────────────────────────────────────────────────────────
