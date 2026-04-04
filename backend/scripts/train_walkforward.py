@@ -561,6 +561,37 @@ def run_walkforward(symbol: str, n_trials: int = 20, n_folds: int = 4):
             print(f"  {rank:2d}. {fname:<35}  {imp*100:5.2f}%  {bar}")
         print(f"       {'Cumulative top-20':35}  {cumulative*100:.1f}%")
 
+    # ── 9b. Per-Strategy SHAP Contribution ──────────────────────────────
+    # Group features by strategy prefix and sum importance
+    if ranked:
+        all_ranked = shap_importance_table(final_models["xgboost"], Xf_tr, feature_names, top_n=len(feature_names))
+        strategy_groups = {
+            "ICT/SMC":    lambda n: n.startswith("ict_") or n.startswith("smc_"),
+            "Williams":   lambda n: n.startswith("lw_"),
+            "Donchian":   lambda n: n.startswith("donch_") or n.startswith("hurst") or n.startswith("zscore") or n.startswith("tsmom") or n.startswith("volscaled"),
+            "Momentum":   lambda n: n.startswith("mom_"),
+            "OFI":        lambda n: n.startswith("ofi_"),
+            "Base/Other": lambda n: True,  # catch-all
+        }
+        print(f"\n  {'-'*60}")
+        print(f"  Strategy Group SHAP Contribution")
+        print(f"  {'-'*60}")
+        assigned = set()
+        group_scores = {}
+        for group_name, matcher in strategy_groups.items():
+            score = 0.0
+            count = 0
+            for fname, imp in all_ranked:
+                if fname not in assigned and matcher(fname):
+                    score += imp
+                    count += 1
+                    assigned.add(fname)
+            group_scores[group_name] = (score, count)
+        for group_name in sorted(group_scores, key=lambda x: -group_scores[x][0]):
+            score, count = group_scores[group_name]
+            bar = "#" * int(score * 200)
+            print(f"  {group_name:<15}  {score*100:5.1f}%  ({count:3d} features)  {bar}")
+
     # ── 10. Meta-labeling (Lopez de Prado two-stage) ──────────────────────
     print(f"\n  {'-'*60}")
     print(f"  Meta-Labeling: training secondary model per primary model")
