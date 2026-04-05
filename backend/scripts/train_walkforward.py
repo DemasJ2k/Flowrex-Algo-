@@ -59,7 +59,7 @@ HIST_DATA_DIR = os.path.normpath(
 )
 OOS_START = "2026-01-01"
 WARMUP    = 500   # bars before any training slice starts
-MAX_M5_BARS = 700_000  # 700k bars — safe for 246-feature combined pipeline
+MAX_M5_BARS = 500_000  # 500k bars — stable for 4-fold WF with 251 features
 
 
 # ── Data loading ────────────────────────────────────────────────────────────

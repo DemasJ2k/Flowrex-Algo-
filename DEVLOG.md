@@ -211,7 +211,18 @@ User wants to shift from pure-ML approach to strategy-informed ML. The ML should
 - Phase 2: ICT expanded 30→40 features (kill zones, sessions, mitigation, inducement, inst candle) — DONE
 - Phase 3: features_momentum.py (20 features: ROC cascades, acceleration, VWAP, divergence, quality) — DONE, 12/12 tests
 - Phase 4: features_ofi.py (15 features: OFI, VPIN, volume analysis, microstructure, tick+proxy) — DONE, 11/11 tests
-- Phase 5: Separate strategy model experiment COMPLETE. Results:
+### v10 Combined Results (251 features, 500k bars, 4-fold WF)
+- Folds: C/C, B/B, F/D, C/C — 3/4 profitable (LGB), 3/4 (XGB)
+- OOS: XGB Grade D Sharpe=0.58, LGB Grade F Sharpe=-0.76
+- **v10 is WORSE than v8** (OOS Sharpe 0.58 vs 1.84). Rule pre-filter forcing 48% to HOLD likely too aggressive.
+- **Strategy SHAP Contribution:**
+  - ICT/SMC: 27.3% (strongest strategy group)
+  - Williams: 15.4% (#1 and #2 features are lw_above_stretch / lw_below_stretch)
+  - Donchian: 7.5% (donch_squeeze is #6 feature)
+  - OFI: 4.0% (weak contribution — new features add minimal value)
+  - Momentum: 3.2% (weakest — could be removed)
+  - Base/Other: 42.6%
+- **Next:** Remove rule pre-filter, potentially remove OFI+Momentum features, retrain as v11
   - Donchian: OOS Grade F, Sharpe -5.6
   - Williams: OOS Grade F, Sharpe -7.0
   - Momentum: OOS Grade F, Sharpe -4.5
