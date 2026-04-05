@@ -83,6 +83,115 @@ def create_labels(
     return labels
 
 
+def create_strategy_labels(
+    closes: np.ndarray,
+    highs: np.ndarray,
+    lows: np.ndarray,
+    opens: np.ndarray,
+    atr_values: np.ndarray,
+    times: np.ndarray,
+    features: dict,
+    config: dict = None,
+) -> np.ndarray:
+    """
+    Strategy-informed labels based on ICT/SMC confluence.
+    Only labels BUY/SELL when multiple strategy conditions align.
+
+    BUY (2): HTF bullish + active session + at level + in discount + price confirms
+    SELL (0): HTF bearish + active session + at level + in premium + price confirms
+    HOLD (1): conditions not met
+
+    The 'features' dict must contain computed feature arrays (from compute_expert_features).
+    Missing features gracefully default to zeros (always passes that check).
+    """
+    import pandas as pd
+
+    forward_bars = 10
+    atr_mult = 1.0
+    if config:
+        forward_bars = config.get("label_forward_bars", forward_bars)
+        atr_mult = config.get("label_atr_mult", atr_mult)
+
+    n = len(closes)
+    labels = np.ones(n, dtype=np.int8)  # default: HOLD
+
+    def _get(key: str) -> np.ndarray:
+        """Get feature array, fallback to zeros if missing."""
+        arr = features.get(key)
+        if arr is None or len(arr) != n:
+            return np.zeros(n)
+        return arr
+
+    # ── Condition 1: HTF bias alignment ──────────────────────────────
+    htf = _get("htf_alignment")
+    bullish_bias = htf > 0.0
+    bearish_bias = htf < 0.0
+
+    # ── Condition 2: Active session (kill zone or Silver Bullet) ─────
+    is_kz = _get("is_killzone")
+    is_sb = _get("ict_silver_bullet")
+    is_london = _get("is_london")
+    is_ny = _get("is_ny")
+    active_session = (is_kz > 0) | (is_sb > 0) | (is_london > 0) | (is_ny > 0)
+
+    # ── Condition 3: At a significant level (any of these) ───────────
+    # ICT levels
+    ob_bull_prox = np.abs(_get("smc_ob_bull_proximity"))
+    ob_bear_prox = np.abs(_get("smc_ob_bear_proximity"))
+    fvg_bull_prox = np.abs(_get("smc_fvg_bull_proximity"))
+    fvg_bear_prox = np.abs(_get("smc_fvg_bear_proximity"))
+    swept_below = _get("ict_session_hl_swept") > 0       # bullish sweep
+    swept_above = _get("ict_session_hl_swept") < 0       # bearish sweep
+    at_demand = _get("inst_at_demand") > 0
+    at_supply = _get("inst_at_supply") > 0
+    asian_swept_bull = _get("ict_asian_swept") < 0        # Asian low swept = bullish
+    asian_swept_bear = _get("ict_asian_swept") > 0        # Asian high swept = bearish
+
+    # For BUY: at demand zone / bullish OB / bullish FVG / liquidity swept below
+    at_buy_level = (ob_bull_prox < 0.005) | (fvg_bull_prox < 0.005) | swept_below | at_demand | asian_swept_bull
+    # For SELL: at supply zone / bearish OB / bearish FVG / liquidity swept above
+    at_sell_level = (ob_bear_prox < 0.005) | (fvg_bear_prox < 0.005) | swept_above | at_supply | asian_swept_bear
+
+    # ── Condition 4: Premium/Discount zone ───────────────────────────
+    pd_zone = _get("smc_premium_discount")
+    in_discount = pd_zone < 0.5
+    in_premium = pd_zone > 0.5
+
+    # ── Condition 5: Price confirmation (future move validates the setup) ──
+    # Reuse the vectorized forward-looking technique from create_labels
+    s = pd.Series(closes.astype(np.float64))
+    rev = s.iloc[::-1].reset_index(drop=True)
+    future_max = rev.rolling(forward_bars, min_periods=1).max().iloc[::-1].reset_index(drop=True).shift(-1).values
+    future_min = rev.rolling(forward_bars, min_periods=1).min().iloc[::-1].reset_index(drop=True).shift(-1).values
+
+    atr = atr_values if atr_values is not None else np.ones(n)
+    threshold = atr * atr_mult
+
+    up_move = future_max - closes
+    down_move = closes - future_min
+
+    price_confirms_buy = (up_move > threshold) & (up_move > down_move)
+    price_confirms_sell = (down_move > threshold) & (down_move > up_move)
+
+    # ── Combine all conditions ───────────────────────────────────────
+    buy_mask = bullish_bias & active_session & at_buy_level & in_discount & price_confirms_buy
+    sell_mask = bearish_bias & active_session & at_sell_level & in_premium & price_confirms_sell
+
+    # Remove conflicts (if both buy and sell, prefer neither)
+    conflict = buy_mask & sell_mask
+    buy_mask = buy_mask & ~conflict
+    sell_mask = sell_mask & ~conflict
+
+    # Don't label last forward_bars (no future data)
+    buy_mask[-(forward_bars+1):] = False
+    sell_mask[-(forward_bars+1):] = False
+
+    labels[buy_mask] = 2
+    labels[sell_mask] = 0
+
+    return labels
+
+
 def walk_forward_split(X: np.ndarray, y: np.ndarray, train_ratio: float = 0.8):
     """Walk-forward split: train on older data, test on newer."""
     split_idx = int(len(X) * train_ratio)

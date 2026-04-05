@@ -294,6 +294,30 @@ def compute_expert_features(
         for k in smc_keys:
             features[k] = np.zeros(n)
 
+    # ── ICT Features (20) ──────────────────────────────────────────
+    try:
+        from app.services.ml.features_ict import compute_ict_features
+        ict = compute_ict_features(opens, highs, lows, closes, volumes, times, atr_values=atr_14)
+        features.update(ict)
+    except Exception:
+        pass  # ICT features are optional — non-fatal
+
+    # ── Institutional Features (18: VWAP, Volume Profile, S/D Zones, Wyckoff) ──
+    try:
+        from app.services.ml.features_institutional import compute_institutional_features
+        inst = compute_institutional_features(opens, highs, lows, closes, volumes, times, atr_values=atr_14)
+        features.update(inst)
+    except Exception:
+        pass  # Institutional features are optional — non-fatal
+
+    # ── Divergence & Breakout Features (15) ──────────────────────────
+    try:
+        from app.services.ml.features_divergence import compute_divergence_features
+        div = compute_divergence_features(opens, highs, lows, closes, volumes, times, atr_values=atr_14)
+        features.update(div)
+    except Exception:
+        pass  # Divergence features are optional — non-fatal
+
     # ── Symbol-Specific Features (5) ──────────────────────────────
     hours = _extract_hours(times)
 

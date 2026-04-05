@@ -1255,3 +1255,70 @@ retrain on all 3 symbols.
 - 10/10 retrain tests passing
 - 28/28 feature + correlation tests passing
 - TypeScript compiles clean (zero errors)
+
+---
+
+## 2026-04-05 — Strategy-Informed Feature Pipeline (ICT/VWAP/S&D/Wyckoff/Divergence)
+
+### Summary
+Added 53 new trading strategy features across 3 new modules, plus a strategy-informed labeling
+system. The features encode ICT/SMC methodology, institutional VWAP/volume profile, supply/demand
+zones, Wyckoff events, RSI divergence, and breakout-retest patterns. The ML models can now learn
+from proven trading frameworks instead of just raw price data.
+
+### Research Conducted
+Deep web research on: ICT methodology (Silver Bullet, OTE, order blocks, FVGs, kill zones,
+market structure shifts), Wyckoff method (accumulation/distribution, spring/upthrust, effort
+vs result), institutional strategies (VWAP, volume profile, POC/VA), supply/demand zones
+(RBR/DBD/RBD/DBR patterns), RSI divergence (regular + hidden), and breakout-retest patterns.
+Sources: ICT tutorials, LuxAlgo, TrendSpider, QuantifiedStrategies, prop firm research.
+
+### New Feature Modules (53 features total)
+
+**features_ict.py (20 features)**:
+- Liquidity sweep: ict_equal_hl_count, ict_session_hl_swept, ict_sweep_wick_ratio, ict_sweep_volume_spike
+- Enhanced FVG: ict_fvg_ce_level, ict_fvg_size_atr, ict_fvg_in_discount, ict_fvg_overlaps_ob, ict_fvg_in_killzone
+- Enhanced OB: ict_ob_size_atr, ict_ob_volume_ratio, ict_ob_displacement, ict_ob_fvg_confluence, ict_ob_distance
+- Kill zones: ict_silver_bullet, ict_asian_range_atr, ict_asian_swept
+- Structure: ict_mss_displacement, ict_bars_since_structure
+- Confluence: ict_confluence (0-7 composite, normalized)
+
+**features_institutional.py (18 features)**:
+- VWAP (daily reset): inst_vwap_dist_atr, inst_vwap_band_pos, inst_vwap_slope, inst_vwap_cross
+- Volume Profile: inst_poc_distance, inst_va_position, inst_hvn_lvn
+- Supply/Demand Zones: inst_sd_nearest_dist, inst_sd_zone_freshness, inst_sd_zone_strength, inst_sd_zone_type, inst_at_demand, inst_at_supply
+- Wyckoff: inst_effort_vs_result, inst_spring_upthrust, inst_volume_climax, inst_atr_compression
+- Absorption: inst_absorption
+
+**features_divergence.py (15 features)**:
+- RSI divergence: div_rsi_regular_bull/bear, div_rsi_hidden_bull/bear, div_rsi_strength
+- Short-term RSI: div_rsi_2bar, div_rsi_6bar
+- MACD divergence: div_macd_divergence
+- Breakout: div_consolidation_bars, div_range_atr, div_breakout_body_ratio, div_breakout_volume
+- Retest: div_retest_flag, div_retest_volume_ratio, div_retest_rejection
+
+### Strategy-Informed Labeling System
+New `create_strategy_labels()` in model_utils.py. Labels require ICT confluence:
+- BUY: HTF bullish + active session + at level (OB/FVG/demand/sweep) + in discount + price confirms
+- SELL: mirror conditions
+- HOLD: anything else
+Configurable via `label_mode: "price" | "strategy"` in symbol_config.py.
+
+### Files Created
+- `backend/app/services/ml/features_ict.py` — 20 ICT features (~300 lines)
+- `backend/app/services/ml/features_institutional.py` — 18 institutional features (~280 lines)
+- `backend/app/services/ml/features_divergence.py` — 15 divergence features (~250 lines)
+- `backend/tests/test_features_ict.py` — 8 tests
+- `backend/tests/test_features_institutional.py` — 8 tests
+- `backend/tests/test_features_divergence.py` — 9 tests
+
+### Files Modified
+- `backend/app/services/ml/features_mtf.py` — integrated 3 new modules via try/except blocks
+- `backend/scripts/model_utils.py` — added create_strategy_labels() function
+- `backend/app/services/ml/symbol_config.py` — added label_mode to all symbol configs
+- `backend/scripts/train_walkforward.py` — strategy label branch, imports create_strategy_labels
+
+### Test Results
+- 25/25 new feature tests passing
+- 69/69 existing tests passing (full backward compatibility)
+- Total feature count: 157 -> ~210 (confirmed via integration test)

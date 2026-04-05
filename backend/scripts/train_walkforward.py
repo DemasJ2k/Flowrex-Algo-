@@ -41,6 +41,7 @@ from app.services.ml.features_mtf import compute_expert_features
 from app.services.ml.symbol_config import get_symbol_config
 from scripts.model_utils import (
     create_labels,
+    create_strategy_labels,
     compute_backtest_metrics,
     grade_model,
     shap_feature_filter,
@@ -305,9 +306,20 @@ def run_walkforward(symbol: str, n_trials: int = 20, n_folds: int = 4):
     # ── 3. Create labels ONCE on full dataset ────────────────────────────
     atr_idx  = feature_names.index("atr_14") if "atr_14" in feature_names else None
     atr_vals = X_all[:, atr_idx] if atr_idx is not None else None
-    y_all    = create_labels(closes, atr_vals, config=cfg)
-    print(f"  Labels: sell={np.sum(y_all==0):,}  hold={np.sum(y_all==1):,}  "
-          f"buy={np.sum(y_all==2):,}")
+    label_mode = cfg.get("label_mode", "price")
+
+    if label_mode == "strategy":
+        # Strategy-informed labels: ICT confluence-based
+        feat_dict = {name: X_all[:, i] for i, name in enumerate(feature_names)}
+        y_all = create_strategy_labels(
+            closes, highs, lows, opens, atr_vals, timestamps, feat_dict, config=cfg,
+        )
+        print(f"  Labels (strategy): sell={np.sum(y_all==0):,}  hold={np.sum(y_all==1):,}  "
+              f"buy={np.sum(y_all==2):,}")
+    else:
+        y_all = create_labels(closes, atr_vals, config=cfg)
+        print(f"  Labels (price): sell={np.sum(y_all==0):,}  hold={np.sum(y_all==1):,}  "
+              f"buy={np.sum(y_all==2):,}")
 
     # ── 4. OOS split ────────────────────────────────────────────────────
     oos_ts    = int(pd.Timestamp(OOS_START, tz="UTC").timestamp())

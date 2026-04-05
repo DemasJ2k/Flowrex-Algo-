@@ -6,6 +6,7 @@ Controls: labeling thresholds, prime trading hours, feature parameters.
 SYMBOL_CONFIGS: dict[str, dict] = {
     "XAUUSD": {
         "asset_class": "commodity",
+        "label_mode": "price",
         "label_atr_mult": 1.5,
         "label_forward_bars": 8,
         "prime_hours_utc": (8, 21),
@@ -20,6 +21,7 @@ SYMBOL_CONFIGS: dict[str, dict] = {
     },
     "BTCUSD": {
         "asset_class": "crypto",
+        "label_mode": "price",
         "label_atr_mult": 2.0,  # Require 2×ATR move for labeling (fewer, higher-quality trades)
         "label_forward_bars": 10,
         "hold_bars": 12,        # Allow extra bars for 2×ATR target to develop
@@ -35,6 +37,7 @@ SYMBOL_CONFIGS: dict[str, dict] = {
     },
     "US30": {
         "asset_class": "index",
+        "label_mode": "price",
         "label_atr_mult": 1.2,
         "label_forward_bars": 10,
         "prime_hours_utc": (13, 21),
@@ -85,6 +88,7 @@ def get_symbol_config(symbol: str) -> dict:
     """Get config for a symbol with defaults."""
     default = {
         "asset_class": "unknown",
+        "label_mode": "price",
         "label_atr_mult": 1.0,
         "label_forward_bars": 10,
         "prime_hours_utc": (0, 24),

@@ -33,6 +33,15 @@
 - Retrain UI on Models page (trigger, schedule, history table)
 - Monthly retrain executed: US30 swapped to fresh 12-month model (Sharpe 2.8), BTCUSD kept (gate protected Grade B)
 
+## Post-MVP Work (2026-04-05)
+- Strategy-informed feature pipeline: 53 new features (ICT, VWAP, S/D Zones, Wyckoff, RSI Divergence, Breakout-Retest)
+- features_ict.py: 20 ICT features (liquidity sweeps, enhanced FVG/OB, kill zones, Silver Bullet, MSS, confluence score)
+- features_institutional.py: 18 features (VWAP daily reset, volume profile, supply/demand zones, Wyckoff events, absorption)
+- features_divergence.py: 15 features (RSI regular/hidden divergence, MACD divergence, breakout/retest detection)
+- Strategy-informed labeling system: create_strategy_labels() in model_utils.py (ICT confluence-based)
+- label_mode config: "price" (backward compatible) or "strategy" (ICT confluence) per symbol
+- Total features: 157 -> ~210
+
 ## Deployed Models (as of 2026-03-31)
 | Symbol | Best Model | Grade | Sharpe | Source |
 |--------|-----------|-------|--------|--------|
@@ -79,5 +88,8 @@
 - `backend/app/services/ml/symbol_config.py` — Per-symbol TP/SL/cost/trend_filter config
 - `backend/app/services/ml/retrain_scheduler.py` — APScheduler monthly cron
 - `backend/data/ml_models/` — Deployed models (.joblib)
+- `backend/app/services/ml/features_ict.py` — 20 ICT features (liquidity, FVG, OB, killzones, confluence)
+- `backend/app/services/ml/features_institutional.py` — 18 features (VWAP, volume profile, S/D zones, Wyckoff)
+- `backend/app/services/ml/features_divergence.py` — 15 features (RSI divergence, breakout-retest)
 - `backend/data/ml_models/archive_v4_2026-03-31/` — Archived baseline models
 - `History Data/data/` — 15-year CSV history (M1/M5/M15/H1/H4 per symbol)

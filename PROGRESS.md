@@ -354,3 +354,23 @@ _Updated at the end of each phase. Read this to understand what has been built._
 - 12/12 correlation tests passing
 - 18/18 feature tests passing
 - TypeScript compiles clean (zero errors)
+
+---
+
+## Post-MVP — Strategy-Informed Feature Pipeline (2026-04-05)
+**Status:** Complete (features built, ready for training)
+
+### New Feature Modules (53 features, ~210 total)
+- **features_ict.py** (20): ICT liquidity sweeps, enhanced FVG/OB, kill zones, Silver Bullet, MSS, confluence
+- **features_institutional.py** (18): VWAP daily reset, volume profile POC/VA, supply/demand zones, Wyckoff events
+- **features_divergence.py** (15): RSI regular/hidden divergence, MACD divergence, breakout-retest detection
+
+### Strategy Labeling System
+- `create_strategy_labels()` — ICT confluence-based labels (HTF bias + session + level + zone + price confirm)
+- `label_mode: "price" | "strategy"` configurable per symbol in symbol_config.py
+- Backward compatible — existing models and create_labels() untouched
+
+### Test Results
+- 25/25 new feature tests passing
+- 69/69 existing tests passing (full backward compatibility)
+- Integration test: compute_expert_features() returns >= 210 features
