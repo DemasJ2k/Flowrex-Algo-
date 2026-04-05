@@ -13,6 +13,7 @@ from app.services.ml.ensemble_engine import EnsembleSignalEngine
 from app.services.ml.features_mtf import compute_expert_features
 from app.services.ml.meta_labeler import MetaLabeler
 from app.services.ml.regime_detector import RegimeDetector
+from app.services.ml.rl_trade_manager import RLTradeManager
 from app.services.agent.instrument_specs import calc_sl_tp, calc_lot_size, get_session_multiplier
 from app.services.agent.risk_manager import RiskManager
 from app.services.news.newsapi_provider import check_high_impact_news
@@ -50,6 +51,8 @@ class FlowrexAgent:
 
         self._meta_labeler = MetaLabeler(symbol)
         self._regime_detector = RegimeDetector(symbol)
+        self._rl_manager = RLTradeManager(symbol)
+        self._recent_trade_results: list[float] = []
         self._log_fn: Optional[Callable] = None
 
         # Config with smart defaults
@@ -87,6 +90,7 @@ class FlowrexAgent:
         expert_loaded = self._ensemble_expert.load_models()
         meta_loaded = self._meta_labeler.load()
         regime_loaded = self._regime_detector.load()
+        rl_loaded = self._rl_manager.load()
 
         # Use whichever ensemble has models
         if scalp_loaded and expert_loaded:
@@ -110,6 +114,7 @@ class FlowrexAgent:
             f"Flowrex Agent loaded: {len(model_names)} models ({', '.join(model_names)})"
             + (", meta-labeler" if meta_loaded else "")
             + (", regime detector" if regime_loaded else "")
+            + (", RL trade manager" if rl_loaded else "")
             + f" | voting: {'2/3 agreement' if len(model_names) >= 3 else 'single conviction' if len(model_names) == 1 else 'both agree'}"
         )
         return len(model_names) > 0
@@ -213,20 +218,46 @@ class FlowrexAgent:
             self._log_reject("Meta-labeler rejected")
             return None
 
-        # SL/TP
+        # ATR for sizing
         atr_idx = feature_names.index("atr_14") if "atr_14" in feature_names else None
         atr_value = float(feature_vector[atr_idx]) if atr_idx is not None else 0
         if atr_value <= 0:
             self._log_reject("ATR zero")
             return None
 
+        # RL Trade Manager: decides SKIP/SMALL/NORMAL/AGGRESSIVE
+        regime_id = {"trending_up": 0, "trending_down": 1, "ranging": 2, "volatile": 3}.get(regime_name, 2)
+        regime_conf = 0.5
+        if self._regime_filter and hasattr(self, '_last_regime_conf'):
+            regime_conf = self._last_regime_conf
+
+        rl_decision = self._rl_manager.decide(
+            signal_direction=signal.direction,
+            signal_confidence=signal.confidence,
+            feature_vector=feature_vector,
+            feature_names=feature_names,
+            regime_id=regime_id,
+            regime_confidence=regime_conf,
+            hour_utc=hour_utc,
+            recent_trade_results=self._recent_trade_results,
+        )
+
+        if rl_decision.action == 0:  # SKIP
+            self._log_reject(f"RL skipped (confidence={rl_decision.confidence:.2f})")
+            return None
+
+        # Use RL-managed SL/TP multipliers (or fallback to defaults if no RL model)
+        sl_mult = rl_decision.sl_atr_mult if self._rl_manager.is_loaded else self._sl_mult
+        tp_mult = rl_decision.tp_atr_mult if self._rl_manager.is_loaded else self._tp_mult
+        lot_mult = rl_decision.lot_multiplier if self._rl_manager.is_loaded else 1.0
+
         last_bar = m5_bars[-1]
         entry_price = float(last_bar["close"])
-        stop_loss, take_profit = calc_sl_tp(entry_price, signal.direction, atr_value, self._sl_mult, self._tp_mult)
+        stop_loss, take_profit = calc_sl_tp(entry_price, signal.direction, atr_value, sl_mult, tp_mult)
 
-        # Position sizing
+        # Position sizing (scaled by RL lot multiplier)
         effective_risk = self._risk_manager.risk_per_trade * session_mult * regime_mult
-        risk_amount = balance * effective_risk
+        risk_amount = balance * effective_risk * lot_mult
         sl_distance = abs(entry_price - stop_loss)
         lot_size = calc_lot_size(self.symbol, risk_amount, sl_distance, self.broker_name)
 
@@ -245,6 +276,8 @@ class FlowrexAgent:
             "regime_multiplier": regime_mult,
             "atr": atr_value,
             "agent_type": "flowrex",
+            "rl_action": rl_decision.action_name,
+            "rl_lot_mult": rl_decision.lot_multiplier,
             "votes": {k: v["confidence"] for k, v in signal.votes.items()},
         }
 

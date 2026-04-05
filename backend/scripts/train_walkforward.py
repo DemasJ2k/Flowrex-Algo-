@@ -84,13 +84,18 @@ def _normalize_ohlcv(df: pd.DataFrame) -> pd.DataFrame:
 
 def _load_tf(symbol: str, tf: str) -> pd.DataFrame | None:
     """
-    Load a single timeframe CSV, preferring History Data (more history).
-    Falls back to the legacy backend/data/ folder.
+    Load a single timeframe CSV, preferring fresh MT5 data > History Data > legacy.
     """
+    # 1. Fresh MT5 data (most recent, highest priority)
+    mt5_path = os.path.join(DATA_DIR, f"{symbol}_{tf}_mt5.csv")
+    if os.path.exists(mt5_path):
+        return pd.read_csv(mt5_path)
+    # 2. History Data folder (longer history, normalized timestamps)
     hist_path = os.path.join(HIST_DATA_DIR, symbol, f"{symbol}_{tf}.csv")
-    curr_path = os.path.join(DATA_DIR, f"{symbol}_{tf}.csv")
     if os.path.exists(hist_path):
         return _normalize_ohlcv(pd.read_csv(hist_path))
+    # 3. Legacy backend/data folder
+    curr_path = os.path.join(DATA_DIR, f"{symbol}_{tf}.csv")
     if os.path.exists(curr_path):
         return pd.read_csv(curr_path)
     return None

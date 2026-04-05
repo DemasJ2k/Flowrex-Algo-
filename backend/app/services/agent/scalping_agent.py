@@ -8,6 +8,7 @@ from datetime import datetime, timezone
 
 from app.services.ml.ensemble_engine import EnsembleSignalEngine
 from app.services.ml.features_mtf import compute_expert_features
+from app.services.ml.rl_trade_manager import RLTradeManager
 from app.services.agent.instrument_specs import calc_sl_tp, calc_lot_size, get_session_multiplier
 from app.services.agent.risk_manager import RiskManager
 from app.services.news.newsapi_provider import check_high_impact_news
@@ -27,6 +28,8 @@ class ScalpingAgent:
 
         self._risk_manager = RiskManager(config)
         self._ensemble = EnsembleSignalEngine(symbol, "scalping")
+        self._rl_manager = RLTradeManager(symbol)
+        self._recent_trade_results: list[float] = []
         self._log_fn: Optional[Callable] = None
 
         self._eval_count = 0
@@ -39,8 +42,10 @@ class ScalpingAgent:
     def load(self) -> bool:
         """Load ML models from disk."""
         loaded = self._ensemble.load_models()
+        rl_loaded = self._rl_manager.load()
         if loaded:
-            self._log("info", f"Loaded {len(self._ensemble.models)} models: {list(self._ensemble.models.keys())}")
+            self._log("info", f"Loaded {len(self._ensemble.models)} models: {list(self._ensemble.models.keys())}"
+                      + (", RL trade manager" if rl_loaded else ""))
         else:
             self._log("warn", "No models found for scalping agent")
         return loaded
@@ -113,7 +118,7 @@ class ScalpingAgent:
             self._log_reject("No ensemble signal")
             return None
 
-        # 9. Compute ATR-based SL/TP
+        # 9. Compute ATR
         atr_idx = feature_names.index("atr_14") if "atr_14" in feature_names else None
         atr_value = float(feature_vector[atr_idx]) if atr_idx is not None else 0
 
@@ -121,13 +126,32 @@ class ScalpingAgent:
             self._log_reject("ATR is zero")
             return None
 
+        # 9b. RL Trade Manager: decides SKIP/SMALL/NORMAL/AGGRESSIVE
+        rl_decision = self._rl_manager.decide(
+            signal_direction=signal.direction,
+            signal_confidence=signal.confidence,
+            feature_vector=feature_vector,
+            feature_names=feature_names,
+            hour_utc=hour_utc,
+            recent_trade_results=self._recent_trade_results,
+        )
+
+        if rl_decision.action == 0:  # SKIP
+            self._log_reject(f"RL skipped")
+            return None
+
+        # Use RL-managed SL/TP (or defaults if no RL model)
+        sl_mult = rl_decision.sl_atr_mult if self._rl_manager.is_loaded else 1.5
+        tp_mult = rl_decision.tp_atr_mult if self._rl_manager.is_loaded else 2.5
+        lot_mult = rl_decision.lot_multiplier if self._rl_manager.is_loaded else 1.0
+
         last_bar = m5_bars[-1]
         entry_price = float(last_bar["close"])
-        stop_loss, take_profit = calc_sl_tp(entry_price, signal.direction, atr_value)
+        stop_loss, take_profit = calc_sl_tp(entry_price, signal.direction, atr_value, sl_mult, tp_mult)
 
-        # 10. Position sizing
+        # 10. Position sizing (scaled by RL)
         sl_distance = abs(entry_price - stop_loss)
-        lot_size = calc_lot_size(self.symbol, risk_check.risk_amount, sl_distance, self.broker_name)
+        lot_size = calc_lot_size(self.symbol, risk_check.risk_amount * lot_mult, sl_distance, self.broker_name)
 
         # 11. Build signal dict
         direction_str = "BUY" if signal.direction == 1 else "SELL"
@@ -145,6 +169,8 @@ class ScalpingAgent:
             "session_multiplier": session_mult,
             "atr": atr_value,
             "agent_type": "scalping",
+            "rl_action": rl_decision.action_name,
+            "rl_lot_mult": rl_decision.lot_multiplier,
             "votes": {k: v["confidence"] for k, v in signal.votes.items()},
         }
 

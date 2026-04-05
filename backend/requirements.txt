@@ -26,6 +26,8 @@ hmmlearn
 joblib
 apscheduler
 torch
+stable-baselines3
+gymnasium
 
 # Testing
 pytest==8.3.4

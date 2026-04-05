@@ -1322,3 +1322,42 @@ Configurable via `label_mode: "price" | "strategy"` in symbol_config.py.
 - 25/25 new feature tests passing
 - 69/69 existing tests passing (full backward compatibility)
 - Total feature count: 157 -> ~210 (confirmed via integration test)
+
+---
+
+## 2026-04-05 (2) -- LSTM-Transformer + PPO RL Trade Manager
+
+### Summary
+Added LSTM-Transformer as PRIMARY signal generator (replaces basic LSTM) and PPO RL for dynamic
+trade sizing. The LSTM sees 60-bar sequences to capture temporal patterns (sweep->displacement->entry).
+The RL agent decides SKIP/SMALL/NORMAL/AGGRESSIVE for each signal, replacing fixed TP/SL. Both
+integrated into flowrex_agent and scalping_agent with full backward compatibility.
+
+### Architecture: 3-Layer Decision System
+1. LSTM-Transformer (primary signal): 60 bars x 210 features -> BUY/SELL/HOLD + confidence
+2. XGBoost/LightGBM (confirmation): LSTM >=50% + tree agrees, or LSTM >=65% fires alone
+3. PPO RL (trade sizing): observes 20-dim state -> SKIP/SMALL/NORMAL/AGGRESSIVE
+
+### Files Created
+- `backend/app/services/ml/lstm_transformer.py` -- LSTMTransformer nn.Module (392K params)
+  Architecture: Feature Projection -> BiLSTM -> Multi-Head Attention -> Dual Pooling -> Classifier
+- `backend/scripts/train_lstm_transformer.py` -- Walk-forward training pipeline (class-weighted loss,
+  cosine LR, gradient clipping, early stopping)
+- `backend/app/services/ml/rl_trade_manager.py` -- PPO wrapper with 20-dim observation builder
+  Actions: SKIP(0x), SMALL(0.5x, 0.8/1.5 ATR), NORMAL(1x, 1.2/2.5), AGGRESSIVE(1.5x, 1.5/4.0)
+- `backend/scripts/train_rl_manager.py` -- TradeReplayEnv (gymnasium) + PPO training pipeline
+  Reward: pnl - 0.01*MAE - 0.001*bars_held + bonus if PF>2
+- `backend/tests/test_lstm_transformer.py` -- 6 tests (shapes, proba, wrapper roundtrip)
+- `backend/tests/test_rl_manager.py` -- 7 tests (fallback, obs shape, actions, timing)
+
+### Files Modified
+- `backend/app/services/ml/ensemble_engine.py` -- LSTM-primary voting, _predict_lstm_transformer(),
+  _lstm_primary_vote() (50% + tree confirm, or 65% solo override)
+- `backend/app/services/agent/flowrex_agent.py` -- RL integration (decide() after signal, dynamic SL/TP/lot)
+- `backend/app/services/agent/scalping_agent.py` -- same RL integration
+- `backend/requirements.txt` -- added stable-baselines3, gymnasium
+
+### Test Results
+- 6/6 LSTM-Transformer tests passing
+- 7/7 RL manager tests passing
+- Backward compatible: no RL model loaded = NORMAL sizing (safe fallback)

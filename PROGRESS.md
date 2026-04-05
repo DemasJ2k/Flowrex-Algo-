@@ -374,3 +374,32 @@ _Updated at the end of each phase. Read this to understand what has been built._
 - 25/25 new feature tests passing
 - 69/69 existing tests passing (full backward compatibility)
 - Integration test: compute_expert_features() returns >= 210 features
+
+---
+
+## Post-MVP -- LSTM-Transformer + PPO RL Trade Manager (2026-04-05)
+**Status:** Built, training in progress
+
+### LSTM-Transformer (Primary Signal Generator)
+- 392K param model: Feature Projection -> BiLSTM -> Multi-Head Attention -> Classification
+- Sees 60-bar sequences (5 hours of M5 data) — captures temporal patterns
+- Primary signal generator: trees become confirmation filters
+- Voting: LSTM >=50% + any tree confirms, OR LSTM >=65% fires alone
+
+### PPO RL Trade Manager (Dynamic Sizing)
+- Replaces fixed TP/SL with learned dynamic trade management
+- 4 actions: SKIP, SMALL (0.5x/0.8ATR/1.5ATR), NORMAL (1x/1.2/2.5), AGGRESSIVE (1.5x/1.5/4.0)
+- 20-dim observation: signal + ICT confluence + regime + session + recent results
+- Integrated into both flowrex_agent and scalping_agent
+
+### Files Created
+- `backend/app/services/ml/lstm_transformer.py` -- PyTorch model definition
+- `backend/scripts/train_lstm_transformer.py` -- Walk-forward training pipeline
+- `backend/app/services/ml/rl_trade_manager.py` -- PPO wrapper + observation builder
+- `backend/scripts/train_rl_manager.py` -- RL training environment + pipeline
+- `backend/tests/test_lstm_transformer.py` -- 6 tests
+- `backend/tests/test_rl_manager.py` -- 7 tests
+
+### Test Results
+- 13/13 new tests passing (LSTM + RL)
+- Backward compatible: no LSTM = old voting, no RL = NORMAL sizing

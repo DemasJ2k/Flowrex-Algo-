@@ -33,7 +33,16 @@
 - Retrain UI on Models page (trigger, schedule, history table)
 - Monthly retrain executed: US30 swapped to fresh 12-month model (Sharpe 2.8), BTCUSD kept (gate protected Grade B)
 
-## Post-MVP Work (2026-04-05)
+## Post-MVP Work (2026-04-05) — LSTM-Transformer + PPO RL
+- LSTM-Transformer model (lstm_transformer.py): 392K params, BiLSTM + Multi-Head Attention + Dual Pooling
+- LSTM training pipeline (train_lstm_transformer.py): walk-forward, class-weighted loss, cosine LR
+- PPO RL Trade Manager (rl_trade_manager.py): SKIP/SMALL/NORMAL/AGGRESSIVE sizing
+- RL training env (train_rl_manager.py): historical signal replay with reward shaping
+- Ensemble update: LSTM as PRIMARY (50% + tree confirm, or 65% solo), trees as filters
+- Agent integration: flowrex_agent + scalping_agent use RL for dynamic SL/TP/lot sizing
+- Dependencies: stable-baselines3, gymnasium added
+
+## Post-MVP Work (2026-04-05) — Strategy Features
 - Strategy-informed feature pipeline: 53 new features (ICT, VWAP, S/D Zones, Wyckoff, RSI Divergence, Breakout-Retest)
 - features_ict.py: 20 ICT features (liquidity sweeps, enhanced FVG/OB, kill zones, Silver Bullet, MSS, confluence score)
 - features_institutional.py: 18 features (VWAP daily reset, volume profile, supply/demand zones, Wyckoff events, absorption)

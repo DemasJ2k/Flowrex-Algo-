@@ -42,6 +42,8 @@ class EnsembleSignalEngine:
         """Load all models for this symbol+pipeline from disk."""
         self.models.clear()
         model_types = ["xgboost", "lightgbm"]
+        # Always try loading LSTM-Transformer (primary signal generator)
+        model_types.append("lstm_transformer")
         if self.pipeline == "expert":
             model_types.append("lstm")
 
@@ -81,11 +83,11 @@ class EnsembleSignalEngine:
             if model is None:
                 continue
 
-            if mtype == "lstm":
-                # LSTM needs sequence input — skip if not provided
+            if mtype in ("lstm", "lstm_transformer"):
+                # Sequence models need sequence input
                 if feature_sequence is None:
                     continue
-                pred, conf = self._predict_lstm(data, feature_sequence)
+                pred, conf = self._predict_sequence_model(mtype, data, feature_sequence)
             else:
                 try:
                     proba = model.predict_proba(X)[0]
@@ -104,8 +106,10 @@ class EnsembleSignalEngine:
             self._rejection_stats["insufficient_models"] += 1
             return None
 
-        # Voting logic depends on pipeline
-        if self.pipeline == "scalping":
+        # Voting logic: LSTM-primary if available, else fallback
+        if "lstm_transformer" in votes or "lstm" in votes:
+            return self._lstm_primary_vote(votes)
+        elif self.pipeline == "scalping":
             return self._scalping_vote(votes)
         else:
             return self._expert_vote(votes)
@@ -163,6 +167,90 @@ class EnsembleSignalEngine:
             reason=f"expert consensus ({buy_count}B/{sell_count}S)",
             votes=votes,
         )
+
+    def _lstm_primary_vote(self, votes: dict) -> Optional[Signal]:
+        """
+        LSTM-primary voting: LSTM is the primary signal generator.
+        - LSTM >=50% confidence + any tree agrees → signal fires
+        - LSTM >=65% confidence → fires alone (high-conviction override)
+        - Liberal thresholds: RL handles quality filtering downstream
+        """
+        # Find the LSTM vote (prefer lstm_transformer over lstm)
+        lstm_key = "lstm_transformer" if "lstm_transformer" in votes else "lstm" if "lstm" in votes else None
+        if not lstm_key:
+            return self._scalping_vote(votes)
+
+        lstm_vote = votes[lstm_key]
+        if lstm_vote["direction"] == 0:
+            # LSTM says hold — no signal
+            return None
+
+        lstm_dir = lstm_vote["direction"]
+        lstm_conf = lstm_vote["confidence"]
+
+        # High-conviction override: LSTM fires alone at >=65%
+        if lstm_conf >= 0.65:
+            return Signal(
+                direction=lstm_dir,
+                confidence=lstm_conf,
+                agreement=1,
+                reason=f"{lstm_key} high-conviction ({lstm_conf:.0%})",
+                votes=votes,
+            )
+
+        # Standard: LSTM >=50% AND any tree model agrees on direction
+        if lstm_conf >= 0.50:
+            tree_types = [k for k in votes if k not in ("lstm", "lstm_transformer")]
+            for tree_key in tree_types:
+                tree_vote = votes[tree_key]
+                if tree_vote["direction"] == lstm_dir and tree_vote["confidence"] >= 0.50:
+                    # Tree confirms LSTM signal
+                    return Signal(
+                        direction=lstm_dir,
+                        confidence=lstm_conf,
+                        agreement=2,
+                        reason=f"{lstm_key} + {tree_key} confirmed",
+                        votes=votes,
+                    )
+
+        self._rejection_stats["low_confidence"] += 1
+        return None
+
+    def _predict_sequence_model(self, mtype: str, data: dict, sequence: np.ndarray) -> tuple[int, float]:
+        """Route to the correct sequence model prediction method."""
+        wrapper = data.get("model", data)
+        model_type = wrapper.get("model_type", "lstm")  # old wrappers default to "lstm"
+
+        if model_type == "lstm_transformer":
+            return self._predict_lstm_transformer(data, sequence)
+        else:
+            return self._predict_lstm(data, sequence)
+
+    def _predict_lstm_transformer(self, data: dict, sequence: np.ndarray) -> tuple[int, float]:
+        """Predict using LSTM-Transformer model wrapper."""
+        try:
+            import torch
+            from app.services.ml.lstm_transformer import load_lstm_transformer_from_wrapper
+
+            wrapper = data["model"]
+            seq_len = wrapper["seq_len"]
+            mean = wrapper["mean"]
+            std = wrapper["std"]
+            std_safe = np.where(std == 0, 1.0, std)
+
+            # Normalize and create tensor
+            seq = (sequence[-seq_len:] - mean) / std_safe
+            seq_tensor = torch.FloatTensor(seq).unsqueeze(0)
+
+            # Load and run model
+            model = load_lstm_transformer_from_wrapper(wrapper)
+            with torch.no_grad():
+                proba = model.predict_proba(seq_tensor)[0].numpy()
+                pred = int(np.argmax(proba))
+                conf = float(proba[pred])
+            return pred, conf
+        except Exception:
+            return 1, 0.0  # hold with 0 confidence
 
     def _predict_lstm(self, data: dict, sequence: np.ndarray) -> tuple[int, float]:
         """Predict using LSTM model wrapper."""
