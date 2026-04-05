@@ -177,3 +177,67 @@ def keltner_channels(highs: np.ndarray, lows: np.ndarray, closes: np.ndarray,
     upper = middle + multiplier * atr_vals
     lower = middle - multiplier * atr_vals
     return upper, lower, middle
+
+
+def adx(highs: np.ndarray, lows: np.ndarray, closes: np.ndarray, period: int = 14):
+    """Average Directional Index. Returns (adx, plus_di, minus_di)."""
+    n = len(closes)
+    adx_out = np.full(n, np.nan, dtype=float)
+    plus_di_out = np.full(n, np.nan, dtype=float)
+    minus_di_out = np.full(n, np.nan, dtype=float)
+
+    if n < period * 2:
+        return adx_out, plus_di_out, minus_di_out
+
+    # True Range
+    tr = np.empty(n)
+    tr[0] = highs[0] - lows[0]
+    for i in range(1, n):
+        tr[i] = max(highs[i] - lows[i], abs(highs[i] - closes[i-1]), abs(lows[i] - closes[i-1]))
+
+    # Directional Movement
+    plus_dm = np.zeros(n)
+    minus_dm = np.zeros(n)
+    for i in range(1, n):
+        up_move = highs[i] - highs[i-1]
+        down_move = lows[i-1] - lows[i]
+        if up_move > down_move and up_move > 0:
+            plus_dm[i] = up_move
+        if down_move > up_move and down_move > 0:
+            minus_dm[i] = down_move
+
+    # Smoothed TR, +DM, -DM using Wilder's smoothing
+    atr_s = np.zeros(n)
+    plus_dm_s = np.zeros(n)
+    minus_dm_s = np.zeros(n)
+
+    atr_s[period] = np.sum(tr[1:period+1])
+    plus_dm_s[period] = np.sum(plus_dm[1:period+1])
+    minus_dm_s[period] = np.sum(minus_dm[1:period+1])
+
+    for i in range(period + 1, n):
+        atr_s[i] = atr_s[i-1] - atr_s[i-1] / period + tr[i]
+        plus_dm_s[i] = plus_dm_s[i-1] - plus_dm_s[i-1] / period + plus_dm[i]
+        minus_dm_s[i] = minus_dm_s[i-1] - minus_dm_s[i-1] / period + minus_dm[i]
+
+    # +DI and -DI
+    for i in range(period, n):
+        if atr_s[i] > 0:
+            plus_di_out[i] = 100 * plus_dm_s[i] / atr_s[i]
+            minus_di_out[i] = 100 * minus_dm_s[i] / atr_s[i]
+
+    # DX and ADX
+    dx = np.zeros(n)
+    for i in range(period, n):
+        di_sum = plus_di_out[i] + minus_di_out[i]
+        if di_sum > 0:
+            dx[i] = 100 * abs(plus_di_out[i] - minus_di_out[i]) / di_sum
+
+    # First ADX = average of first `period` DX values
+    start = period * 2
+    if start < n:
+        adx_out[start] = np.mean(dx[period+1:start+1])
+        for i in range(start + 1, n):
+            adx_out[i] = (adx_out[i-1] * (period - 1) + dx[i]) / period
+
+    return adx_out, plus_di_out, minus_di_out

@@ -198,6 +198,19 @@ User wants to shift from pure-ML approach to strategy-informed ML. The ML should
 
 **Honest assessment:** Model profitable overall (+10.5% over 17 months) but Q3/Q4 2025 are Grade F. Max DD 18.8% would blow a prop account. Average ~0.6%/month — far below 2% daily target. Edge is real in trending markets but regime detection needs significant improvement to survive sustained chop.
 
+## 2026-04-05 — Potential Agent Build (Institutional Strategies)
+
+### Context
+v8 renamed to Beginner Agent (Grade B, Sharpe 1.84). Building new Potential Agent from scratch using institutional trading strategies: VWAP, Volume Profile, ADX, ORB, EMA structure. No Fibonacci, no Stochastic, no Parabolic SAR. Architecture: XGBoost/LightGBM + LSTM diversity signal. ~80 features. Simple risk manager (10% max DD, no prop firm filters).
+
+### Strategies:
+1. VWAP Mean Reversion (THE prop desk strategy)
+2. Volume Profile POC/VAH/VAL (institutional S/R)
+3. Opening Range Breakout (proven day trading)
+4. EMA Crossover + ADX Filter (CTA backbone)
+5. Breakout + Retest (universal)
+6. Donchian Modern Turtle (reuse existing)
+
 ## 2026-04-01 — Rapid Agent Multi-Strategy Architecture
 
 ### Decision: Separate Models per Strategy (Option B)
