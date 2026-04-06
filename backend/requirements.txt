@@ -25,7 +25,7 @@ optuna
 hmmlearn
 joblib
 apscheduler
-torch
+shap
 
 # Testing
 pytest==8.3.4
