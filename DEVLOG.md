@@ -212,6 +212,29 @@ Deploying FlowrexAlgo as a live trading platform. Domain: flowrexalgo.com. Hosti
 
 ### Phase 1: Landing Page + Auth Polish (Days 1-3)
 
+## 2026-04-06 — FlowrexAlgo Launch Prep
+
+### Infrastructure
+- DigitalOcean Droplet provisioned: 159.223.159.209 (2vCPU, 2GB, Docker, NYC1)
+- Cloudflare DNS: flowrexalgo.com → 159.223.159.209 (zone active)
+- GoDaddy nameservers → Cloudflare (dahlia + kenneth)
+- docker-compose.prod.yml: nginx + SSL + memory limits + log rotation
+- Scripts: server-setup.sh, deploy.sh, backup-db.sh
+
+### Engine Integration
+- engine.py: agent_type field now routes to PotentialAgent/ScalpingAgent/ExpertAgent/FlowrexAgent
+- AgentWizard: new "Agent" step with type selector (Potential default, Grade A badge)
+
+### MarketDataProvider
+- New model: MarketDataProvider (encrypted API keys, OHLCV/tick toggle)
+- CRUD API with connectivity test per provider (Databento, Alpha Vantage, Finnhub, Polygon)
+- Settings page: "Providers" tab (add/test/delete) + "Feedback" tab (bug/feature/provider request)
+
+### Already Built (discovered)
+- Landing page, RequestAccessModal, ProfileDropdown, AppShell auth-aware layout
+- AccessRequest, FeedbackReport backend + admin approval flow
+- All Phase 1-2 work from plan was already complete
+
 ## 2026-04-06 — Potential Agent v2 (ATR-normalized, Grade A)
 
 ### v2 Changes
