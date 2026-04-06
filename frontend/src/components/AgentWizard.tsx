@@ -7,7 +7,13 @@ import { AlertTriangle } from "lucide-react";
 import { toast } from "sonner";
 import { getErrorMessage } from "@/lib/errors";
 
-const STEPS = ["Symbol", "Risk", "Filters", "Mode", "Review"];
+const STEPS = ["Symbol", "Agent", "Risk", "Filters", "Mode", "Review"];
+
+const AGENT_TYPES = [
+  { value: "potential", label: "Potential Agent", desc: "Institutional strategies (VWAP, ADX, ORB, EMA). Grade A model.", badge: "A", color: "#22c55e" },
+  { value: "scalping", label: "Scalping Agent", desc: "Quick entries with single-model conviction. ICT/SMC features.", badge: "B", color: "#3b82f6" },
+  { value: "flowrex", label: "Flowrex Agent", desc: "Unified ensemble — loads all available models with smart voting.", badge: "", color: "#8b5cf6" },
+];
 
 const RISK_PRESETS = [
   { label: "Conservative", value: 0.0025, desc: "0.25% per trade" },
@@ -37,6 +43,7 @@ export default function AgentWizard({
   const [riskPerTrade, setRiskPerTrade] = useState(FALLBACK_RISK);
   const [maxDailyLoss, setMaxDailyLoss] = useState(FALLBACK_LOSS);
   const [cooldownBars, setCooldownBars] = useState(FALLBACK_COOLDOWN);
+  const [agentType, setAgentType] = useState("potential");
   const [mode, setMode] = useState("paper");
   const [sessionFilter, setSessionFilter] = useState(true);
   const [regimeFilter, setRegimeFilter] = useState(true);
@@ -58,9 +65,9 @@ export default function AgentWizard({
 
   const reset = () => {
     setStep(0); setSymbol("XAUUSD"); setCustomName(""); setBroker(FALLBACK_BROKER);
-    setTimeframe("M5"); setRiskPerTrade(FALLBACK_RISK); setMaxDailyLoss(FALLBACK_LOSS);
-    setCooldownBars(FALLBACK_COOLDOWN); setMode("paper"); setSessionFilter(true);
-    setRegimeFilter(true); setNewsFilter(true);
+    setTimeframe("M5"); setAgentType("potential"); setRiskPerTrade(FALLBACK_RISK);
+    setMaxDailyLoss(FALLBACK_LOSS); setCooldownBars(FALLBACK_COOLDOWN); setMode("paper");
+    setSessionFilter(true); setRegimeFilter(true); setNewsFilter(true);
   };
 
   const agentName = customName || `${symbol} Flowrex`;
@@ -72,7 +79,7 @@ export default function AgentWizard({
         name: agentName,
         symbol,
         timeframe,
-        agent_type: "flowrex",
+        agent_type: agentType,
         broker_name: broker,
         mode,
         risk_config: {
@@ -149,8 +156,35 @@ export default function AgentWizard({
         </div>
       )}
 
-      {/* Step 2: Risk */}
+      {/* Step 2: Agent Type */}
       {step === 1 && (
+        <div className="space-y-3">
+          <p className="text-sm mb-1" style={{ color: "var(--muted)" }}>Select agent strategy</p>
+          {AGENT_TYPES.map((a) => (
+            <button
+              key={a.value}
+              onClick={() => setAgentType(a.value)}
+              className={`w-full text-left p-3 rounded-lg border transition-colors ${
+                agentType === a.value ? "border-blue-500 bg-blue-500/10" : "hover:bg-white/5"
+              }`}
+              style={{ borderColor: agentType === a.value ? undefined : "var(--border)" }}
+            >
+              <div className="flex items-center justify-between">
+                <span className="font-medium text-sm">{a.label}</span>
+                {a.badge && (
+                  <span className="text-xs px-1.5 py-0.5 rounded font-bold" style={{ background: `${a.color}20`, color: a.color }}>
+                    Grade {a.badge}
+                  </span>
+                )}
+              </div>
+              <span className="text-xs mt-1 block" style={{ color: "var(--muted)" }}>{a.desc}</span>
+            </button>
+          ))}
+        </div>
+      )}
+
+      {/* Step 3: Risk */}
+      {step === 2 && (
         <div className="space-y-3">
           <p className="text-sm mb-3" style={{ color: "var(--muted)" }}>Risk per trade</p>
           {RISK_PRESETS.map((r) => (
@@ -196,8 +230,8 @@ export default function AgentWizard({
         </div>
       )}
 
-      {/* Step 3: Filters */}
-      {step === 2 && (
+      {/* Step 4: Filters */}
+      {step === 3 && (
         <div className="space-y-4">
           <p className="text-sm mb-3" style={{ color: "var(--muted)" }}>Smart filters adapt your agent to market conditions</p>
           <label className="flex items-center gap-2 text-sm cursor-pointer">
@@ -215,8 +249,8 @@ export default function AgentWizard({
         </div>
       )}
 
-      {/* Step 4: Mode */}
-      {step === 3 && (
+      {/* Step 5: Mode */}
+      {step === 4 && (
         <div className="space-y-3">
           <p className="text-sm mb-3" style={{ color: "var(--muted)" }}>Trading mode</p>
           {[
@@ -244,14 +278,17 @@ export default function AgentWizard({
         </div>
       )}
 
-      {/* Step 5: Review */}
-      {step === 4 && (
+      {/* Step 6: Review */}
+      {step === 5 && (
         <div className="space-y-2 text-sm">
           <div className="flex justify-between py-1 border-b" style={{ borderColor: "var(--border)" }}>
             <span style={{ color: "var(--muted)" }}>Name</span><span>{agentName}</span>
           </div>
           <div className="flex justify-between py-1 border-b" style={{ borderColor: "var(--border)" }}>
             <span style={{ color: "var(--muted)" }}>Symbol</span><span>{symbol} / {timeframe}</span>
+          </div>
+          <div className="flex justify-between py-1 border-b" style={{ borderColor: "var(--border)" }}>
+            <span style={{ color: "var(--muted)" }}>Agent Type</span><span className="capitalize">{agentType}</span>
           </div>
           <div className="flex justify-between py-1 border-b" style={{ borderColor: "var(--border)" }}>
             <span style={{ color: "var(--muted)" }}>Broker</span><span>{broker}</span>

@@ -45,16 +45,25 @@ class AgentRunner:
                 self._log_to_db(db, "error", "Agent not found in DB")
                 return
 
-            # Instantiate unified Flowrex agent (loads all available models)
-            self._agent = FlowrexAgent(
-                agent_id=self.agent_id,
-                symbol=agent_record.symbol,
-                broker_name=agent_record.broker_name,
-                config={
-                    **(agent_record.risk_config or {}),
-                    "timeframe": agent_record.timeframe or "M5",
-                },
-            )
+            # Instantiate agent based on agent_type
+            agent_type = agent_record.agent_type or "flowrex"
+            agent_config = {
+                **(agent_record.risk_config or {}),
+                "timeframe": agent_record.timeframe or "M5",
+            }
+            agent_args = (self.agent_id, agent_record.symbol, agent_record.broker_name, agent_config)
+
+            if agent_type == "potential":
+                from app.services.agent.potential_agent import PotentialAgent
+                self._agent = PotentialAgent(*agent_args)
+            elif agent_type == "scalping":
+                from app.services.agent.scalping_agent import ScalpingAgent
+                self._agent = ScalpingAgent(*agent_args)
+            elif agent_type == "expert":
+                from app.services.agent.expert_agent import ExpertAgent
+                self._agent = ExpertAgent(*agent_args)
+            else:
+                self._agent = FlowrexAgent(*agent_args)
 
             # Inject logging callback
             self._agent._log_fn = lambda level, msg, data=None: self._log(level, msg, data)
