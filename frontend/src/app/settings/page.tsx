@@ -10,7 +10,7 @@ import ConfirmDialog from "@/components/ui/ConfirmDialog";
 import { toast } from "sonner";
 import { getErrorMessage } from "@/lib/errors";
 import type { UserSettings } from "@/types";
-import { Download, Shield, ShieldCheck, Key, Eye, EyeOff, Trash2, Loader2 } from "lucide-react";
+import { Download, Shield, ShieldCheck, Key, Eye, EyeOff, Trash2, Loader2, Database, Plus, CheckCircle, XCircle, MessageSquare } from "lucide-react";
 
 interface UserProfile { id: number; email: string; is_admin: boolean; created_at: string | null; has_2fa: boolean; }
 interface BrokerConnection { broker_name: string; stored: boolean; is_active: boolean; connected: boolean; balance: number | null; currency: string | null; account_id: string | null; server: string | null; connected_since: number | null; }
@@ -46,6 +46,17 @@ export default function SettingsPage() {
   const [tfaSetup, setTfaSetup] = useState<{secret: string; provisioning_uri: string} | null>(null);
   const [tfaCode, setTfaCode] = useState("");
 
+  // Data Providers
+  interface DataProvider { id: number; provider_name: string; api_key_masked: string; data_type: string; is_active: boolean; }
+  const [providers, setProviders] = useState<DataProvider[]>([]);
+  const [newProvider, setNewProvider] = useState({ name: "databento", key: "", type: "ohlcv" });
+  const [providerTesting, setProviderTesting] = useState<number | null>(null);
+
+  // Feedback
+  const [feedbackType, setFeedbackType] = useState("bug");
+  const [feedbackMsg, setFeedbackMsg] = useState("");
+  const [feedbackSending, setFeedbackSending] = useState(false);
+
   // Data
   const [clearLogsConfirm, setClearLogsConfirm] = useState(false);
 
@@ -61,6 +72,7 @@ export default function SettingsPage() {
       }).catch(() => {}),
       api.get("/api/auth/me").then((r) => setProfile(r.data)).catch(() => {}),
       api.get("/api/broker/connections").then((r) => setConnections(r.data)).catch(() => {}),
+      api.get("/api/market-data/providers").then((r) => setProviders(r.data)).catch(() => {}),
     ]).finally(() => setLoading(false));
   };
   useEffect(() => { fetchData(); }, []);
@@ -578,6 +590,168 @@ export default function SettingsPage() {
                     </button>
                   </div>
                 )}
+              </Card>
+            </div>
+          ),
+        },
+        {
+          label: "Providers",
+          content: (
+            <div className="space-y-4">
+              {/* Add Provider */}
+              <Card>
+                <h3 className="text-sm font-medium mb-3 flex items-center gap-2"><Database size={14} /> Add Market Data Provider</h3>
+                <div className="space-y-3">
+                  <div className="grid grid-cols-2 gap-3">
+                    <div>
+                      <label className="block text-xs mb-1" style={{ color: "var(--muted)" }}>Provider</label>
+                      <select value={newProvider.name} onChange={(e) => setNewProvider({ ...newProvider, name: e.target.value })}
+                        className="w-full px-3 py-2 text-sm rounded-lg border bg-transparent" style={{ borderColor: "var(--border)", background: "var(--card)" }}>
+                        <option value="databento">Databento</option>
+                        <option value="alphavantage">Alpha Vantage</option>
+                        <option value="finnhub">Finnhub</option>
+                        <option value="polygon">Polygon</option>
+                      </select>
+                    </div>
+                    <div>
+                      <label className="block text-xs mb-1" style={{ color: "var(--muted)" }}>Data Type</label>
+                      <select value={newProvider.type} onChange={(e) => setNewProvider({ ...newProvider, type: e.target.value })}
+                        className="w-full px-3 py-2 text-sm rounded-lg border bg-transparent" style={{ borderColor: "var(--border)", background: "var(--card)" }}>
+                        <option value="ohlcv">OHLCV</option>
+                        <option value="tick">Tick Data</option>
+                      </select>
+                    </div>
+                  </div>
+                  <div>
+                    <label className="block text-xs mb-1" style={{ color: "var(--muted)" }}>API Key</label>
+                    <input type="password" value={newProvider.key} onChange={(e) => setNewProvider({ ...newProvider, key: e.target.value })}
+                      className="w-full px-3 py-2 text-sm rounded-lg border bg-transparent outline-none focus:border-blue-500"
+                      style={{ borderColor: "var(--border)" }} placeholder="Enter API key" />
+                  </div>
+                  <button
+                    disabled={!newProvider.key.trim()}
+                    onClick={async () => {
+                      try {
+                        await api.post("/api/market-data/providers", { provider_name: newProvider.name, api_key: newProvider.key, data_type: newProvider.type });
+                        toast.success(`${newProvider.name} provider added`);
+                        setNewProvider({ ...newProvider, key: "" });
+                        api.get("/api/market-data/providers").then((r) => setProviders(r.data));
+                      } catch (e) { toast.error(getErrorMessage(e)); }
+                    }}
+                    className="px-4 py-2 text-sm font-medium rounded-lg bg-blue-600 hover:bg-blue-500 text-white disabled:opacity-50 flex items-center gap-2"
+                  >
+                    <Plus size={14} /> Add Provider
+                  </button>
+                </div>
+              </Card>
+
+              {/* Existing Providers */}
+              {providers.length > 0 && (
+                <Card>
+                  <h3 className="text-sm font-medium mb-3">Connected Providers</h3>
+                  <div className="space-y-3">
+                    {providers.map((p) => (
+                      <div key={p.id} className="flex items-center justify-between py-2 border-b last:border-0" style={{ borderColor: "var(--border)" }}>
+                        <div>
+                          <p className="text-sm font-medium capitalize">{p.provider_name}</p>
+                          <p className="text-xs" style={{ color: "var(--muted)" }}>{p.api_key_masked} &middot; {p.data_type.toUpperCase()}</p>
+                        </div>
+                        <div className="flex items-center gap-2">
+                          <button
+                            disabled={providerTesting === p.id}
+                            onClick={async () => {
+                              setProviderTesting(p.id);
+                              try {
+                                const r = await api.post(`/api/market-data/providers/${p.id}/test`);
+                                if (r.data.status === "ok") toast.success(r.data.message);
+                                else toast.error(r.data.message);
+                              } catch { toast.error("Test failed"); }
+                              setProviderTesting(null);
+                            }}
+                            className="px-2 py-1 text-xs rounded border hover:bg-white/5" style={{ borderColor: "var(--border)" }}
+                          >
+                            {providerTesting === p.id ? <Loader2 size={12} className="animate-spin" /> : "Test"}
+                          </button>
+                          <button
+                            onClick={async () => {
+                              await api.delete(`/api/market-data/providers/${p.id}`);
+                              toast.success("Provider removed");
+                              setProviders(providers.filter((x) => x.id !== p.id));
+                            }}
+                            className="p-1 text-red-400 hover:bg-red-500/10 rounded"
+                          >
+                            <Trash2 size={14} />
+                          </button>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </Card>
+              )}
+
+              {/* Request Other Provider */}
+              <Card>
+                <h3 className="text-sm font-medium mb-2">Need a different provider?</h3>
+                <p className="text-xs mb-3" style={{ color: "var(--muted)" }}>Request support for a provider not in the list.</p>
+                <button
+                  onClick={async () => {
+                    const name = prompt("Which market data provider would you like us to add?");
+                    if (name) {
+                      try {
+                        await api.post("/api/feedback", { feedback_type: "provider_request", message: `Please add support for: ${name}` });
+                        toast.success("Request submitted!");
+                      } catch { toast.error("Failed to submit"); }
+                    }
+                  }}
+                  className="px-3 py-1.5 text-xs rounded-lg border hover:bg-white/5" style={{ borderColor: "var(--border)" }}
+                >
+                  Request Provider
+                </button>
+              </Card>
+            </div>
+          ),
+        },
+        {
+          label: "Feedback",
+          content: (
+            <div className="space-y-4">
+              <Card>
+                <h3 className="text-sm font-medium mb-3 flex items-center gap-2"><MessageSquare size={14} /> Submit Feedback</h3>
+                <div className="space-y-3">
+                  <div>
+                    <label className="block text-xs mb-1" style={{ color: "var(--muted)" }}>Type</label>
+                    <select value={feedbackType} onChange={(e) => setFeedbackType(e.target.value)}
+                      className="w-full px-3 py-2 text-sm rounded-lg border bg-transparent" style={{ borderColor: "var(--border)", background: "var(--card)" }}>
+                      <option value="bug">Bug Report</option>
+                      <option value="feature">Feature Request</option>
+                      <option value="provider_request">Provider Request</option>
+                      <option value="other">Other</option>
+                    </select>
+                  </div>
+                  <div>
+                    <label className="block text-xs mb-1" style={{ color: "var(--muted)" }}>Message</label>
+                    <textarea value={feedbackMsg} onChange={(e) => setFeedbackMsg(e.target.value)} rows={4}
+                      className="w-full px-3 py-2 text-sm rounded-lg border bg-transparent outline-none focus:border-blue-500 resize-none"
+                      style={{ borderColor: "var(--border)" }}
+                      placeholder="Describe the issue or feature you'd like..." />
+                  </div>
+                  <button
+                    disabled={!feedbackMsg.trim() || feedbackSending}
+                    onClick={async () => {
+                      setFeedbackSending(true);
+                      try {
+                        await api.post("/api/feedback", { feedback_type: feedbackType, message: feedbackMsg });
+                        toast.success("Feedback submitted!");
+                        setFeedbackMsg("");
+                      } catch (e) { toast.error(getErrorMessage(e)); }
+                      setFeedbackSending(false);
+                    }}
+                    className="px-4 py-2 text-sm font-medium rounded-lg bg-blue-600 hover:bg-blue-500 text-white disabled:opacity-50 flex items-center gap-2"
+                  >
+                    {feedbackSending ? <Loader2 size={14} className="animate-spin" /> : null}
+                    Submit Feedback
+                  </button>
+                </div>
               </Card>
             </div>
           ),
