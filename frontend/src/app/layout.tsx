@@ -1,8 +1,8 @@
 import type { Metadata } from "next";
 import { Geist, Geist_Mono } from "next/font/google";
-import Sidebar from "@/components/Sidebar";
 import { Toaster } from "sonner";
 import "./globals.css";
+import AppShell from "@/components/AppShell";
 
 const geistSans = Geist({
   variable: "--font-geist-sans",
@@ -15,8 +15,8 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "Flowrex Algo",
-  description: "Autonomous algorithmic trading platform",
+  title: "FlowrexAlgo — Autonomous Trading Platform",
+  description: "Deploy ML-powered trading agents on US30, BTCUSD, and XAUUSD. Institutional-grade algorithms with real-time monitoring.",
 };
 
 export default function RootLayout({
@@ -33,10 +33,7 @@ export default function RootLayout({
         className={`${geistSans.variable} ${geistMono.variable} antialiased min-h-screen`}
         style={{ background: "var(--background)", color: "var(--foreground)" }}
       >
-        <Sidebar />
-        <main className="md:ml-16 min-h-screen p-4 pt-16 md:pt-6 md:p-6">
-          {children}
-        </main>
+        <AppShell>{children}</AppShell>
         <Toaster
           theme="dark"
           position="bottom-right"

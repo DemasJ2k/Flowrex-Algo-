@@ -198,6 +198,20 @@ User wants to shift from pure-ML approach to strategy-informed ML. The ML should
 
 **Honest assessment:** Model profitable overall (+10.5% over 17 months) but Q3/Q4 2025 are Grade F. Max DD 18.8% would blow a prop account. Average ~0.6%/month — far below 2% daily target. Edge is real in trending markets but regime detection needs significant improvement to survive sustained chop.
 
+## 2026-04-06 — FlowrexAlgo Launch Sprint (14-Day Plan)
+
+### Context
+Deploying FlowrexAlgo as a live trading platform. Domain: flowrexalgo.com. Hosting: DigitalOcean. 2 beta testers by day 14. Potential Agent v2 (Grade A, Sharpe 4.96) paper trading on Oanda.
+
+### Key Architecture Decisions
+- Data Provider ≠ Broker (Databento for data, Oanda for execution)
+- Self-hosted Postgres on DO (not Supabase — pauses on free tier)
+- Keep existing JWT auth (not Supabase Auth)
+- Multi-broker supported (Oanda + cTrader simultaneously)
+- Dark + vibrant accents UI style
+
+### Phase 1: Landing Page + Auth Polish (Days 1-3)
+
 ## 2026-04-06 — Potential Agent v2 (ATR-normalized, Grade A)
 
 ### v2 Changes

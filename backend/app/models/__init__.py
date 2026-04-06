@@ -4,9 +4,11 @@ from app.models.agent import TradingAgent, AgentLog, AgentTrade
 from app.models.ml import MLModel
 from app.models.strategy import Strategy
 from app.models.invite import InviteCode
+from app.models.feedback import AccessRequest, FeedbackReport
 
 __all__ = [
     "User", "UserSettings", "BrokerAccount",
     "TradingAgent", "AgentLog", "AgentTrade",
     "MLModel", "Strategy", "InviteCode",
+    "AccessRequest", "FeedbackReport",
 ]

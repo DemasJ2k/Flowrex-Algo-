@@ -2,6 +2,7 @@
 
 import { useEffect, useState, useMemo } from "react";
 import Link from "next/link";
+import LandingPage from "@/components/LandingPage";
 import { StatCard } from "@/components/ui/Card";
 import Card from "@/components/ui/Card";
 import StatusBadge from "@/components/ui/StatusBadge";
@@ -20,7 +21,20 @@ function timeAgo(dateStr: string): string {
   return Math.floor(diff / 86400) + "d ago";
 }
 
-export default function DashboardPage() {
+export default function HomePage() {
+  const [isAuthed, setIsAuthed] = useState<boolean | null>(null);
+
+  useEffect(() => {
+    setIsAuthed(!!localStorage.getItem("flowrex_token"));
+  }, []);
+
+  if (isAuthed === null) return null; // loading
+  if (!isAuthed) return <LandingPage />;
+
+  return <DashboardView />;
+}
+
+function DashboardView() {
   const [account, setAccount] = useState<AccountInfo | null>(null);
   const [pnl, setPnl] = useState<PnlSummaryItem[]>([]);
   const [agents, setAgents] = useState<Agent[]>([]);
