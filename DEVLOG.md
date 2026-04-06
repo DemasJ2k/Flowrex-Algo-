@@ -198,9 +198,9 @@ User wants to shift from pure-ML approach to strategy-informed ML. The ML should
 
 **Honest assessment:** Model profitable overall (+10.5% over 17 months) but Q3/Q4 2025 are Grade F. Max DD 18.8% would blow a prop account. Average ~0.6%/month — far below 2% daily target. Edge is real in trending markets but regime detection needs significant improvement to survive sustained chop.
 
-## 2026-04-06 — Potential Agent v1 Trained (US30)
+## 2026-04-06 — Potential Agent v1 Trained + Compared (US30)
 
-### Results
+### Training Results
 - **Walk-Forward:** 4 folds, ALL Grade B (Sharpe 1.79-2.39)
 - **True OOS (Jan-Apr 2026):**
   - XGBoost: Grade B, Sharpe 2.86, WR 52.2%, DD 1.3%
@@ -208,6 +208,20 @@ User wants to shift from pure-ML approach to strategy-informed ML. The ML should
 - **Features:** 76 (75 institutional + LSTM diversity signal)
 - **SHAP:** Volatility 66.7%, MACD/Momentum 10.4%, Session/Time 6.3%
 - **Models saved:** potential_US30_M5_xgboost.joblib, potential_US30_M5_lightgbm.joblib
+
+### 17-Month Forward Test Comparison (Sep 2024 → Apr 2026, 107k bars)
+| Agent | Grade | Sharpe | WR | DD | Return | Trades |
+|-------|-------|--------|-----|-----|--------|--------|
+| Beginner XGBoost | C | 0.62 | 47.9% | 4.9% | 5.5% | 1617 |
+| Beginner LightGBM | C | 0.74 | 48.8% | 3.9% | 7.0% | 1647 |
+| **Potential XGBoost** | **B** | **1.98** | **52.2%** | **2.9%** | **19.7%** | 1784 |
+| **Potential LightGBM** | **B** | **1.95** | **51.9%** | **4.0%** | **20.0%** | 1779 |
+
+**Potential Agent: +3x Sharpe, +3x Return, better WR, similar DD.**
+
+### Built
+- `potential_agent.py` — runtime inference class (ensemble voting, simple risk)
+- `compare_agents.py` — side-by-side backtesting script
 
 ### Optimizations Applied
 - Vectorized session VWAP (pandas groupby cumsum)

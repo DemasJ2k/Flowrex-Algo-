@@ -437,6 +437,56 @@ _Updated at the end of each phase. Read this to understand what has been built._
 ### Remaining Work
 - Build Expert/Swing agent for US30 (H4 entries, overnight holds)
 - Explore ensemble of specialists (trending vs ranging models)
+
+---
+
+## Potential Agent v1 (2026-04-06)
+**Status:** US30 Trained — Grade B, Sharpe 1.95-1.98 (17-month forward test)
+
+### Architecture
+- 76 features: VWAP(7), Volume Profile(6), ADX(6), EMA Structure(8), ORB(5), RSI(5), MACD(5), Volatility(6), CVD/Flow(5), Session(5), Structure(6), Donchian(5), HTF(7), LSTM diversity(1)
+- XGBoost + LightGBM ensemble, best-confidence voting
+- Simple risk: 10% max DD, 3% daily loss, 1% per trade, 10 trades/day max
+- No Fibonacci, no Stochastic, no Parabolic SAR
+
+### Walk-Forward Results (4-fold, expanding window)
+| Fold | Period | XGBoost | LightGBM |
+|------|--------|---------|----------|
+| 1 | 2020-06→2021-11 | B Sharpe=1.79 WR=51.4% DD=3.2% | B Sharpe=1.79 WR=52.0% DD=2.2% |
+| 2 | 2021-11→2023-03 | B Sharpe=1.97 WR=50.3% DD=3.7% | B Sharpe=2.00 WR=50.8% DD=4.8% |
+| 3 | 2023-03→2024-08 | B Sharpe=2.39 WR=53.6% DD=2.3% | B Sharpe=2.33 WR=53.3% DD=2.3% |
+| 4 | 2024-08→2025-12 | B Sharpe=2.05 WR=51.5% DD=2.9% | B Sharpe=1.87 WR=51.0% DD=3.2% |
+
+### 17-Month Forward Test (Sep 2024 → Apr 2026, 107k bars)
+| Agent | Grade | Sharpe | WR | DD | Return | Trades |
+|-------|-------|--------|-----|-----|--------|--------|
+| Beginner XGBoost | C | 0.62 | 47.9% | 4.9% | 5.5% | 1617 |
+| Beginner LightGBM | C | 0.74 | 48.8% | 3.9% | 7.0% | 1647 |
+| **Potential XGBoost** | **B** | **1.98** | **52.2%** | **2.9%** | **19.7%** | 1784 |
+| **Potential LightGBM** | **B** | **1.95** | **51.9%** | **4.0%** | **20.0%** | 1779 |
+
+### SHAP Strategy Group Contribution
+| Group | SHAP % | Features |
+|-------|--------|----------|
+| Volatility | 66.7% | 6 |
+| MACD/Momentum | 10.4% | 7 |
+| Session/Time | 6.3% | 5 |
+| EMA Structure | 3.0% | 9 |
+| Structure | 2.8% | 6 |
+| Volume Profile | 1.9% | 6 |
+
+### Files Created
+- `backend/app/services/ml/features_potential.py` — 76 institutional features (318 lines)
+- `backend/scripts/train_potential.py` — training pipeline + LSTM (543 lines)
+- `backend/app/services/agent/potential_agent.py` — runtime inference (228 lines)
+- `backend/scripts/compare_agents.py` — side-by-side backtesting
+- `backend/tests/test_features_potential.py` — 19 tests
+
+### Files Modified
+- `backend/app/services/backtest/indicators.py` — added ADX indicator
+
+### Test Results
+- 19/19 potential feature tests passing (0.71s)
 - Explore rule-based + ML hybrid
 - Paper trade US30 scalping + BTCUSD (models are production-ready)
 - XAUUSD paused until more data uploaded

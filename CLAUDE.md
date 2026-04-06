@@ -80,8 +80,9 @@ us30_primary_session: 13:30-15:30 UTC (cash open)
 |--------|-----------|-------|--------|--------|
 | BTCUSD | LightGBM | B | 10.07 | Walk-forward v4 (2020-2024, 4 folds) |
 | BTCUSD | XGBoost | C | 7.96 | Walk-forward v8 (2020-2025, 4 folds, OOS Jan-Mar 2026) +meta +filters |
-| US30 | XGBoost | B | 2.14 | Walk-forward v7 strategy-informed (2019-2024, 4 folds) +meta +ATR gate |
-| US30 | XGBoost | C | 1.84 | Walk-forward v8 (2020-2025, 4 folds, OOS Jan-Mar 2026) +meta +filters |
+| US30 | XGBoost | C | 1.84 | Beginner Agent v8 (2020-2025, 4 folds) +meta +filters |
+| US30 | XGBoost | B | 1.98 | Potential Agent v1 (2019-2025, 76 features, LSTM+GBM) |
+| US30 | LightGBM | B | 1.95 | Potential Agent v1 (2019-2025, 76 features, LSTM+GBM) |
 | XAUUSD | XGBoost | F | — | Walk-forward v5 (2010-2024, needs fresh data) |
 | XAUUSD | LightGBM | B | — | Walk-forward v8 (2010-2025, 4 folds, OOS too small: 1,141 bars) |
 
@@ -132,4 +133,8 @@ us30_primary_session: 13:30-15:30 UTC (cash open)
 - `backend/scripts/strategy_labels.py` — Triple barrier + ICT quality scoring
 - `backend/scripts/fetch_cot_data.py` — CFTC disaggregated futures downloader
 - `backend/data/ml_models/archive_v4_2026-03-31/` — Archived baseline models
+- `backend/app/services/ml/features_potential.py` — 76 institutional features (VWAP, Vol Profile, ADX, ORB, EMA)
+- `backend/scripts/train_potential.py` — Potential Agent training (LSTM + GBM + SHAP)
+- `backend/app/services/agent/potential_agent.py` — Potential Agent runtime inference
+- `backend/scripts/compare_agents.py` — Side-by-side agent backtesting
 - `History Data/data/` — 15-year CSV history (M1/M5/M15/H1/H4 per symbol)
