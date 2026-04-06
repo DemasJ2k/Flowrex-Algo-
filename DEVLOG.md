@@ -198,6 +198,23 @@ User wants to shift from pure-ML approach to strategy-informed ML. The ML should
 
 **Honest assessment:** Model profitable overall (+10.5% over 17 months) but Q3/Q4 2025 are Grade F. Max DD 18.8% would blow a prop account. Average ~0.6%/month — far below 2% daily target. Edge is real in trending markets but regime detection needs significant improvement to survive sustained chop.
 
+## 2026-04-06 — Potential Agent v1 Trained (US30)
+
+### Results
+- **Walk-Forward:** 4 folds, ALL Grade B (Sharpe 1.79-2.39)
+- **True OOS (Jan-Apr 2026):**
+  - XGBoost: Grade B, Sharpe 2.86, WR 52.2%, DD 1.3%
+  - LightGBM: Grade B, Sharpe 3.27, WR 52.4%, DD 1.2%, Return 3.9%
+- **Features:** 76 (75 institutional + LSTM diversity signal)
+- **SHAP:** Volatility 66.7%, MACD/Momentum 10.4%, Session/Time 6.3%
+- **Models saved:** potential_US30_M5_xgboost.joblib, potential_US30_M5_lightgbm.joblib
+
+### Optimizations Applied
+- Vectorized session VWAP (pandas groupby cumsum)
+- Volume Profile: 12-bar step + midpoint bin approximation (was 100x slower)
+- LSTM: 50k subsample training, batched inference (was OOM on 500k)
+- Tests: 19/19 passing in 0.71s
+
 ## 2026-04-05 — Potential Agent Build (Institutional Strategies)
 
 ### Context
