@@ -198,6 +198,53 @@ User wants to shift from pure-ML approach to strategy-informed ML. The ML should
 
 **Honest assessment:** Model profitable overall (+10.5% over 17 months) but Q3/Q4 2025 are Grade F. Max DD 18.8% would blow a prop account. Average ~0.6%/month — far below 2% daily target. Edge is real in trending markets but regime detection needs significant improvement to survive sustained chop.
 
+## 2026-04-06 — Potential Agent v2 (ATR-normalized, Grade A)
+
+### v2 Changes
+- **ATR-normalized** all distance features → forced model to learn direction, not just "is it volatile"
+- **Added anchored VWAPs** (weekly + monthly reset) — institutional benchmarks
+- **Added delta divergence** — CVD vs price divergence for exhaustion detection
+- **Added H1/H4/D1 RSI + MACD** — explicit HTF momentum, not just trend direction
+- **Added relative volume** — volume vs same-hour average
+- **Added power hour** feature (19:00-21:00 UTC)
+- **Dropped LSTM** — only 0.5% SHAP contribution, not worth compute
+- **85 features total** (was 76 in v1)
+
+### Walk-Forward Results (ALL Grade A)
+| Fold | XGBoost | LightGBM |
+|------|---------|----------|
+| 1 (2020-06→2021-11) | A Sharpe=4.78 WR=60.7% | A Sharpe=4.75 WR=60.1% |
+| 2 (2021-11→2023-03) | A Sharpe=4.54 WR=57.9% | A Sharpe=4.70 WR=58.1% |
+| 3 (2023-03→2024-08) | A Sharpe=5.34 WR=62.8% | A Sharpe=5.63 WR=63.0% |
+| 4 (2024-08→2025-12) | A Sharpe=4.22 WR=59.8% | A Sharpe=3.89 WR=59.1% |
+
+### OOS (Jan-Apr 2026)
+- XGBoost: Grade A, Sharpe 4.74, WR 57.0%, DD 1.1%
+- LightGBM: Grade A, Sharpe 4.96, WR 58.5%, DD 1.1%
+
+### $10k MT5 Forward Test (Sep 2024 → Mar 2026)
+| Metric | v1 | v2 |
+|--------|-----|-----|
+| Final Balance | $12,192 | **$16,914** |
+| Total P&L | +$2,192 (+21.9%) | **+$6,914 (+69.1%)** |
+| Max DD | $186 (1.9%) | **$77 (0.8%)** |
+| Sharpe | 4.75 | **13.13** |
+| Win Rate | 51.1% | **62.2%** |
+| Profit Factor | 1.24 | **2.03** |
+| Positive Days | 61% | **85%** |
+| Avg Day | +$5.27 | **+$16.46** |
+| Losing Months | 1 | **0** |
+
+### SHAP Strategy Group (v2 — much more distributed)
+| Group | v1 | v2 |
+|-------|-----|-----|
+| Volatility | 66.7% | **56.2%** (down — good) |
+| EMA Structure | 3.0% | **12.1%** (up 4x) |
+| RSI | 1.7% | **7.9%** (up 4.6x) |
+| Session/Time | 6.3% | **7.1%** |
+| MACD/Momentum | 10.4% | **6.4%** |
+| CVD/Flow | 1.7% | **3.3%** (up 2x) |
+
 ## 2026-04-06 — Potential Agent v1 Trained + Compared (US30)
 
 ### Training Results

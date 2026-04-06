@@ -81,8 +81,8 @@ us30_primary_session: 13:30-15:30 UTC (cash open)
 | BTCUSD | LightGBM | B | 10.07 | Walk-forward v4 (2020-2024, 4 folds) |
 | BTCUSD | XGBoost | C | 7.96 | Walk-forward v8 (2020-2025, 4 folds, OOS Jan-Mar 2026) +meta +filters |
 | US30 | XGBoost | C | 1.84 | Beginner Agent v8 (2020-2025, 4 folds) +meta +filters |
-| US30 | XGBoost | B | 1.98 | Potential Agent v1 (2019-2025, 76 features, LSTM+GBM) |
-| US30 | LightGBM | B | 1.95 | Potential Agent v1 (2019-2025, 76 features, LSTM+GBM) |
+| US30 | XGBoost | A | 4.74 | Potential Agent v2 (2019-2025, 85 features, ATR-normalized) |
+| US30 | LightGBM | A | 4.96 | Potential Agent v2 (2019-2025, 85 features, ATR-normalized) |
 | XAUUSD | XGBoost | F | — | Walk-forward v5 (2010-2024, needs fresh data) |
 | XAUUSD | LightGBM | B | — | Walk-forward v8 (2010-2025, 4 folds, OOS too small: 1,141 bars) |
 
