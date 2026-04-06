@@ -83,76 +83,77 @@ def _align_htf(htf_bars, m5_times, n):
 
 
 def _session_vwap(closes, highs, lows, volumes, times, session_start_hour=13, session_start_min=30):
-    """Session VWAP — resets at session_start_hour:session_start_min UTC each day."""
+    """Session VWAP — resets at session_start_hour:session_start_min UTC each day.
+    Vectorized: detect resets via timestamp modular arithmetic."""
     n = len(closes)
-    vwap = np.zeros(n, dtype=float)
-    cum_vol = 0.0
-    cum_vp = 0.0
     typical = (highs + lows + closes) / 3.0
+    vp = typical * volumes
 
-    for i in range(n):
-        # Detect session boundary from timestamps
-        ts = times[i]
-        try:
-            if isinstance(ts, (np.integer, int, float)):
-                hour = int(ts % 86400) // 3600
-                minute = int(ts % 3600) // 60
-            else:
-                hour = int(pd.Timestamp(ts).hour)
-                minute = int(pd.Timestamp(ts).minute)
-        except Exception:
-            hour, minute = 0, 0
+    # Detect session boundaries
+    if n == 0:
+        return np.zeros(0, dtype=float)
+    ts = times.astype(np.int64) if hasattr(times, 'astype') else np.array(times, dtype=np.int64)
+    seconds_in_day = ts % 86400
+    reset_sec = session_start_hour * 3600 + session_start_min * 60
+    is_reset = seconds_in_day == reset_sec
 
-        # Reset at session start
-        if hour == session_start_hour and minute == session_start_min:
-            cum_vol = 0.0
-            cum_vp = 0.0
+    # Build session groups
+    session_id = np.cumsum(is_reset)
 
-        cum_vol += volumes[i]
-        cum_vp += typical[i] * volumes[i]
-        vwap[i] = cum_vp / cum_vol if cum_vol > 0 else closes[i]
+    # Cumulative within each session via pandas groupby trick
+    df = pd.DataFrame({"sid": session_id, "vp": vp, "vol": volumes})
+    cum_vp = df.groupby("sid")["vp"].cumsum().values
+    cum_vol = df.groupby("sid")["vol"].cumsum().values
 
+    vwap = np.where(cum_vol > 0, cum_vp / cum_vol, closes)
     return vwap
 
 
-def _volume_profile(highs, lows, volumes, n_bins=50, window=288):
-    """Rolling volume profile. Returns POC, VAH, VAL prices."""
+def _volume_profile(highs, lows, volumes, n_bins=30, window=288, step=12):
+    """Rolling volume profile — computed every `step` bars, forward-filled.
+    Returns POC, VAH, VAL. step=12 means one computation per hour of M5 data."""
     n = len(highs)
     poc = np.zeros(n, dtype=float)
     vah = np.zeros(n, dtype=float)
     val = np.zeros(n, dtype=float)
 
-    for i in range(window - 1, n):
+    last_poc = highs[0] if n > 0 else 0
+    last_vah = highs[0] if n > 0 else 0
+    last_val = lows[0] if n > 0 else 0
+
+    for i in range(n):
+        if i < window - 1 or (i - (window - 1)) % step != 0:
+            poc[i] = last_poc
+            vah[i] = last_vah
+            val[i] = last_val
+            continue
+
         start = i - window + 1
         h_slice = highs[start:i + 1]
         l_slice = lows[start:i + 1]
         v_slice = volumes[start:i + 1]
 
-        price_min = np.min(l_slice)
-        price_max = np.max(h_slice)
+        price_min = l_slice.min()
+        price_max = h_slice.max()
         if price_max <= price_min:
             poc[i] = highs[i]
             vah[i] = highs[i]
             val[i] = lows[i]
+            last_poc, last_vah, last_val = poc[i], vah[i], val[i]
             continue
 
-        bin_edges = np.linspace(price_min, price_max, n_bins + 1)
-        bin_vol = np.zeros(n_bins, dtype=float)
+        # Vectorized bin assignment
+        bin_size = (price_max - price_min) / n_bins
+        low_bins = np.clip(((l_slice - price_min) / bin_size).astype(int), 0, n_bins - 1)
+        high_bins = np.clip(((h_slice - price_min) / bin_size).astype(int), 0, n_bins - 1)
 
-        for j in range(len(h_slice)):
-            bar_low = l_slice[j]
-            bar_high = h_slice[j]
-            bar_vol = v_slice[j]
-            low_bin = int((bar_low - price_min) / (price_max - price_min) * (n_bins - 1))
-            high_bin = int((bar_high - price_min) / (price_max - price_min) * (n_bins - 1))
-            low_bin = max(0, min(low_bin, n_bins - 1))
-            high_bin = max(0, min(high_bin, n_bins - 1))
-            n_spread = high_bin - low_bin + 1
-            for b in range(low_bin, high_bin + 1):
-                bin_vol[b] += bar_vol / n_spread
+        # Fast: assign all volume to midpoint bin (approximation)
+        mid_bins = (low_bins + high_bins) // 2
+        bin_vol = np.bincount(mid_bins, weights=v_slice, minlength=n_bins)
 
         poc_bin = np.argmax(bin_vol)
-        poc[i] = (bin_edges[poc_bin] + bin_edges[poc_bin + 1]) / 2.0
+        bin_edges_lo = price_min + np.arange(n_bins) * bin_size
+        poc[i] = bin_edges_lo[poc_bin] + bin_size / 2
 
         # Value area: 70% of total volume around POC
         total_vol = bin_vol.sum()
@@ -172,14 +173,9 @@ def _volume_profile(highs, lows, volumes, n_bins=50, window=288):
                 lo_idx -= 1
                 va_vol += bin_vol[lo_idx]
 
-        vah[i] = bin_edges[hi_idx + 1]
-        val[i] = bin_edges[lo_idx]
-
-    # Fill early bars
-    for arr in [poc, vah, val]:
-        first_valid = window - 1
-        if first_valid < n:
-            arr[:first_valid] = arr[first_valid]
+        vah[i] = bin_edges_lo[min(hi_idx + 1, n_bins - 1)] + bin_size
+        val[i] = bin_edges_lo[lo_idx]
+        last_poc, last_vah, last_val = poc[i], vah[i], val[i]
 
     return poc, vah, val
 

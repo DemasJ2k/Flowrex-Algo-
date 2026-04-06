@@ -149,18 +149,28 @@ def _build_lstm_features(closes, opens, highs, lows, volumes, y_all, seq_len=60)
     roll_std = np.where(roll_std < 1e-8, 1.0, roll_std)
     normed = ((data - roll_mean) / roll_std).astype(np.float32)
 
-    # Create sequences
-    X_seq = []
-    y_seq = []
-    for i in range(seq_len, n):
-        X_seq.append(normed[i - seq_len:i])
-        y_seq.append(y_all[i])
-    X_seq = np.array(X_seq, dtype=np.float32)
-    y_seq = np.array(y_seq, dtype=np.int64)
+    # Create sequences using strided view (memory efficient)
+    # Subsample for training (max 50k), predict all via batched inference
+    from numpy.lib.stride_tricks import sliding_window_view
+    seq_data = sliding_window_view(normed, (seq_len, 5)).squeeze(axis=1)  # (n-seq_len+1, seq_len, 5)
+    # Align: seq_data[i] = normed[i:i+seq_len], label = y_all[i+seq_len-1]
+    y_seq = y_all[seq_len-1:seq_len-1+len(seq_data)].astype(np.int64)
 
-    # Split: train on first 80%, predict all
-    split = int(len(X_seq) * 0.8)
-    X_train, y_train = X_seq[:split], y_seq[:split]
+    # Subsample for LSTM training (50k max to keep CPU time ~2min)
+    MAX_LSTM_TRAIN = 50_000
+    total_seq = len(seq_data)
+    if total_seq > MAX_LSTM_TRAIN:
+        # Stratified subsample from first 80%
+        split_80 = int(total_seq * 0.8)
+        rng = np.random.RandomState(42)
+        train_idx = rng.choice(split_80, size=min(MAX_LSTM_TRAIN, split_80), replace=False)
+        train_idx.sort()
+        X_train = seq_data[train_idx].copy().astype(np.float32)
+        y_train = y_seq[train_idx].copy()
+    else:
+        split_80 = int(total_seq * 0.8)
+        X_train = seq_data[:split_80].copy().astype(np.float32)
+        y_train = y_seq[:split_80].copy()
 
     class SmallLSTM(nn.Module):
         def __init__(self):
@@ -178,11 +188,11 @@ def _build_lstm_features(closes, opens, highs, lows, volumes, y_all, seq_len=60)
     optimizer = torch.optim.Adam(model.parameters(), lr=1e-3)
     criterion = nn.CrossEntropyLoss()
     dataset = TensorDataset(torch.from_numpy(X_train), torch.from_numpy(y_train))
-    loader = DataLoader(dataset, batch_size=256, shuffle=True)
+    loader = DataLoader(dataset, batch_size=512, shuffle=True)
 
-    print("  Training LSTM (30 epochs)...", end=" ", flush=True)
+    print(f"  Training LSTM (20 epochs, {len(X_train):,} samples)...", end=" ", flush=True)
     model.train()
-    for epoch in range(30):
+    for epoch in range(20):
         for xb, yb in loader:
             optimizer.zero_grad()
             loss = criterion(model(xb), yb)
@@ -190,14 +200,19 @@ def _build_lstm_features(closes, opens, highs, lows, volumes, y_all, seq_len=60)
             optimizer.step()
     print("done", flush=True)
 
-    # Generate predictions for ALL sequences
+    # Generate predictions for ALL sequences in batches
     model.eval()
+    all_preds = np.zeros(total_seq, dtype=np.float32)
+    batch_sz = 2048
     with torch.no_grad():
-        all_preds = model(torch.from_numpy(X_seq)).argmax(dim=1).numpy().astype(np.float32)
+        for start in range(0, total_seq, batch_sz):
+            end = min(start + batch_sz, total_seq)
+            batch = torch.from_numpy(seq_data[start:end].copy().astype(np.float32))
+            all_preds[start:end] = model(batch).argmax(dim=1).numpy()
 
-    # Pad to full length
+    # Pad to full length (seq_data starts at index seq_len-1)
     lstm_feat = np.zeros(n, dtype=np.float32)
-    lstm_feat[seq_len:] = all_preds
+    lstm_feat[seq_len-1:seq_len-1+total_seq] = all_preds
     return lstm_feat
 
 
