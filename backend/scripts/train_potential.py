@@ -57,12 +57,11 @@ STRATEGY_GROUPS = {
     "RSI": lambda n: "rsi" in n,
     "MACD/Momentum": lambda n: "macd" in n or "momentum" in n,
     "Volatility": lambda n: "atr" in n or "bb_" in n,
-    "CVD/Flow": lambda n: "cvd" in n or "absorption" in n or "vol_imbalance" in n or "vol_spike" in n,
-    "Session/Time": lambda n: "hour" in n or "dow" in n or "cash" in n,
-    "Structure": lambda n: "return" in n or "body" in n or "wick" in n or "gap" in n or "range" in n,
-    "Breakout": lambda n: "donch" in n or "retest" in n or "expansion" in n,
+    "CVD/Flow": lambda n: "cvd" in n or "absorption" in n or "vol_imbalance" in n or "vol_spike" in n or "delta_div" in n or "relative_vol" in n,
+    "Session/Time": lambda n: "hour" in n or "dow" in n or "cash" in n or "power" in n,
+    "Structure": lambda n: "return" in n or "body" in n or "wick" in n or "gap" in n or "range_exp" in n,
+    "Breakout": lambda n: "donch" in n or "retest" in n,
     "HTF": lambda n: "h1_" in n or "h4_" in n or "d1_" in n or "htf" in n,
-    "LSTM": lambda n: "lstm" in n,
 }
 
 
@@ -360,14 +359,7 @@ def run_potential_training(symbol="US30", n_trials=15, n_folds=4):
 
     print(f"  Labels: sell={np.sum(y_all==0):,}  hold={np.sum(y_all==1):,}  buy={np.sum(y_all==2):,}")
 
-    # 4. LSTM diversity signal
-    lstm_feat = _build_lstm_features(closes, opens, highs, lows,
-                                     m5["volume"].values if "volume" in m5.columns else np.ones(len(closes)),
-                                     y_all)
-    if lstm_feat is not None:
-        feature_names.append("pot_lstm_pred")
-        X_all = np.column_stack([X_all, lstm_feat.reshape(-1, 1)])
-        print(f"  Features after LSTM: {len(feature_names)}")
+    # 4. (LSTM removed in v2 — 0.5% SHAP, not worth compute)
 
     # 5. Walk-forward
     folds, oos_idx = get_wf_folds(timestamps, OOS_START, n_folds)
@@ -540,7 +532,7 @@ def run_potential_training(symbol="US30", n_trials=15, n_folds=4):
                 "hold_bars": hold_bars,
             },
             "trained_at": datetime.now(timezone.utc).isoformat(),
-            "pipeline_version": "potential_v1",
+            "pipeline_version": "potential_v2",
             "agent_type": "potential",
         }
         joblib.dump(save_dict, path)
