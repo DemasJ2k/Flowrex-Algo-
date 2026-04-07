@@ -63,7 +63,7 @@ export default function Sidebar() {
         {/* Logo */}
         <div className="flex items-center justify-between px-5 py-5 border-b" style={{ borderColor: "var(--border)" }}>
           <div className="flex items-center gap-2">
-            <div className="w-8 h-8 rounded-lg flex items-center justify-center text-white font-bold text-sm" style={{ background: "var(--accent)" }}>FX</div>
+            <img src="/logo-icon.png" alt="FX" className="w-8 h-8 rounded-lg object-contain" />
             <span className="text-base font-semibold tracking-tight">Flowrex Algo</span>
           </div>
           <button className="p-1 rounded hover:bg-white/10" onClick={() => setMobileOpen(false)}>
@@ -97,9 +97,7 @@ export default function Sidebar() {
       >
         {/* Logo */}
         <div className="flex items-center gap-2 px-4 py-4 border-b min-h-[64px]" style={{ borderColor: "var(--border)" }}>
-          <div className="w-8 h-8 rounded-lg flex-shrink-0 flex items-center justify-center text-white font-bold text-sm" style={{ background: "var(--accent)" }}>
-            FX
-          </div>
+          <img src="/logo-icon.png" alt="FX" className="w-8 h-8 rounded-lg flex-shrink-0 object-contain" />
           <span className={cn("text-base font-semibold tracking-tight whitespace-nowrap transition-opacity duration-200", expanded ? "opacity-100" : "opacity-0")}>
             Flowrex Algo
           </span>

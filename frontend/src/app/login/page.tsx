@@ -42,8 +42,8 @@ export default function LoginPage() {
     <div className="min-h-screen flex items-center justify-center p-4" style={{ background: "var(--background)" }}>
       <div className="w-full max-w-sm rounded-xl border p-8" style={{ background: "var(--card)", borderColor: "var(--border)" }}>
         <div className="flex items-center gap-2 mb-6">
-          <div className="w-8 h-8 rounded-lg flex items-center justify-center text-white font-bold text-sm" style={{ background: "var(--accent)" }}>FX</div>
-          <span className="text-lg font-semibold">Flowrex Algo</span>
+          <img src="/logo-icon.png" alt="FlowrexAlgo" className="w-8 h-8 rounded-lg object-contain" />
+          <span className="text-lg font-semibold">FlowrexAlgo</span>
         </div>
 
         <h1 className="text-xl font-semibold mb-1">Sign In</h1>

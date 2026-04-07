@@ -76,9 +76,7 @@ export default function LandingPage() {
       <nav className="fixed top-0 left-0 right-0 z-50 backdrop-blur-xl border-b" style={{ background: "rgba(10,11,15,0.85)", borderColor: "var(--border)" }}>
         <div className="max-w-6xl mx-auto px-6 h-16 flex items-center justify-between">
           <div className="flex items-center gap-2">
-            <div className="w-8 h-8 rounded-lg flex items-center justify-center" style={{ background: "linear-gradient(135deg, #8b5cf6, #3b82f6)" }}>
-              <Zap size={18} className="text-white" />
-            </div>
+            <img src="/logo-icon.png" alt="FlowrexAlgo" className="w-8 h-8 rounded-lg object-contain" />
             <span className="text-lg font-semibold">FlowrexAlgo</span>
           </div>
           <div className="flex items-center gap-3">
@@ -265,9 +263,7 @@ export default function LandingPage() {
       <footer className="py-8 px-6 border-t" style={{ borderColor: "var(--border)" }}>
         <div className="max-w-5xl mx-auto flex flex-col sm:flex-row items-center justify-between gap-4">
           <div className="flex items-center gap-2">
-            <div className="w-6 h-6 rounded flex items-center justify-center" style={{ background: "linear-gradient(135deg, #8b5cf6, #3b82f6)" }}>
-              <Zap size={12} className="text-white" />
-            </div>
+            <img src="/logo-icon.png" alt="FlowrexAlgo" className="w-6 h-6 object-contain" />
             <span className="text-sm font-medium">FlowrexAlgo</span>
           </div>
           <p className="text-xs" style={{ color: "var(--muted)" }}>

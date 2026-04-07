@@ -21,7 +21,8 @@ import { getErrorMessage } from "@/lib/errors";
 import { useWebSocket, WSMessage } from "@/hooks/useWebSocket";
 import WSStatusBadge from "@/components/WSStatusBadge";
 
-const TIMEFRAMES = ["M1", "M5", "M15", "M30", "H1", "H4", "D1"];
+const BROKER_TIMEFRAMES = ["M1", "M5", "M15", "M30", "H1", "H4", "D1"];
+const DATABENTO_TIMEFRAMES = ["1s", "M1", "M5", "M15", "M30", "H1", "H4", "D1"];
 const SYMBOLS = ["XAUUSD", "BTCUSD", "US30", "ES", "NAS100", "EURUSD", "GBPUSD"];
 
 export default function TradingPage() {
@@ -357,7 +358,7 @@ export default function TradingPage() {
         </div>
 
         <div className="flex gap-1">
-          {TIMEFRAMES.map((tf) => (
+          {(dataSource === "databento" ? DATABENTO_TIMEFRAMES : BROKER_TIMEFRAMES).map((tf) => (
             <button key={tf} onClick={() => setTimeframe(tf)}
               className={`px-2.5 py-1.5 text-xs font-medium rounded transition-colors ${
                 timeframe === tf ? "bg-blue-600 text-white" : "hover:bg-white/10"

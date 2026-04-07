@@ -30,14 +30,15 @@ SYMBOL_MAP = {
 }
 
 # Map timeframes to available Databento schemas
-# Databento only has 1s, 1m, 1h, 1d — we map closest
+# Databento has: 1s, 1m, 1h, 1d — we aggregate where needed
 TIMEFRAME_MAP = {
+    "1s": ("ohlcv-1s", 1),         # Native 1-second candles
     "M1": ("ohlcv-1m", 60),
-    "M5": ("ohlcv-1m", 60),        # Use 1m, aggregate 5 bars client-side
-    "M15": ("ohlcv-1m", 60),       # Use 1m, aggregate 15 bars
-    "M30": ("ohlcv-1m", 60),       # Use 1m, aggregate 30 bars
+    "M5": ("ohlcv-1m", 60),        # Aggregate 5x 1m bars
+    "M15": ("ohlcv-1m", 60),       # Aggregate 15x 1m bars
+    "M30": ("ohlcv-1m", 60),       # Aggregate 30x 1m bars
     "H1": ("ohlcv-1h", 3600),
-    "H4": ("ohlcv-1h", 3600),      # Use 1h, aggregate 4 bars
+    "H4": ("ohlcv-1h", 3600),      # Aggregate 4x 1h bars
     "D1": ("ohlcv-1d", 86400),
 }
 
@@ -139,7 +140,7 @@ class DatabentoAdapter:
         schema, bar_seconds = tf_info
 
         # Determine aggregation factor
-        agg_factors = {"M5": 5, "M15": 15, "M30": 30, "H4": 4}
+        agg_factors = {"M5": 5, "M15": 15, "M30": 30, "H4": 4, "1s": 1}
         agg_factor = agg_factors.get(timeframe, 1)
 
         # Need more raw bars if aggregating
