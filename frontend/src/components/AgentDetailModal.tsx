@@ -3,6 +3,7 @@
 import { useState, useEffect, useCallback } from "react";
 import Modal from "@/components/ui/Modal";
 import Tabs from "@/components/ui/Tabs";
+import { toSydneyTime } from "@/lib/timezone";
 import { StatCard } from "@/components/ui/Card";
 import DataTable, { Column } from "@/components/ui/DataTable";
 import StatusBadge from "@/components/ui/StatusBadge";
@@ -161,7 +162,7 @@ export default function AgentDetailModal({
                   ) : (
                     filteredLogs.map((l) => (
                       <div key={l.id} className="flex items-start gap-2 py-1">
-                        <span className="flex-shrink-0" style={{ color: "var(--muted)" }}>{new Date(l.created_at + (l.created_at.includes("Z") || l.created_at.includes("+") ? "" : "Z")).toLocaleTimeString()}</span>
+                        <span className="flex-shrink-0" style={{ color: "var(--muted)" }}>{toSydneyTime(l.created_at + (l.created_at.includes("Z") || l.created_at.includes("+") ? "" : "Z"))}</span>
                         <StatusBadge value={l.level} />
                         <span className="break-all">{l.message}</span>
                       </div>

@@ -441,7 +441,7 @@ export default function TradingPage() {
                 {ticks.slice(-100).reverse().map((t, i) => (
                   <tr key={i} className="border-t" style={{ borderColor: "var(--border)" }}>
                     <td className="py-0.5 px-2" style={{ color: "var(--muted)" }}>
-                      {new Date(t.time * 1000).toLocaleTimeString()}
+                      {new Date(t.time * 1000).toLocaleTimeString("en-AU", { timeZone: "Australia/Sydney", hour12: false })}
                     </td>
                     <td className="text-right py-0.5 px-2 font-mono">{t.price.toFixed(2)}</td>
                     <td className="text-right py-0.5 px-2">{t.size}</td>
@@ -535,7 +535,7 @@ export default function TradingPage() {
                     filteredLogs.map((l) => (
                       <div key={l.id} className="flex items-start gap-2 py-1">
                         <span className="flex-shrink-0" style={{ color: "var(--muted)" }}>
-                          {new Date(l.created_at + (l.created_at.includes("Z") || l.created_at.includes("+") ? "" : "Z")).toLocaleTimeString()}
+                          {new Date(l.created_at + (l.created_at.includes("Z") || l.created_at.includes("+") ? "" : "Z")).toLocaleTimeString("en-AU", { timeZone: "Australia/Sydney", hour12: false })}
                         </span>
                         <StatusBadge value={l.level} />
                         <span className="break-all">{l.message}</span>

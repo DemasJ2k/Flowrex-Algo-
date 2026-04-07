@@ -7,7 +7,7 @@ import Card from "@/components/ui/Card";
 import type { Agent, AgentLog, AgentTrade } from "@/types";
 import { Play, Pause, Square, Trash2, ChevronDown, ChevronRight } from "lucide-react";
 import { toast } from "sonner";
-import { getErrorMessage } from "@/lib/errors";
+import { toSydneyTime } from "@/lib/timezone";
 
 function AgentCard({ agent, onAction }: { agent: Agent; onAction: () => void }) {
   const [expanded, setExpanded] = useState(false);
@@ -153,7 +153,7 @@ function AgentCard({ agent, onAction }: { agent: Agent; onAction: () => void }) 
                 logs.map((l) => (
                   <div key={l.id} className="flex items-start gap-2 py-0.5">
                     <span style={{ color: "var(--muted)" }} className="flex-shrink-0">
-                      {new Date(l.created_at + (l.created_at.includes("Z") || l.created_at.includes("+") ? "" : "Z")).toLocaleTimeString()}
+                      {toSydneyTime(l.created_at + (l.created_at.includes("Z") || l.created_at.includes("+") ? "" : "Z"))}
                     </span>
                     <StatusBadge value={l.level} />
                     <span className="break-all">{l.message}</span>
