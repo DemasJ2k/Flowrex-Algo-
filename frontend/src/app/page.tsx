@@ -108,7 +108,7 @@ function DashboardView() {
     <div className="space-y-5">
       {/* Header */}
       <div className="flex items-center justify-between">
-        <h1 className="text-2xl font-semibold">Dashboard</h1>
+        <h1 className="text-2xl font-semibold bg-gradient-to-r from-violet-400 to-blue-400 bg-clip-text text-transparent">Dashboard</h1>
         <div className="flex gap-2">
           <Link href="/trading" className="flex items-center gap-2 px-4 py-2 text-sm font-medium rounded-lg bg-blue-600 hover:bg-blue-500 text-white">
             <LineChart size={16} /> Trading
@@ -140,16 +140,23 @@ function DashboardView() {
 
       {/* Section 2: Portfolio Stats */}
       <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-3">
-        <StatCard label="Balance" value={account ? fmt(account.balance) : "\u2014"} sub={account?.currency || ""} />
-        <StatCard label="Equity" value={account ? fmt(account.equity) : "\u2014"} />
-        <StatCard label="Today P&L" value={fmt(todayPnl)} color={pnlColor(todayPnl)} />
-        <StatCard label="Total P&L" value={totalPnl !== 0 ? (totalPnl >= 0 ? "+" : "") + fmt(totalPnl) : "\u2014"} color={pnlColor(totalPnl)} sub={totalTrades + " trades"} />
-        <StatCard label="Win Rate" value={totalTrades > 0 ? winRate.toFixed(1) + "%" : "\u2014"} sub={totalWins + "W / " + (totalTrades - totalWins) + "L"} />
-        <StatCard label="Open Positions" value={positions.length} sub={activeAgents + " agents running"} />
+        {[
+          <StatCard key="bal" label="Balance" value={account ? fmt(account.balance) : "\u2014"} sub={account?.currency || ""} />,
+          <StatCard key="eq" label="Equity" value={account ? fmt(account.equity) : "\u2014"} />,
+          <StatCard key="today" label="Today P&L" value={fmt(todayPnl)} color={pnlColor(todayPnl)} />,
+          <StatCard key="total" label="Total P&L" value={totalPnl !== 0 ? (totalPnl >= 0 ? "+" : "") + fmt(totalPnl) : "\u2014"} color={pnlColor(totalPnl)} sub={totalTrades + " trades"} />,
+          <StatCard key="wr" label="Win Rate" value={totalTrades > 0 ? winRate.toFixed(1) + "%" : "\u2014"} sub={totalWins + "W / " + (totalTrades - totalWins) + "L"} />,
+          <StatCard key="pos" label="Open Positions" value={positions.length} sub={activeAgents + " agents running"} />,
+        ].map((card, i) => (
+          <div key={i} className="animate-fade-in" style={{ animationDelay: `${i * 0.06}s` }}>
+            {card}
+          </div>
+        ))}
       </div>
 
       {/* Section 3: Equity Curve */}
-      <Card>
+      <div className="rounded-xl overflow-hidden" style={{ padding: "2px 0 0 0", background: "linear-gradient(to right, #8b5cf6, #3b82f6)" }}>
+      <Card className="!rounded-t-[10px]">
         <div className="flex items-center justify-between mb-2">
           <h2 className="text-sm font-medium flex items-center gap-2">
             <TrendingUp size={16} style={{ color: "var(--muted)" }} /> Equity Curve
@@ -168,6 +175,7 @@ function DashboardView() {
           </div>
         )}
       </Card>
+      </div>
 
       {/* Section 4: Recent Activity + Quick Actions */}
       <div className="grid grid-cols-1 lg:grid-cols-5 gap-4">
@@ -191,7 +199,7 @@ function DashboardView() {
           )}
         </Card>
 
-        <Card className="lg:col-span-2">
+        <Card glow className="lg:col-span-2">
           <h2 className="text-sm font-medium mb-3">Quick Actions</h2>
           <div className="space-y-2">
             <Link href="/trading" className="flex items-center gap-2 w-full px-3 py-2.5 text-sm rounded-lg bg-blue-600 hover:bg-blue-500 text-white font-medium">

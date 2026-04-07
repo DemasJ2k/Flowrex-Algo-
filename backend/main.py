@@ -15,6 +15,7 @@ from app.api.backtest import router as backtest_router
 from app.api.admin import router as admin_router
 from app.api.feedback import router as feedback_router
 from app.api.market_data import router as market_data_router
+from app.api.news import router as news_router
 import app.models  # noqa: F401 — register all models
 
 
@@ -113,6 +114,7 @@ app.include_router(backtest_router)
 app.include_router(admin_router)
 app.include_router(feedback_router)
 app.include_router(market_data_router)
+app.include_router(news_router)
 
 
 @app.get("/api/health")

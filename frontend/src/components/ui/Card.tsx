@@ -6,13 +6,15 @@ import { ReactNode } from "react";
 export default function Card({
   children,
   className,
+  glow,
 }: {
   children: ReactNode;
   className?: string;
+  glow?: boolean;
 }) {
   return (
     <div
-      className={cn("rounded-xl border p-4", className)}
+      className={cn("rounded-xl border p-4 transition-shadow duration-300", glow && "hover:shadow-[0_0_20px_rgba(139,92,246,0.1)]", className)}
       style={{ background: "var(--card)", borderColor: "var(--border)" }}
     >
       {children}

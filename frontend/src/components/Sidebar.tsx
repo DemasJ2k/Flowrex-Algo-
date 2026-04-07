@@ -10,6 +10,7 @@ import {
   Bot,
   BrainCircuit,
   FlaskConical,
+  Newspaper,
   Settings,
   ShieldCheck,
   Menu,
@@ -22,6 +23,7 @@ const navItems = [
   { label: "Agents", href: "/agents", icon: Bot },
   { label: "Models", href: "/models", icon: BrainCircuit },
   { label: "Backtest", href: "/backtest", icon: FlaskConical },
+  { label: "News", href: "/news", icon: Newspaper },
   { label: "Settings", href: "/settings", icon: Settings },
   { label: "Admin", href: "/admin", icon: ShieldCheck },
 ];

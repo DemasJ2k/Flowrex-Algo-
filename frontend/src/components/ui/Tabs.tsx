@@ -38,7 +38,7 @@ export default function Tabs({
               </span>
             )}
             {active === i && (
-              <div className="absolute bottom-0 left-0 right-0 h-0.5 bg-blue-500 rounded-t" />
+              <div className="absolute bottom-0 left-0 right-0 h-0.5 rounded-t" style={{ background: "linear-gradient(to right, #8b5cf6, #3b82f6)" }} />
             )}
           </button>
         ))}

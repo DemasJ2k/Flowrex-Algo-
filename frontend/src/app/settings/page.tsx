@@ -508,6 +508,31 @@ export default function SettingsPage() {
                 </div>
               </Card>
 
+              {/* Broker Help */}
+              <Card>
+                <h3 className="text-sm font-medium mb-2">Need a broker account?</h3>
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                  <a href="https://www.oanda.com/register/" target="_blank" rel="noopener noreferrer"
+                    className="flex items-center gap-2 px-3 py-2.5 text-sm rounded-lg border hover:bg-white/5 transition-colors group"
+                    style={{ borderColor: "var(--border)" }}>
+                    <span className="flex-1">
+                      <span className="font-medium text-xs">Create Oanda Practice Account</span>
+                      <span className="block text-[10px] mt-0.5" style={{ color: "var(--muted)" }}>Recommended for paper trading</span>
+                    </span>
+                    <svg className="w-3.5 h-3.5 opacity-50 group-hover:opacity-100 transition-opacity" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14" /></svg>
+                  </a>
+                  <a href="https://www.ctrader.com" target="_blank" rel="noopener noreferrer"
+                    className="flex items-center gap-2 px-3 py-2.5 text-sm rounded-lg border hover:bg-white/5 transition-colors group"
+                    style={{ borderColor: "var(--border)" }}>
+                    <span className="flex-1">
+                      <span className="font-medium text-xs">Create cTrader Account</span>
+                      <span className="block text-[10px] mt-0.5" style={{ color: "var(--muted)" }}>Multi-asset trading platform</span>
+                    </span>
+                    <svg className="w-3.5 h-3.5 opacity-50 group-hover:opacity-100 transition-opacity" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14" /></svg>
+                  </a>
+                </div>
+              </Card>
+
               {/* News API Keys */}
               <Card>
                 <h3 className="text-sm font-medium mb-1">News API Keys</h3>

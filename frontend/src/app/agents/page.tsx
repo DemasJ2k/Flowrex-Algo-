@@ -121,7 +121,7 @@ export default function AgentsPage() {
               <button onClick={() => handleBatchAction("stop")} className="px-3 py-1.5 text-xs rounded-lg border hover:bg-white/5" style={{ borderColor: "var(--border)" }}>Stop All</button>
             </>
           )}
-          <button onClick={() => { setWizardDefaults(null); setWizardOpen(true); }} className="flex items-center gap-2 px-4 py-2 text-sm font-medium rounded-lg bg-blue-600 hover:bg-blue-500 text-white">
+          <button onClick={() => { setWizardDefaults(null); setWizardOpen(true); }} className="flex items-center gap-2 px-4 py-2 text-sm font-medium rounded-lg text-white transition-opacity hover:opacity-90" style={{ background: "linear-gradient(135deg, #8b5cf6, #3b82f6)" }}>
             <Plus size={16} /> New Agent
           </button>
         </div>
@@ -180,7 +180,7 @@ export default function AgentsPage() {
             const pf = agentPnl && agentPnl.loss_count > 0 ? (agentPnl.win_count / agentPnl.loss_count).toFixed(1) : agentPnl && agentPnl.win_count > 0 ? "\u221E" : "\u2014";
 
             return (
-              <Card key={a.id} className="hover:bg-white/[0.02] transition-colors">
+              <Card key={a.id} className={`hover:bg-white/[0.02] transition-colors border-l-2 ${a.status === "running" ? "!border-l-emerald-500" : a.status === "paused" ? "!border-l-amber-500" : "!border-l-gray-600"}`}>
                 <div className="flex items-center gap-3">
                   <div className="flex-1 min-w-0 cursor-pointer" onClick={() => setDetailAgent(a)}>
                     {/* Row 1: Name + badges */}
