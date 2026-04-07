@@ -159,6 +159,9 @@ export default function TradingPage() {
       if (!backendAlive.current) {
         backendAlive.current = true;
         warnedRef.current = false;
+        // Backend recovered — immediately refetch data and candles
+        fetchData();
+        fetchCandles();
       }
     } catch {
       if (!warnedRef.current) {
@@ -167,6 +170,7 @@ export default function TradingPage() {
       }
       backendAlive.current = false;
     }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   const fetchData = useCallback(async () => {
@@ -205,6 +209,12 @@ export default function TradingPage() {
     }
   }, [symbol, timeframe, dataSource]);
 
+  // Clear candles when symbol/timeframe/dataSource changes so stale data is not shown
+  useEffect(() => {
+    setCandles([]);
+    setTicks([]);
+  }, [symbol, timeframe, dataSource]);
+
   // Fetch tick data when tick view is active
   const fetchTicks = useCallback(async () => {
     if (!showTicks || dataSource !== "databento") return;
@@ -226,18 +236,30 @@ export default function TradingPage() {
   useEffect(() => { fetchTicks(); }, [fetchTicks]);
 
   // Polling with cleanup — also retries status check to recover when backend comes back
+  // When backend is alive: poll data every 5s
+  // When backend is dead: retry status every 30s to recover
+  const recoveryRef = useRef<ReturnType<typeof setInterval>>(undefined);
   useEffect(() => {
     pollRef.current = setInterval(() => {
-      if (!backendAlive.current) {
-        fetchStatus(); // retry connection check
-      } else {
+      if (backendAlive.current) {
         fetchData();
         fetchCandles();
         fetchTicks();
       }
     }, 5000);
-    return () => { if (pollRef.current) clearInterval(pollRef.current); };
-  }, [fetchData, fetchCandles, fetchStatus]);
+    // Separate slower recovery interval for when backend is down
+    recoveryRef.current = setInterval(() => {
+      if (!backendAlive.current) {
+        fetchStatus();
+      }
+    }, 30000);
+    // Also run an initial status check when backend is down
+    if (!backendAlive.current) fetchStatus();
+    return () => {
+      if (pollRef.current) clearInterval(pollRef.current);
+      if (recoveryRef.current) clearInterval(recoveryRef.current);
+    };
+  }, [fetchData, fetchCandles, fetchStatus, fetchTicks]);
 
   const handleClosePosition = async (id: string) => {
     try {
@@ -264,6 +286,8 @@ export default function TradingPage() {
     { header: "Size", key: "size", align: "right" },
     { header: "Entry", key: "entry_price", align: "right", render: (r) => fmt(r.entry_price) },
     { header: "Current", key: "current_price", align: "right", render: (r) => fmt(r.current_price) },
+    { header: "SL", key: "sl", align: "right", render: (r) => r.sl ? <span className="text-red-400">{fmt(r.sl)}</span> : <span style={{ color: "var(--muted)" }}>{"\u2014"}</span> },
+    { header: "TP", key: "tp", align: "right", render: (r) => r.tp ? <span className="text-emerald-400">{fmt(r.tp)}</span> : <span style={{ color: "var(--muted)" }}>{"\u2014"}</span> },
     { header: "P&L", key: "pnl", align: "right", render: (r) => (
       <span className={r.pnl >= 0 ? "text-emerald-400" : "text-red-400"}>{r.pnl >= 0 ? "+" : ""}{fmt(r.pnl)}</span>
     )},
@@ -278,6 +302,8 @@ export default function TradingPage() {
     { header: "Type", key: "order_type" },
     { header: "Size", key: "size", align: "right" },
     { header: "Price", key: "price", align: "right", render: (r) => fmt(r.price) },
+    { header: "SL", key: "sl", align: "right", render: (r) => r.sl ? <span className="text-red-400">{fmt(r.sl)}</span> : <span style={{ color: "var(--muted)" }}>{"\u2014"}</span> },
+    { header: "TP", key: "tp", align: "right", render: (r) => r.tp ? <span className="text-emerald-400">{fmt(r.tp)}</span> : <span style={{ color: "var(--muted)" }}>{"\u2014"}</span> },
     { header: "Status", key: "status", render: (r) => <StatusBadge value={r.status} /> },
   ];
 
@@ -286,12 +312,14 @@ export default function TradingPage() {
     { header: "Side", key: "direction", render: (r) => <StatusBadge value={r.direction} /> },
     { header: "Size", key: "lot_size", align: "right" },
     { header: "Entry", key: "entry_price", align: "right", render: (r) => fmt(r.entry_price) },
-    { header: "Exit", key: "exit_price", align: "right", render: (r) => r.exit_price ? fmt(r.exit_price) : "—" },
+    { header: "SL", key: "stop_loss", align: "right", render: (r) => r.stop_loss ? <span className="text-red-400">{fmt(r.stop_loss)}</span> : <span style={{ color: "var(--muted)" }}>{"\u2014"}</span> },
+    { header: "TP", key: "take_profit", align: "right", render: (r) => r.take_profit ? <span className="text-emerald-400">{fmt(r.take_profit)}</span> : <span style={{ color: "var(--muted)" }}>{"\u2014"}</span> },
+    { header: "Exit", key: "exit_price", align: "right", render: (r) => r.exit_price ? fmt(r.exit_price) : "\u2014" },
     { header: "P&L", key: "pnl", align: "right", render: (r) => {
       const p = r.broker_pnl ?? r.pnl ?? 0;
       return <span className={p >= 0 ? "text-emerald-400" : "text-red-400"}>{p >= 0 ? "+" : ""}{fmt(p)}</span>;
     }},
-    { header: "Exit", key: "exit_reason", render: (r) => r.exit_reason ? <StatusBadge value={r.exit_reason} /> : <span style={{ color: "var(--muted)" }}>—</span> },
+    { header: "Reason", key: "exit_reason", render: (r) => r.exit_reason ? <StatusBadge value={r.exit_reason} /> : <span style={{ color: "var(--muted)" }}>{"\u2014"}</span> },
     { header: "Status", key: "status", render: (r) => <StatusBadge value={r.status} /> },
   ];
 

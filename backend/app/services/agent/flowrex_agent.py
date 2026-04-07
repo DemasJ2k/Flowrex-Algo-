@@ -222,7 +222,7 @@ class FlowrexAgent:
 
         last_bar = m5_bars[-1]
         entry_price = float(last_bar["close"])
-        stop_loss, take_profit = calc_sl_tp(entry_price, signal.direction, atr_value, self._sl_mult, self._tp_mult)
+        stop_loss, take_profit = calc_sl_tp(entry_price, signal.direction, atr_value, self._sl_mult, self._tp_mult, symbol=self.symbol, broker_name=self.broker_name)
 
         # Position sizing
         effective_risk = self._risk_manager.risk_per_trade * session_mult * regime_mult

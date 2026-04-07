@@ -190,7 +190,7 @@ class ExpertAgent:
 
         last_bar = m5_bars[-1]
         entry_price = float(last_bar["close"])
-        stop_loss, take_profit = calc_sl_tp(entry_price, signal.direction, atr_value, sl_multiplier=2.0, tp_multiplier=3.0)
+        stop_loss, take_profit = calc_sl_tp(entry_price, signal.direction, atr_value, sl_multiplier=2.0, tp_multiplier=3.0, symbol=self.symbol, broker_name=self.broker_name)
 
         # 10. Position sizing with regime multiplier
         effective_risk = self._risk_manager.risk_per_trade * session_mult * regime_mult

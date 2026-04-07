@@ -69,12 +69,14 @@ export default function AgentDetailModal({
     { header: "Side", key: "direction", render: (r) => <StatusBadge value={r.direction} /> },
     { header: "Size", key: "lot_size", align: "right" },
     { header: "Entry", key: "entry_price", align: "right", render: (r) => fmt(r.entry_price) },
+    { header: "SL", key: "stop_loss", align: "right", render: (r) => r.stop_loss ? <span className="text-red-400">{fmt(r.stop_loss)}</span> : <span style={{ color: "var(--muted)" }}>{"\u2014"}</span> },
+    { header: "TP", key: "take_profit", align: "right", render: (r) => r.take_profit ? <span className="text-emerald-400">{fmt(r.take_profit)}</span> : <span style={{ color: "var(--muted)" }}>{"\u2014"}</span> },
     { header: "Exit", key: "exit_price", align: "right", render: (r) => r.exit_price ? fmt(r.exit_price) : "\u2014" },
     { header: "P&L", key: "pnl", align: "right", render: (r) => {
       const p = r.broker_pnl ?? r.pnl ?? 0;
       return <span className={pnlColor(p)}>{p >= 0 ? "+" : ""}{fmt(p)}</span>;
     }},
-    { header: "Reason", key: "exit_reason", render: (r) => r.exit_reason ? <StatusBadge value={r.exit_reason} /> : <span style={{ color: "var(--muted)" }}>\u2014</span> },
+    { header: "Reason", key: "exit_reason", render: (r) => r.exit_reason ? <StatusBadge value={r.exit_reason} /> : <span style={{ color: "var(--muted)" }}>{"\u2014"}</span> },
     { header: "Status", key: "status", render: (r) => <StatusBadge value={r.status} /> },
   ];
 
@@ -115,12 +117,12 @@ export default function AgentDetailModal({
                   <StatCard label="Avg Loss" value={fmt(perf.avg_loss)} color="red" />
                   <StatCard label="Avg P&L/Trade" value={fmt(perf.avg_pnl_per_trade)} color={perf.avg_pnl_per_trade >= 0 ? "green" : "red"} />
                 </div>
-                <div className="flex gap-4 text-xs" style={{ color: "var(--muted)" }}>
-                  <span>Best: <span className="text-emerald-400">+{fmt(perf.best_trade)}</span></span>
-                  <span>Worst: <span className="text-red-400">{fmt(perf.worst_trade)}</span></span>
-                  <span>Win Streak: {perf.max_win_streak}</span>
-                  <span>Loss Streak: {perf.max_loss_streak}</span>
-                  <span>Open: {perf.open_trades}</span>
+                <div className="grid grid-cols-2 md:grid-cols-5 gap-2 text-xs" style={{ color: "var(--muted)" }}>
+                  <span>Best Trade: <span className="text-emerald-400 font-medium">{perf.best_trade >= 0 ? "+" : ""}{fmt(perf.best_trade)}</span></span>
+                  <span>Worst Trade: <span className="text-red-400 font-medium">{fmt(perf.worst_trade)}</span></span>
+                  <span>Win Streak: <span className="text-white font-medium">{perf.max_win_streak}</span></span>
+                  <span>Loss Streak: <span className="text-white font-medium">{perf.max_loss_streak}</span></span>
+                  <span>Open: <span className="text-white font-medium">{perf.open_trades}</span> / Total: <span className="text-white font-medium">{perf.total_trades}</span></span>
                 </div>
                 {/* Equity Curve */}
                 {equityCurve.length >= 2 ? (

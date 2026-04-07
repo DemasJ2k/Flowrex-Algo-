@@ -30,6 +30,34 @@ INSTRUMENT_SPECS: dict[str, InstrumentSpec] = {
     # Oanda uses unit-based sizing (1 unit = smallest tradeable amount)
 }
 
+# Oanda requires specific decimal precision per instrument.
+# The pip_size-based formula breaks for pip_size=1.0 (gives 1, should be 0)
+# and pip_size=0.25 (gives 2, should be 1). Hardcode the correct values.
+OANDA_PRICE_DECIMALS: dict[str, int] = {
+    "US30": 0,
+    "SPX500": 1,
+    "ES": 1,
+    "NAS100": 1,
+    "XAUUSD": 2,
+    "XAGUSD": 3,
+    "BTCUSD": 1,
+    "ETHUSD": 2,
+    "EURUSD": 5,
+    "GBPUSD": 5,
+    "USDJPY": 3,
+}
+
+
+def get_oanda_price_decimals(symbol: str) -> int:
+    """Get the number of decimal places Oanda accepts for a symbol's price."""
+    if symbol in OANDA_PRICE_DECIMALS:
+        return OANDA_PRICE_DECIMALS[symbol]
+    # Fallback: derive from pip_size (works for most forex pairs)
+    spec = get_spec(symbol)
+    if spec.pip_size >= 1.0:
+        return 0
+    return max(0, len(str(spec.pip_size).rstrip('0').split('.')[-1]))
+
 # Oanda uses units, not standard lots. 1 standard lot = contract_size units.
 OANDA_CONTRACT_SIZES = {
     "XAUUSD": 1,      # 1 unit = 1 oz gold
@@ -107,6 +135,8 @@ def calc_sl_tp(
     atr_value: float,
     sl_multiplier: float = 1.5,
     tp_multiplier: float = 2.5,
+    symbol: str = "",
+    broker_name: str = "oanda",
 ) -> tuple[float, float]:
     """
     Calculate SL and TP based on ATR.
@@ -123,7 +153,8 @@ def calc_sl_tp(
         sl = entry_price + sl_distance
         tp = entry_price - tp_distance
 
-    return round(sl, 5), round(tp, 5)
+    digits = get_oanda_price_decimals(symbol) if (broker_name == "oanda" and symbol) else 5
+    return round(sl, digits), round(tp, digits)
 
 
 def get_session_multiplier(hour_utc: int, symbol: str) -> float:

@@ -220,6 +220,9 @@ class AgentRunner:
                     f"Eval #{self._eval_count}: no signal | "
                     f"bars={len(self._bar_buffer)}, balance={balance:.2f}")
 
+            # Check if any open trades have been closed by TP/SL
+            await self._check_closed_trades(adapter, agent_record, db)
+
             # Health check every 12 evaluations (~1 hour on M5)
             if self._eval_count % 12 == 0:
                 self._log_to_db(db, "info",
@@ -234,6 +237,80 @@ class AgentRunner:
         finally:
             db.close()
 
+    async def _check_closed_trades(self, adapter, agent_record, db: Session):
+        """Check if any open AgentTrade records have been closed by broker (TP/SL hit)."""
+        try:
+            open_trades = (
+                db.query(AgentTrade)
+                .filter(AgentTrade.agent_id == self.agent_id, AgentTrade.status == "open")
+                .all()
+            )
+            if not open_trades:
+                return
+
+            # Get current broker positions
+            broker_positions = await adapter.get_positions()
+            broker_symbols = {p.symbol for p in broker_positions}
+
+            for trade in open_trades:
+                # If the symbol is no longer in open positions, trade was closed (TP/SL/manual)
+                has_position = any(
+                    p.symbol == trade.symbol and p.direction == trade.direction
+                    for p in broker_positions
+                )
+                if not has_position:
+                    # Trade was closed by broker (TP/SL hit or manual close)
+                    now = datetime.now(timezone.utc)
+                    # Determine exit reason based on last price vs SL/TP
+                    exit_reason = "closed"
+                    if trade.stop_loss and trade.take_profit:
+                        # Use last bar close as approximate exit price
+                        last_close = self._bar_buffer[-1]["close"] if self._bar_buffer else 0
+                        if trade.direction == "BUY":
+                            if last_close <= trade.stop_loss:
+                                exit_reason = "SL_HIT"
+                            elif last_close >= trade.take_profit:
+                                exit_reason = "TP_HIT"
+                        else:  # SELL
+                            if last_close >= trade.stop_loss:
+                                exit_reason = "SL_HIT"
+                            elif last_close <= trade.take_profit:
+                                exit_reason = "TP_HIT"
+
+                    trade.status = "closed"
+                    trade.exit_time = now
+                    trade.exit_reason = exit_reason
+                    # Approximate exit price from last bar
+                    if self._bar_buffer:
+                        trade.exit_price = self._bar_buffer[-1]["close"]
+
+                    # Calculate P&L from entry/exit prices
+                    if trade.exit_price and trade.entry_price:
+                        price_diff = trade.exit_price - trade.entry_price
+                        if trade.direction == "SELL":
+                            price_diff = -price_diff
+                        trade.pnl = round(price_diff * trade.lot_size, 2)
+
+                    pnl_str = f"P&L:{trade.broker_pnl or trade.pnl or '?'}"
+                    self._log_to_db(db, "trade",
+                        f"CLOSED {trade.direction} {trade.symbol} | {exit_reason} | "
+                        f"Entry:{trade.entry_price} Exit:{trade.exit_price} | {pnl_str} | "
+                        f"Ticket:{trade.broker_ticket}",
+                    )
+
+                    # Update daily P&L
+                    if trade.broker_pnl is not None:
+                        self._daily_pnl += trade.broker_pnl
+                    elif trade.pnl is not None:
+                        self._daily_pnl += trade.pnl
+
+                    # Reset active direction if this was our tracked position
+                    if self._active_direction == trade.direction:
+                        self._active_direction = None
+
+        except Exception as e:
+            self._log_to_db(db, "warn", f"Position check error: {e}")
+
     async def _create_trade(self, signal: dict, adapter, agent_record, db: Session):
         """Execute trade via broker and record in DB."""
         direction = signal["direction"]
@@ -245,6 +322,15 @@ class AgentRunner:
         # Set active direction BEFORE calling broker (avoid race condition)
         self._active_direction = direction
         self._signal_count += 1
+
+        # Log signal details BEFORE placing the order
+        reason = signal.get("reason", "unknown")
+        self._log_to_db(db, "signal",
+            f"PLACING {direction} {agent_record.symbol} | "
+            f"Entry:{signal['entry_price']} SL:{signal['stop_loss']} TP:{signal['take_profit']} | "
+            f"Conf:{signal['confidence']:.3f} | Size:{signal['lot_size']} | Model:{reason}",
+            signal,
+        )
 
         # Place order through broker
         try:
@@ -280,15 +366,22 @@ class AgentRunner:
                 self._log_to_db(db, "trade",
                     f"OPENED {direction} {agent_record.symbol} @ {signal['entry_price']} | "
                     f"SL:{signal['stop_loss']} TP:{signal['take_profit']} | "
-                    f"Lots:{signal['lot_size']} | Ticket:{result.order_id}",
+                    f"Size:{signal['lot_size']} | Ticket:{result.order_id} | "
+                    f"Conf:{signal['confidence']:.3f} | Model:{reason}",
                     signal,
                 )
             else:
-                self._log_to_db(db, "error", f"Order failed: {result.message}", signal)
+                self._log_to_db(db, "error",
+                    f"ORDER FAILED {direction} {agent_record.symbol} | "
+                    f"Broker error: {result.message}",
+                    signal,
+                )
                 self._active_direction = None  # Reset on failure
 
         except Exception as e:
-            self._log_to_db(db, "error", f"Trade execution error: {e}")
+            self._log_to_db(db, "error",
+                f"EXECUTION ERROR {direction} {agent_record.symbol} | {e}",
+            )
             self._active_direction = None
 
     def _log(self, level: str, message: str, data: dict = None):

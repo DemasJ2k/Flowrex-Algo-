@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState, useMemo } from "react";
+import { useEffect, useState, useMemo, useCallback, useRef } from "react";
 import Link from "next/link";
 import LandingPage from "@/components/LandingPage";
 import { StatCard } from "@/components/ui/Card";
@@ -46,18 +46,39 @@ function DashboardView() {
   const [loading, setLoading] = useState(true);
   const [brokerModal, setBrokerModal] = useState(false);
 
-  useEffect(() => {
-    Promise.all([
-      api.get("/api/broker/status").then((r) => setBroker(r.data)).catch(() => {}),
-      api.get("/api/broker/account").then((r) => setAccount(r.data)).catch(() => {}),
-      api.get("/api/broker/positions").then((r) => setPositions(r.data)).catch(() => {}),
-      api.get("/api/agents/").then((r) => setAgents(r.data)).catch(() => {}),
-      api.get("/api/agents/pnl-summary").then((r) => setPnl(r.data)).catch(() => {}),
-      api.get("/api/agents/all-trades?limit=100").then((r) => setTrades(r.data)).catch(() => {}),
-      api.get("/api/agents/engine-logs?limit=10").then((r) => setLogs(r.data)).catch(() => {}),
-      api.get("/api/ml/models").then((r) => setModels(r.data)).catch(() => {}),
-    ]).finally(() => setLoading(false));
+  const fetchDashboard = useCallback(async () => {
+    try {
+      const [brk, acct, pos, ag, pnlRes, trRes, logRes, mdl] = await Promise.all([
+        api.get("/api/broker/status").catch(() => null),
+        api.get("/api/broker/account").catch(() => null),
+        api.get("/api/broker/positions").catch(() => null),
+        api.get("/api/agents/").catch(() => null),
+        api.get("/api/agents/pnl-summary").catch(() => null),
+        api.get("/api/agents/all-trades?limit=100").catch(() => null),
+        api.get("/api/agents/engine-logs?limit=10").catch(() => null),
+        api.get("/api/ml/models").catch(() => null),
+      ]);
+      if (brk?.data) setBroker(brk.data);
+      if (acct?.data) setAccount(acct.data);
+      if (pos?.data) setPositions(pos.data);
+      if (ag?.data) setAgents(ag.data);
+      if (pnlRes?.data) setPnl(pnlRes.data);
+      if (trRes?.data) setTrades(trRes.data);
+      if (logRes?.data) setLogs(logRes.data);
+      if (mdl?.data) setModels(mdl.data);
+    } finally {
+      setLoading(false);
+    }
   }, []);
+
+  useEffect(() => { fetchDashboard(); }, [fetchDashboard]);
+
+  // Auto-refresh dashboard every 30s to keep equity curve and P&L current
+  const dashPollRef = useRef<ReturnType<typeof setInterval>>(undefined);
+  useEffect(() => {
+    dashPollRef.current = setInterval(fetchDashboard, 30000);
+    return () => { if (dashPollRef.current) clearInterval(dashPollRef.current); };
+  }, [fetchDashboard]);
 
   const fmt = (v: number) => v.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
   const pnlColor = (v: number) => (v > 0 ? "green" : v < 0 ? "red" : "default") as "green" | "red" | "default";

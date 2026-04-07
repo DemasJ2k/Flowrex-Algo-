@@ -123,7 +123,7 @@ class ScalpingAgent:
 
         last_bar = m5_bars[-1]
         entry_price = float(last_bar["close"])
-        stop_loss, take_profit = calc_sl_tp(entry_price, signal.direction, atr_value)
+        stop_loss, take_profit = calc_sl_tp(entry_price, signal.direction, atr_value, symbol=self.symbol, broker_name=self.broker_name)
 
         # 10. Position sizing
         sl_distance = abs(entry_price - stop_loss)

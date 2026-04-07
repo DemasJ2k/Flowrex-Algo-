@@ -288,12 +288,40 @@ async def close_position(
     broker: Optional[str] = None,
     current_user: User = Depends(get_current_user),
     manager: BrokerManager = Depends(get_broker_manager),
+    db: Session = Depends(get_db),
 ):
     adapter = _get_adapter(current_user, manager, broker)
     if not adapter:
         return ClosePositionResponse(success=False, message="No broker connected")
     try:
         result = await adapter.close_position(position_id)
+        # Update matching AgentTrade records with broker P&L
+        if result.success:
+            from datetime import datetime, timezone
+            from app.models.agent import AgentTrade, TradingAgent
+            # position_id format: "INSTRUMENT:side" e.g. "US30_USD:long"
+            parts = position_id.split(":")
+            if len(parts) == 2:
+                from app.services.broker.symbol_registry import get_symbol_registry
+                symbol = get_symbol_registry().to_canonical(parts[0], adapter.name if hasattr(adapter, 'name') else "oanda")
+                direction = "BUY" if parts[1] == "long" else "SELL"
+                open_trades = (
+                    db.query(AgentTrade)
+                    .join(TradingAgent)
+                    .filter(
+                        TradingAgent.created_by == current_user.id,
+                        AgentTrade.symbol == symbol,
+                        AgentTrade.direction == direction,
+                        AgentTrade.status == "open",
+                    )
+                    .all()
+                )
+                for trade in open_trades:
+                    trade.status = "closed"
+                    trade.exit_time = datetime.now(timezone.utc)
+                    trade.exit_reason = "manual_close"
+                    trade.broker_pnl = result.pnl
+                db.commit()
         return ClosePositionResponse(success=result.success, pnl=result.pnl, message=result.message)
     except BrokerError as e:
         return ClosePositionResponse(success=False, message=e.message)

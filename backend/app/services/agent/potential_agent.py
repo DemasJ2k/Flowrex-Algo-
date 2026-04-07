@@ -195,7 +195,7 @@ class PotentialAgent:
             self._log_reject("ATR is zero")
             return None
 
-        from app.services.agent.instrument_specs import calc_lot_size, get_spec
+        from app.services.agent.instrument_specs import calc_lot_size, get_spec, get_oanda_price_decimals
 
         last_bar = m5_bars[-1]
         entry_price = float(last_bar["close"])
@@ -212,7 +212,8 @@ class PotentialAgent:
             take_profit = entry_price - tp_distance
 
         # Round prices to instrument precision (Oanda rejects excess decimals)
-        price_digits = max(0, len(str(spec.pip_size).rstrip('0').split('.')[-1]))
+        # Use hardcoded decimal map — the pip_size formula breaks for US30/ES/NAS100
+        price_digits = get_oanda_price_decimals(self.symbol) if self.broker_name == "oanda" else max(0, len(str(spec.pip_size).rstrip('0').split('.')[-1]))
         stop_loss = round(stop_loss, price_digits)
         take_profit = round(take_profit, price_digits)
         entry_price = round(entry_price, price_digits)

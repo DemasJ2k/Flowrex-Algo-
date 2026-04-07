@@ -141,6 +141,14 @@ class OandaAdapter(BrokerAdapter):
     async def get_positions(self) -> list[Position]:
         data = await self._request("GET", f"/v3/accounts/{self._account_id}/openPositions")
         positions = []
+
+        # Fetch open trades to get SL/TP attached to individual trades
+        trades_data = await self._request("GET", f"/v3/accounts/{self._account_id}/openTrades")
+        trades_by_instrument: dict[str, list[dict]] = {}
+        for trade in trades_data.get("trades", []):
+            inst = trade.get("instrument", "")
+            trades_by_instrument.setdefault(inst, []).append(trade)
+
         for pos in data.get("positions", []):
             instrument = pos.get("instrument", "")
             symbol = self._to_canonical(instrument)
@@ -149,6 +157,19 @@ class OandaAdapter(BrokerAdapter):
                 units = float(side.get("units", 0))
                 if units == 0:
                     continue
+
+                # Extract SL/TP from the first matching trade for this position side
+                sl_price = None
+                tp_price = None
+                for trade in trades_by_instrument.get(instrument, []):
+                    trade_units = float(trade.get("currentUnits", 0))
+                    if (direction == "BUY" and trade_units > 0) or (direction == "SELL" and trade_units < 0):
+                        if "stopLossOrder" in trade:
+                            sl_price = float(trade["stopLossOrder"].get("price", 0))
+                        if "takeProfitOrder" in trade:
+                            tp_price = float(trade["takeProfitOrder"].get("price", 0))
+                        break  # Use first matching trade's SL/TP
+
                 positions.append(Position(
                     id=f"{instrument}:{side_key}",
                     symbol=symbol,
@@ -157,6 +178,8 @@ class OandaAdapter(BrokerAdapter):
                     entry_price=float(side.get("averagePrice", 0)),
                     current_price=0.0,
                     pnl=float(side.get("unrealizedPL", 0)),
+                    sl=sl_price,
+                    tp=tp_price,
                 ))
         return positions
 
@@ -245,6 +268,13 @@ class OandaAdapter(BrokerAdapter):
         instrument = self._to_broker(symbol)
         units = size if side.upper() == "BUY" else -size
 
+        # Round prices to Oanda-required precision to avoid "more precision than allowed"
+        from app.services.agent.instrument_specs import get_oanda_price_decimals
+        decimals = get_oanda_price_decimals(symbol)
+
+        def _fmt(v: float) -> str:
+            return f"{round(v, decimals):.{decimals}f}"
+
         if order_type.upper() == "MARKET":
             body = {
                 "order": {
@@ -259,14 +289,14 @@ class OandaAdapter(BrokerAdapter):
                     "type": "LIMIT",
                     "instrument": instrument,
                     "units": str(units),
-                    "price": str(price),
+                    "price": _fmt(price) if price is not None else str(price),
                 }
             }
 
         if sl is not None:
-            body["order"]["stopLossOnFill"] = {"price": str(sl)}
+            body["order"]["stopLossOnFill"] = {"price": _fmt(sl)}
         if tp is not None:
-            body["order"]["takeProfitOnFill"] = {"price": str(tp)}
+            body["order"]["takeProfitOnFill"] = {"price": _fmt(tp)}
 
         data = await self._request("POST", f"/v3/accounts/{self._account_id}/orders", json=body)
 
