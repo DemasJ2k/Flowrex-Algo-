@@ -13,6 +13,7 @@ httpx==0.28.1
 websockets==14.1
 python-multipart==0.0.19
 pyotp==2.9.0
+email-validator>=2.0.0
 
 # ML / Data Science
 numpy==1.26.4
