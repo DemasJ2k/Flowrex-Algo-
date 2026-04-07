@@ -183,9 +183,13 @@ class PotentialAgent:
             self._log_reject("No signal")
             return None
 
-        # 7. ATR-based SL/TP
-        atr_idx = feat_names.index("pot_atr_14") if "pot_atr_14" in feat_names else None
-        atr_value = float(feature_vector[0, atr_idx]) if atr_idx is not None else 0
+        # 7. ATR-based SL/TP — compute ATR directly from bars (not from features)
+        from app.services.backtest.indicators import atr as compute_atr
+        bar_highs = m5_df["high"].values.astype(float)
+        bar_lows = m5_df["low"].values.astype(float)
+        bar_closes = m5_df["close"].values.astype(float)
+        atr_arr = compute_atr(bar_highs, bar_lows, bar_closes, 14)
+        atr_value = float(atr_arr[-1]) if not np.isnan(atr_arr[-1]) else 0.0
 
         if atr_value <= 0:
             self._log_reject("ATR is zero")
