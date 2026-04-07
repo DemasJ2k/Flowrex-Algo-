@@ -57,6 +57,8 @@ async def get_economic_calendar(
             params={"from": from_date, "to": to_date, "token": api_key},
         )
 
+    if resp.status_code == 403:
+        raise HTTPException(status_code=403, detail="Economic calendar requires Finnhub Premium. Headlines are available on the free tier.")
     if resp.status_code != 200:
         raise HTTPException(status_code=502, detail=f"Finnhub API error: {resp.status_code}")
 
