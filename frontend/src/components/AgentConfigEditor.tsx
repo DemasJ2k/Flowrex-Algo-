@@ -50,7 +50,9 @@ export default function AgentConfigEditor({
           risk_per_trade: riskPerTrade / 100,
           max_daily_loss_pct: maxDailyLoss / 100,
           cooldown_bars: cooldown,
-          ...(agent.agent_type === "expert" ? { session_filter: sessionFilter, regime_filter: regimeFilter, news_filter_enabled: newsFilter } : {}),
+          session_filter: sessionFilter,
+          regime_filter: regimeFilter,
+          news_filter_enabled: newsFilter,
         },
       });
       toast.success("Agent configuration updated");

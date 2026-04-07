@@ -212,7 +212,7 @@ class AgentRunner:
                 # Portfolio-level check: limit total open positions
                 engine = get_algo_engine()
                 open_count = db.query(AgentTrade).filter(AgentTrade.status == "open").count()
-                max_open = 6  # Max concurrent open positions across all agents
+                max_open = (agent_record.risk_config or {}).get("max_positions", 6)
                 if open_count >= max_open:
                     self._log_to_db(db, "info", f"Portfolio limit: {open_count}/{max_open} positions open — skipping trade")
                 else:

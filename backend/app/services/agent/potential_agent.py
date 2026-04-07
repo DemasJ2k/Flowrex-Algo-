@@ -30,8 +30,7 @@ class PotentialAgent:
     """
 
     CONFIDENCE_THRESHOLD = 0.52
-    MIN_BARS = 300  # need enough for Volume Profile (288-bar window)
-    COOLDOWN_BARS = 3
+    MIN_BARS = 300
     EXPECTED_FEATURE_COUNT = 85
 
     def __init__(self, agent_id: int, symbol: str, broker_name: str, config: dict = None):
@@ -42,10 +41,17 @@ class PotentialAgent:
 
         self.models: dict[str, dict] = {}
         self.feature_names: list[str] = []
+
+        # Read from config (wizard/settings), with sensible defaults
         self.risk_config = {
-            "max_drawdown_pct": 0.10,
-            "daily_loss_limit_pct": 0.03,
-            "risk_per_trade_pct": 0.01,
+            "max_drawdown_pct": self.config.get("max_drawdown_pct", 0.10),
+            "daily_loss_limit_pct": self.config.get("max_daily_loss_pct", 0.03),
+            "risk_per_trade_pct": self.config.get("risk_per_trade", 0.01),
+            "max_trades_per_day": self.config.get("max_trades_per_day", 10),
+        }
+        self.cooldown_bars = self.config.get("cooldown_bars", 3)
+        self.session_filter = self.config.get("session_filter", False)
+        self.news_filter = self.config.get("news_filter_enabled", False)
             "max_trades_per_day": 10,
         }
 
@@ -142,11 +148,22 @@ class PotentialAgent:
             self._log_reject("Insufficient bars", len(m5_bars))
             return None
 
-        # 2. Cooldown
+        # 2. Cooldown (from config, default 3)
         bars_since_last = current_bar_index - self._last_trade_bar
-        if bars_since_last < self.COOLDOWN_BARS:
+        if bars_since_last < self.cooldown_bars:
             self._log_reject("Cooldown", bars_since_last)
             return None
+
+        # 2b. News filter (if enabled in config)
+        if self.news_filter:
+            try:
+                from app.services.news.newsapi_provider import check_high_impact_news
+                news = check_high_impact_news(self.symbol)
+                if not news.should_trade:
+                    self._log_reject(f"News filter: {news.reason}")
+                    return None
+            except Exception:
+                pass  # Fail-open if news service is down
 
         # 3. Risk checks (simple)
         if not self._check_risk(balance, daily_pnl, daily_trade_count):
