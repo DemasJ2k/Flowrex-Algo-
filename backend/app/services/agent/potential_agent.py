@@ -5,6 +5,7 @@ ADX, ORB, EMA structure, Donchian, RSI, MACD, CVD, HTF alignment + LSTM diversit
 Simple risk: 10% max DD, 3% daily loss, 1% per trade. No prop firm filters.
 """
 import os
+import time as _time
 import numpy as np
 import joblib
 from typing import Optional, Callable
@@ -51,6 +52,7 @@ class PotentialAgent:
         self._eval_count = 0
         self._signal_count = 0
         self._reject_count = 0
+        self._reject_last_log_time: dict[str, float] = {}  # reason -> last log timestamp
         self._last_trade_bar = -999
         self._h1_bars = None
         self._h4_bars = None
@@ -283,8 +285,11 @@ class PotentialAgent:
 
     def _log_reject(self, reason: str, extra=None):
         self._reject_count += 1
-        if self._reject_count % 10 == 1:
+        now = _time.monotonic()
+        last_time = self._reject_last_log_time.get(reason, 0.0)
+        if now - last_time >= 60.0:  # Rate limit: 1 log per minute per reason
+            self._reject_last_log_time[reason] = now
             msg = f"[Potential] Rejected: {reason}"
             if extra is not None:
                 msg += f" ({extra})"
-            self._log("info", msg)
+            self._log("reject", msg)
