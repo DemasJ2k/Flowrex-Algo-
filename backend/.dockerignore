@@ -1,0 +1,18 @@
+__pycache__/
+*.pyc
+*.pyo
+.pytest_cache/
+.git/
+.gitignore
+*.md
+tests/
+History Data/
+backend/data/ml_models/
+frontend/
+nginx/
+scripts/
+VPrompt/
+*.joblib
+.env
+.env.*
+docker-compose*.yml

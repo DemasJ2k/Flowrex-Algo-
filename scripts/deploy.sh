@@ -13,9 +13,9 @@ echo "$(date -u '+%Y-%m-%d %H:%M:%S UTC')"
 echo "[1/4] Pulling latest code..."
 git pull origin main-gNXS2
 
-# Build containers
+# Build containers (uses cache for speed; use --no-cache for dep changes)
 echo "[2/4] Building containers..."
-docker compose -f docker-compose.prod.yml build --no-cache
+docker compose -f docker-compose.prod.yml build
 
 # Start/restart
 echo "[3/4] Starting services..."
@@ -25,7 +25,7 @@ docker compose -f docker-compose.prod.yml up -d
 echo "[4/4] Waiting for health check..."
 sleep 10
 for i in {1..12}; do
-    if curl -sf http://localhost:8000/api/health > /dev/null 2>&1; then
+    if docker exec flowrex-backend python -c "import httpx; r=httpx.get('http://localhost:8000/api/health'); assert r.status_code==200" 2>/dev/null; then
         echo "Backend healthy!"
         break
     fi

@@ -7,7 +7,7 @@ def test_settings_defaults():
         DATABASE_URL="postgresql://test:test@localhost/test",
         SECRET_KEY="test-key",
     )
-    assert s.DEBUG is True
+    assert s.DEBUG is False  # Default is False for production safety
     assert "http://localhost:3000" in s.ALLOWED_ORIGINS
     assert s.ENCRYPTION_KEY == ""
 
