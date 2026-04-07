@@ -51,8 +51,15 @@ SYMBOL_CONFIGS: dict[str, dict] = {
         "label_atr_mult": 1.2,
         "label_forward_bars": 10,
         "prime_hours_utc": (13, 21),
-        "spread_pips": 0.5,
-        "description": "S&P 500 — highly liquid, macro-driven",
+        "spread_pips": 0.25,        # ES tick = 0.25 pts, spread typically 0.25-0.50
+        "cost_bps": 0.5,            # very tight spread (~0.25 pts on 5500 = 0.005%)
+        "slippage_bps": 0.3,        # most liquid futures contract in the world
+        "tp_atr_mult": 1.2,
+        "sl_atr_mult": 0.8,
+        "bars_per_day": 102,        # ~8.5h primary session (same as US30)
+        "hold_bars": 10,
+        "trend_filter": False,      # ES mean-reverts frequently
+        "description": "S&P 500 E-mini — most liquid futures, macro-driven",
     },
     "NAS100": {
         "asset_class": "index",
