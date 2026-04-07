@@ -89,6 +89,7 @@ app = FastAPI(
     description="Autonomous algorithmic trading platform",
     version="0.1.0",
     lifespan=lifespan,
+    redirect_slashes=False,
 )
 
 app.add_middleware(

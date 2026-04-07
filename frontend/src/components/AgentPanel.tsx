@@ -173,7 +173,7 @@ export default function AgentPanel({ onRefresh }: { onRefresh?: () => void }) {
 
   const fetchAgents = useCallback(async () => {
     try {
-      const res = await api.get("/api/agents");
+      const res = await api.get("/api/agents/");
       setAgents(res.data);
     } catch {}
   }, []);
