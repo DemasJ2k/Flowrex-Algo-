@@ -212,6 +212,32 @@ Deploying FlowrexAlgo as a live trading platform. Domain: flowrexalgo.com. Hosti
 
 ### Phase 1: Landing Page + Auth Polish (Days 1-3)
 
+## 2026-04-07 — PRODUCTION LIVE: flowrexalgo.com
+
+### Deployment
+- DigitalOcean Droplet: 24.144.117.141 (2vCPU, 2GB, Docker, NYC1, $18/mo)
+- SSL: Let's Encrypt via certbot (expires 2026-07-06)
+- DNS: GoDaddy → Cloudflare (dahlia + kenneth NS) → A record to droplet
+- Docker: nginx + FastAPI + Next.js + PostgreSQL (all 4 containers healthy)
+- Admin: Flowrexflex@gmail.com (is_admin=True, id=3)
+- Beta codes: FLOWREX-BETA-001, FLOWREX-BETA-002
+
+### Issues Fixed During Deploy
+- PyTorch removed (800MB, caused OOM during Docker build — LSTM dropped in v2)
+- System nginx removed (was blocking Docker nginx ports)
+- Token key mismatch: login stored `access_token` but AppShell checked `flowrex_token` — aligned all to `access_token`
+- DB tables created manually (Alembic migrations didn't auto-run for new models)
+- Admin user created via docker exec (invite_codes table created via raw SQL)
+
+### What's Live
+- Landing page with hero, features, stats, CTA, Request Access modal
+- Auth: JWT login, invite-code registration, 2FA support, admin panel
+- Dashboard, Trading, Agents, Models, Backtest, Settings pages
+- Settings: Account, Trading, Broker, API Keys, Model Features, Providers, Feedback, Data tabs
+- Engine: agent_type routing (Potential/Scalping/Expert/Flowrex)
+- AgentWizard: 6-step creation with agent type selector
+- MarketDataProvider: CRUD + test for Databento/AlphaVantage/Finnhub/Polygon
+
 ## 2026-04-06 — FlowrexAlgo Launch Prep
 
 ### Infrastructure

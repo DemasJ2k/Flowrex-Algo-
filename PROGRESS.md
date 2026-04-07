@@ -491,3 +491,61 @@ _Updated at the end of each phase. Read this to understand what has been built._
 - Paper trade US30 scalping + BTCUSD (models are production-ready)
 - XAUUSD paused until more data uploaded
 - Feature count ~240 pre-SHAP → need to verify memory/speed with larger feature set
+
+---
+
+## Production Deployment (2026-04-07)
+**Status:** LIVE at https://flowrexalgo.com
+
+### Infrastructure
+- DigitalOcean Droplet: 24.144.117.141 (2vCPU, 2GB RAM, NYC1, $18/mo)
+- SSL: Let's Encrypt (auto-renewal configured)
+- DNS: GoDaddy → Cloudflare → DigitalOcean
+- Docker Compose: nginx + FastAPI + Next.js + PostgreSQL
+- Systemd: auto-start on reboot
+- Backups: pg_dump every 6 hours, 7-day retention
+
+### Features Deployed
+- Landing page with animations, Request Access, invite code system
+- Auth: JWT + 2FA + invite codes + admin approval flow
+- Dashboard, Trading, Agents, Models, Backtest, Settings (8 tabs)
+- Engine: agent_type routing (Potential/Scalping/Expert/Flowrex)
+- AgentWizard: 6-step creation flow with agent type selector
+- MarketDataProvider: Databento, Alpha Vantage, Finnhub, Polygon (CRUD + test)
+- Feedback system: bug reports, feature requests, provider requests
+- ProfileDropdown: user avatar, settings link, logout
+
+### Files Created
+- `docker-compose.prod.yml` — Production Docker Compose
+- `nginx/nginx.conf` — Reverse proxy + SSL + WebSocket + rate limiting
+- `scripts/server-setup.sh` — Droplet provisioning (swap, firewall, systemd)
+- `scripts/deploy.sh` — Automated deployment
+- `scripts/backup-db.sh` — Database backup cron
+- `backend/app/models/market_data.py` — MarketDataProvider model
+- `backend/app/api/market_data.py` — Provider CRUD + test endpoints
+- `backend/app/models/feedback.py` — AccessRequest + FeedbackReport
+- `backend/app/api/feedback.py` — Feedback + admin endpoints
+- `frontend/src/components/LandingPage.tsx` — Public landing page
+- `frontend/src/components/RequestAccessModal.tsx` — Access request form
+- `frontend/src/components/ProfileDropdown.tsx` — User menu
+- `frontend/src/components/AppShell.tsx` — Auth-aware layout
+
+### Files Modified
+- `backend/app/services/agent/engine.py` — agent_type routing
+- `frontend/src/components/AgentWizard.tsx` — agent type selector step
+- `backend/requirements.txt` — removed PyTorch (LSTM dropped in v2)
+- `backend/Dockerfile` — Python 3.11, single worker, g++ for native deps
+- `backend/main.py` — registered market_data router
+
+### Bugs Fixed
+- Token key mismatch (access_token vs flowrex_token)
+- PyTorch OOM during Docker build on 2GB server
+- System nginx blocking Docker nginx ports
+- Missing DB tables (invite_codes, access_requests, feedback_reports, market_data_providers)
+
+### Next Steps
+- Upload Potential Agent v2 models to server
+- Connect Oanda paper account
+- Create US30 Potential Agent and start paper trading
+- Train BTCUSD + XAUUSD on v2 features
+- Onboard 2 beta testers

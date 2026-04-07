@@ -8,8 +8,8 @@
 - **Brokers:** Oanda, cTrader, MT5
 
 ## Current Phase
-**POST-MVP: Strategy-Informed ML Overhaul** (2026-03-31)
-- Phase: Research complete → Implementation plan ready → Build next
+**PRODUCTION DEPLOYMENT** (2026-04-07)
+- Phase: Site live at https://flowrexalgo.com → Paper trading next → BTCUSD/XAUUSD training
 
 ## Completed Phases
 - Phase 1 — Foundation (2026-03-28)
@@ -86,6 +86,15 @@ us30_primary_session: 13:30-15:30 UTC (cash open)
 | XAUUSD | XGBoost | F | — | Walk-forward v5 (2010-2024, needs fresh data) |
 | XAUUSD | LightGBM | B | — | Walk-forward v8 (2010-2025, 4 folds, OOS too small: 1,141 bars) |
 
+## Production Deployment (2026-04-07)
+- **Domain:** flowrexalgo.com (GoDaddy → Cloudflare DNS)
+- **Server:** DigitalOcean Droplet 24.144.117.141 (2vCPU, 2GB RAM, NYC1)
+- **Stack:** Docker Compose (nginx + FastAPI + Next.js + PostgreSQL)
+- **SSL:** Let's Encrypt (expires 2026-07-06)
+- **Admin:** Flowrexflex@gmail.com (is_admin=True)
+- **Beta codes:** FLOWREX-BETA-001, FLOWREX-BETA-002 (30-day expiry)
+- **Broker:** Oanda (primary, paper trading)
+
 ## Phase Checklist
 | # | Phase | Status |
 |---|-------|--------|
@@ -99,6 +108,10 @@ us30_primary_session: 13:30-15:30 UTC (cash open)
 | 8 | Real-Time WebSockets (live data, notifications) | done |
 | 9 | Auth & Polish (2FA, settings, error handling) | done |
 | 10 | Deploy & Harden (Docker, CI/CD, monitoring) | done |
+| 11 | Potential Agent v2 (institutional features, Grade A) | done |
+| 12 | Production Deployment (flowrexalgo.com live) | done |
+| 13 | Paper Trading (Oanda US30) | next |
+| 14 | Multi-Symbol (BTCUSD + XAUUSD v2 training) | pending |
 
 ## Rules (ALWAYS follow these)
 1. **ALWAYS** read `ARCHITECTURE.md` (in `VPrompt/`) before starting any phase.
@@ -133,8 +146,18 @@ us30_primary_session: 13:30-15:30 UTC (cash open)
 - `backend/scripts/strategy_labels.py` — Triple barrier + ICT quality scoring
 - `backend/scripts/fetch_cot_data.py` — CFTC disaggregated futures downloader
 - `backend/data/ml_models/archive_v4_2026-03-31/` — Archived baseline models
-- `backend/app/services/ml/features_potential.py` — 76 institutional features (VWAP, Vol Profile, ADX, ORB, EMA)
-- `backend/scripts/train_potential.py` — Potential Agent training (LSTM + GBM + SHAP)
+- `backend/app/services/ml/features_potential.py` — 85 institutional features v2 (ATR-normalized, anchored VWAPs)
+- `backend/scripts/train_potential.py` — Potential Agent training (GBM + SHAP, no LSTM in v2)
 - `backend/app/services/agent/potential_agent.py` — Potential Agent runtime inference
 - `backend/scripts/compare_agents.py` — Side-by-side agent backtesting
+- `backend/scripts/forward_test_potential.py` — Dollar P&L forward test ($10k MT5)
+- `backend/app/models/market_data.py` — MarketDataProvider model (encrypted API keys)
+- `backend/app/api/market_data.py` — Market data provider CRUD + test endpoints
+- `backend/app/models/feedback.py` — AccessRequest + FeedbackReport models
+- `backend/app/api/feedback.py` — Access request + feedback endpoints + admin approval
+- `docker-compose.prod.yml` — Production deployment (nginx + SSL + memory limits)
+- `nginx/nginx.conf` — Reverse proxy, WebSocket, rate limiting, security headers
+- `scripts/server-setup.sh` — DigitalOcean droplet provisioning
+- `scripts/deploy.sh` — Pull + build + restart + health check
+- `scripts/backup-db.sh` — PostgreSQL backup (6-hourly, 7-day retention)
 - `History Data/data/` — 15-year CSV history (M1/M5/M15/H1/H4 per symbol)
