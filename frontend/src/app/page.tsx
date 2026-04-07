@@ -25,7 +25,7 @@ export default function HomePage() {
   const [isAuthed, setIsAuthed] = useState<boolean | null>(null);
 
   useEffect(() => {
-    setIsAuthed(!!localStorage.getItem("flowrex_token"));
+    setIsAuthed(!!localStorage.getItem("access_token"));
   }, []);
 
   if (isAuthed === null) return null; // loading

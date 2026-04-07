@@ -30,8 +30,8 @@ export default function ProfileDropdown() {
   const initials = email ? email.slice(0, 2).toUpperCase() : "U";
 
   const handleLogout = () => {
-    localStorage.removeItem("flowrex_token");
-    localStorage.removeItem("flowrex_refresh");
+    localStorage.removeItem("access_token");
+    localStorage.removeItem("refresh_token");
     router.push("/login");
   };
 

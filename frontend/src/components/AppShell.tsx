@@ -12,10 +12,10 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
   const [authed, setAuthed] = useState<boolean | null>(null);
 
   useEffect(() => {
-    const token = localStorage.getItem("flowrex_token");
+    const token = localStorage.getItem("access_token");
     setAuthed(!!token);
     // Listen for storage changes (login/logout in other tabs)
-    const handler = () => setAuthed(!!localStorage.getItem("flowrex_token"));
+    const handler = () => setAuthed(!!localStorage.getItem("access_token"));
     window.addEventListener("storage", handler);
     return () => window.removeEventListener("storage", handler);
   }, [pathname]);
