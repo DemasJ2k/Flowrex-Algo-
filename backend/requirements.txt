@@ -13,19 +13,18 @@ httpx==0.28.1
 websockets==14.1
 python-multipart==0.0.19
 pyotp==2.9.0
-pydantic[email]
 
 # ML / Data Science
-numpy
-pandas
-scikit-learn
-xgboost
-lightgbm
-optuna
-hmmlearn
-joblib
-apscheduler
-shap
+numpy==1.26.4
+pandas==2.2.2
+scikit-learn==1.5.2
+xgboost==2.1.1
+lightgbm==4.5.0
+optuna==3.6.1
+hmmlearn==0.3.2
+joblib==1.4.2
+apscheduler==3.10.4
+shap==0.45.1
 
 # Testing
 pytest==8.3.4

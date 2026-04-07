@@ -1,4 +1,8 @@
 """Unit tests for the BrokerManager."""
+import os
+os.environ["ENCRYPTION_KEY"] = "dGVzdC1lbmNyeXB0aW9uLWtleS0xMjM0NTY3OA=="
+os.environ["DEBUG"] = "true"
+
 import pytest
 import json
 from unittest.mock import patch, AsyncMock

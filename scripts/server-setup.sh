@@ -1,7 +1,7 @@
 #!/bin/bash
 # FlowrexAlgo Server Setup Script
 # Run on a fresh Ubuntu 22.04 DigitalOcean Droplet with Docker pre-installed
-# Usage: ssh root@159.223.159.209 'bash -s' < scripts/server-setup.sh
+# Usage: ssh root@24.144.117.141 'bash -s' < scripts/server-setup.sh
 
 set -e
 echo "=== FlowrexAlgo Server Setup ==="
@@ -10,7 +10,7 @@ echo "=== FlowrexAlgo Server Setup ==="
 echo "[1/8] System updates..."
 apt-get update -qq
 apt-get upgrade -y -qq
-apt-get install -y -qq nginx certbot python3-certbot-nginx fail2ban ufw git curl jq
+apt-get install -y -qq certbot python3-certbot-nginx fail2ban ufw git curl jq
 
 # 2. Create swap (critical for 2GB RAM)
 echo "[2/8] Creating 2GB swap..."
@@ -52,7 +52,7 @@ fi
 echo "[6/8] Creating .env file..."
 if [ ! -f .env ]; then
     SECRET_KEY=$(openssl rand -hex 32)
-    ENCRYPTION_KEY=$(python3 -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())" 2>/dev/null || openssl rand -base64 32)
+    ENCRYPTION_KEY=$(python3 -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())" 2>/dev/null || python3 -c "import base64,os; print(base64.urlsafe_b64encode(os.urandom(32)).decode())")
     DB_PASS=$(openssl rand -hex 16)
 
     cat > .env << ENVEOF
