@@ -32,7 +32,7 @@ export default function AgentsPage() {
 
   const fetchData = () => {
     Promise.all([
-      api.get("/api/agents").then((r) => setAgents(r.data)).catch(() => {}),
+      api.get("/api/agents/").then((r) => setAgents(r.data)).catch(() => {}),
       api.get("/api/agents/pnl-summary").then((r) => setPnl(r.data)).catch(() => {}),
     ]).finally(() => setLoading(false));
   };
