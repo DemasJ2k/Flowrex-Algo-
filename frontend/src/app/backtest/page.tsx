@@ -82,7 +82,7 @@ export default function BacktestPage() {
 
   return (
     <div className="space-y-4">
-      <h1 className="text-2xl font-semibold">Backtest</h1>
+      <h1 className="text-2xl font-semibold bg-gradient-to-r from-violet-400 to-blue-400 bg-clip-text text-transparent">Backtest</h1>
 
       {/* Configuration */}
       <Card>
@@ -136,7 +136,7 @@ export default function BacktestPage() {
           </label>
         </div>
         <button onClick={runBacktest} disabled={loading}
-          className="mt-4 px-6 py-2.5 text-sm font-medium rounded-lg bg-blue-600 hover:bg-blue-500 text-white disabled:opacity-50 flex items-center gap-2">
+          className="mt-4 px-6 py-2.5 text-sm font-medium rounded-lg btn-gradient text-white disabled:opacity-50 flex items-center gap-2">
           {loading ? <><Loader2 size={14} className="animate-spin" /> Running...</> : <><FlaskConical size={14} /> Run Backtest</>}
         </button>
       </Card>
@@ -146,12 +146,18 @@ export default function BacktestPage() {
         <>
           {/* Summary Stats Row 1 */}
           <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-3">
-            <StatCard label="Gross P&L" value={fmt(result.gross_pnl as number)} color={pnlColor(result.gross_pnl as number)} />
-            <StatCard label="Net P&L" value={fmt(result.net_pnl as number)} color={pnlColor(result.net_pnl as number)} />
-            <StatCard label="Total Costs" value={fmt(result.total_costs as number)} color="red" />
-            <StatCard label="Win Rate" value={(result.win_rate as number).toFixed(1) + "%"} sub={(result.winning_trades as number) + "W / " + (result.losing_trades as number) + "L"} />
-            <StatCard label="Profit Factor" value={fmt(result.profit_factor as number)} />
-            <StatCard label="Trades" value={result.total_trades as number} />
+            {[
+              <StatCard key="gp" label="Gross P&L" value={fmt(result.gross_pnl as number)} color={pnlColor(result.gross_pnl as number)} />,
+              <StatCard key="np" label="Net P&L" value={fmt(result.net_pnl as number)} color={pnlColor(result.net_pnl as number)} />,
+              <StatCard key="tc" label="Total Costs" value={fmt(result.total_costs as number)} color="red" />,
+              <StatCard key="wr" label="Win Rate" value={(result.win_rate as number).toFixed(1) + "%"} sub={(result.winning_trades as number) + "W / " + (result.losing_trades as number) + "L"} />,
+              <StatCard key="pf" label="Profit Factor" value={fmt(result.profit_factor as number)} />,
+              <StatCard key="tr" label="Trades" value={result.total_trades as number} />,
+            ].map((card, i) => (
+              <div key={i} className="animate-fade-in" style={{ animationDelay: `${i * 0.06}s` }}>
+                {card}
+              </div>
+            ))}
           </div>
           {/* Summary Stats Row 2 */}
           <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-3">
@@ -180,10 +186,12 @@ export default function BacktestPage() {
           {/* Equity + Drawdown Charts */}
           {eqCurve.length >= 2 && (
             <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-              <Card>
+              <div className="rounded-xl overflow-hidden" style={{ padding: (result.net_pnl as number) > 0 ? "2px" : "0", background: (result.net_pnl as number) > 0 ? "linear-gradient(135deg, #8b5cf6, #3b82f6)" : "transparent" }}>
+              <Card className={(result.net_pnl as number) > 0 ? "!rounded-[10px]" : ""}>
                 <h3 className="text-sm font-medium mb-2">Equity Curve</h3>
                 <EquityCurveChart data={eqCurve} height={180} />
               </Card>
+              </div>
               <Card>
                 <h3 className="text-sm font-medium mb-2 flex items-center gap-2">
                   <TrendingDown size={14} style={{ color: "var(--muted)" }} /> Drawdown

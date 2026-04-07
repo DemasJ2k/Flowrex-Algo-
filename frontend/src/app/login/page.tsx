@@ -39,14 +39,14 @@ export default function LoginPage() {
   };
 
   return (
-    <div className="min-h-screen flex items-center justify-center p-4" style={{ background: "var(--background)" }}>
-      <div className="w-full max-w-sm rounded-xl border p-8" style={{ background: "var(--card)", borderColor: "var(--border)" }}>
+    <div className="min-h-screen flex items-center justify-center p-4 relative auth-glow" style={{ background: "var(--background)" }}>
+      <div className="w-full max-w-sm rounded-xl border p-8 relative z-10 animate-fade-in" style={{ background: "var(--card)", borderColor: "var(--border)" }}>
         <div className="flex items-center gap-2 mb-6">
           <img src="/logo-icon.png" alt="FlowrexAlgo" className="w-8 h-8 rounded-lg object-contain" />
           <span className="text-lg font-semibold">FlowrexAlgo</span>
         </div>
 
-        <h1 className="text-xl font-semibold mb-1">Sign In</h1>
+        <h1 className="text-xl font-semibold mb-1 bg-gradient-to-r from-violet-400 to-blue-400 bg-clip-text text-transparent">Sign In</h1>
         <p className="text-sm mb-6" style={{ color: "var(--muted)" }}>Enter your credentials to continue</p>
 
         <form onSubmit={handleLogin} className="space-y-4">
@@ -63,7 +63,7 @@ export default function LoginPage() {
               style={{ borderColor: "var(--border)" }} placeholder="••••••••" />
           </div>
           <button type="submit" disabled={loading}
-            className="w-full py-2.5 text-sm font-medium rounded-lg bg-blue-600 hover:bg-blue-500 text-white disabled:opacity-50">
+            className="w-full py-2.5 text-sm font-medium rounded-lg btn-gradient text-white disabled:opacity-50">
             {loading ? "Signing in..." : "Sign In"}
           </button>
         </form>

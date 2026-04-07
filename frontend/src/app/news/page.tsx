@@ -47,8 +47,9 @@ function ImpactBadge({ impact }: { impact: string }) {
     low: "bg-emerald-500/15 text-emerald-400 border-emerald-500/30",
   };
   const cls = colors[level] || colors.low;
+  const glowCls = level === "high" ? "impact-glow-high" : level === "medium" ? "impact-glow-medium" : "impact-glow-low";
   return (
-    <span className={`inline-flex items-center px-2 py-0.5 text-xs font-medium rounded border ${cls}`}>
+    <span className={`inline-flex items-center px-2 py-0.5 text-xs font-medium rounded border ${cls} ${glowCls}`}>
       {level.toUpperCase()}
     </span>
   );
@@ -237,7 +238,7 @@ function HeadlinesSection() {
                   <img
                     src={article.image}
                     alt=""
-                    className="w-full h-full object-cover"
+                    className="w-full h-full object-cover img-hover-zoom"
                     onError={(e) => (e.currentTarget.style.display = "none")}
                   />
                 </div>
@@ -282,11 +283,11 @@ export default function NewsPage() {
     <div className="space-y-6">
       {/* Header */}
       <div className="flex items-center gap-3">
-        <div className="p-2 rounded-lg" style={{ background: "var(--accent)" }}>
+        <div className="p-2 rounded-lg" style={{ background: "linear-gradient(135deg, #8b5cf6, #3b82f6)" }}>
           <Newspaper size={20} className="text-white" />
         </div>
         <div>
-          <h1 className="text-xl font-semibold text-white">News & Calendar</h1>
+          <h1 className="text-xl font-semibold bg-gradient-to-r from-violet-400 to-blue-400 bg-clip-text text-transparent">News & Calendar</h1>
           <p className="text-xs" style={{ color: "var(--muted)" }}>
             Economic events and market headlines -- auto-refreshes every 5 minutes
           </p>

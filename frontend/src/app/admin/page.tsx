@@ -70,14 +70,20 @@ export default function AdminPage() {
 
   return (
     <div className="space-y-4">
-      <h1 className="text-2xl font-semibold">Admin</h1>
+      <h1 className="text-2xl font-semibold bg-gradient-to-r from-violet-400 to-blue-400 bg-clip-text text-transparent">Admin</h1>
 
       {/* System Health */}
       <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-        <StatCard label="Database" value={system?.database === "connected" ? "Connected" : "Disconnected"} color={system?.database === "connected" ? "green" : "red"} />
-        <StatCard label="Active Agents" value={system?.running_agents?.length || 0} />
-        <StatCard label="WebSocket" value={system?.websocket_connections || 0} sub="connections" />
-        <StatCard label="Users" value={users.length} />
+        {[
+          <StatCard key="db" label="Database" value={system?.database === "connected" ? "Connected" : "Disconnected"} color={system?.database === "connected" ? "green" : "red"} />,
+          <StatCard key="ag" label="Active Agents" value={system?.running_agents?.length || 0} />,
+          <StatCard key="ws" label="WebSocket" value={system?.websocket_connections || 0} sub="connections" />,
+          <StatCard key="us" label="Users" value={users.length} />,
+        ].map((card, i) => (
+          <div key={i} className="animate-fade-in" style={{ animationDelay: `${i * 0.06}s` }}>
+            {card}
+          </div>
+        ))}
       </div>
 
       {/* Invite Codes */}
@@ -86,7 +92,7 @@ export default function AdminPage() {
           <h2 className="text-sm font-medium flex items-center gap-2"><Shield size={16} /> Invite Codes</h2>
           <div className="flex gap-2">
             <button onClick={() => handleGenerate(1)} disabled={generating} className="px-3 py-1.5 text-xs rounded-lg border hover:bg-white/5" style={{ borderColor: "var(--border)" }}>+1</button>
-            <button onClick={() => handleGenerate(5)} disabled={generating} className="flex items-center gap-1 px-3 py-1.5 text-xs rounded-lg bg-blue-600 hover:bg-blue-500 text-white disabled:opacity-50">
+            <button onClick={() => handleGenerate(5)} disabled={generating} className="flex items-center gap-1 px-3 py-1.5 text-xs rounded-lg btn-gradient text-white disabled:opacity-50">
               <Plus size={12} /> Generate 5
             </button>
           </div>
@@ -99,7 +105,7 @@ export default function AdminPage() {
         <h2 className="text-sm font-medium mb-3 flex items-center gap-2"><Users size={16} /> Users</h2>
         <div className="space-y-2">
           {users.map((u) => (
-            <div key={u.id} className="flex items-center justify-between px-3 py-2 rounded-lg border" style={{ borderColor: "var(--border)" }}>
+            <div key={u.id} className={`flex items-center justify-between px-3 py-2 rounded-lg border border-l-2 ${u.is_admin ? "!border-l-violet-500" : "!border-l-blue-500/40"}`} style={{ borderColor: "var(--border)" }}>
               <div className="flex items-center gap-2">
                 <span className="text-sm">{u.email}</span>
                 {u.is_admin && <StatusBadge value="admin" />}

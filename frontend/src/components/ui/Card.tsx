@@ -14,7 +14,7 @@ export default function Card({
 }) {
   return (
     <div
-      className={cn("rounded-xl border p-4 transition-shadow duration-300", glow && "hover:shadow-[0_0_20px_rgba(139,92,246,0.1)]", className)}
+      className={cn("rounded-xl border p-4 card-hover-glow", glow && "hover:shadow-[0_0_20px_rgba(139,92,246,0.1)]", className)}
       style={{ background: "var(--card)", borderColor: "var(--border)" }}
     >
       {children}

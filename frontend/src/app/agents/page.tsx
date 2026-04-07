@@ -111,7 +111,7 @@ export default function AgentsPage() {
       {/* Header */}
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-2xl font-semibold">Agents</h1>
+          <h1 className="text-2xl font-semibold bg-gradient-to-r from-violet-400 to-blue-400 bg-clip-text text-transparent">Agents</h1>
           <p className="text-xs mt-0.5" style={{ color: "var(--muted)" }}>{agents.length} total, {runningCount} running</p>
         </div>
         <div className="flex gap-2">
@@ -180,7 +180,7 @@ export default function AgentsPage() {
             const pf = agentPnl && agentPnl.loss_count > 0 ? (agentPnl.win_count / agentPnl.loss_count).toFixed(1) : agentPnl && agentPnl.win_count > 0 ? "\u221E" : "\u2014";
 
             return (
-              <Card key={a.id} className={`hover:bg-white/[0.02] transition-colors border-l-2 ${a.status === "running" ? "!border-l-emerald-500" : a.status === "paused" ? "!border-l-amber-500" : "!border-l-gray-600"}`}>
+              <Card key={a.id} className={`hover:bg-white/[0.02] transition-colors border-l-2 ${a.status === "running" ? "!border-l-emerald-500 agent-running-pulse" : a.status === "paused" ? "!border-l-amber-500" : a.status === "error" ? "!border-l-red-500" : "!border-l-gray-600"}`}>
                 <div className="flex items-center gap-3">
                   <div className="flex-1 min-w-0 cursor-pointer" onClick={() => setDetailAgent(a)}>
                     {/* Row 1: Name + badges */}

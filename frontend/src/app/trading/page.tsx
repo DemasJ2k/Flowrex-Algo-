@@ -390,7 +390,8 @@ export default function TradingPage() {
       </div>
 
       {/* ── Chart ──────────────────────────────────────────────────── */}
-      <Card className="p-0 overflow-hidden">
+      <div className="rounded-xl overflow-hidden" style={{ padding: "2px 0 0 0", background: "linear-gradient(to right, #8b5cf6, #3b82f6)" }}>
+      <Card className="p-0 overflow-hidden !rounded-t-[10px]">
         <div className="px-4 pt-3 pb-1 flex items-center gap-4">
           <span className="text-sm font-semibold">{symbol}</span>
           {(liveBid || candles.length > 0) && (
@@ -417,6 +418,7 @@ export default function TradingPage() {
           </div>
         )}
       </Card>
+      </div>
 
       {/* ── Tick Data Panel ─────────────────────────────────────────── */}
       {showTicks && ticks.length > 0 && (
@@ -458,11 +460,17 @@ export default function TradingPage() {
 
       {/* ── Account Cards ──────────────────────────────────────────── */}
       <div className="grid grid-cols-2 md:grid-cols-5 gap-3">
-        <StatCard label="Balance" value={account ? `${fmt(account.balance)}` : "—"} sub={account?.currency} />
-        <StatCard label="Equity" value={account ? fmt(account.equity) : "—"} />
-        <StatCard label="P&L" value={account ? fmt(account.unrealized_pnl) : "—"} color={account && account.unrealized_pnl >= 0 ? "green" : "red"} />
-        <StatCard label="Positions" value={positions.length} />
-        <StatCard label="Active Agents" value={activeAgents} />
+        {[
+          <StatCard key="b" label="Balance" value={account ? `${fmt(account.balance)}` : "—"} sub={account?.currency} />,
+          <StatCard key="e" label="Equity" value={account ? fmt(account.equity) : "—"} />,
+          <StatCard key="p" label="P&L" value={account ? fmt(account.unrealized_pnl) : "—"} color={account && account.unrealized_pnl >= 0 ? "green" : "red"} />,
+          <StatCard key="pos" label="Positions" value={positions.length} />,
+          <StatCard key="ag" label="Active Agents" value={activeAgents} />,
+        ].map((card, i) => (
+          <div key={i} className="animate-fade-in" style={{ animationDelay: `${i * 0.06}s` }}>
+            {card}
+          </div>
+        ))}
       </div>
 
       {/* ── Tabs ───────────────────────────────────────────────────── */}

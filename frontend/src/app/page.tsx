@@ -110,7 +110,7 @@ function DashboardView() {
       <div className="flex items-center justify-between">
         <h1 className="text-2xl font-semibold bg-gradient-to-r from-violet-400 to-blue-400 bg-clip-text text-transparent">Dashboard</h1>
         <div className="flex gap-2">
-          <Link href="/trading" className="flex items-center gap-2 px-4 py-2 text-sm font-medium rounded-lg bg-blue-600 hover:bg-blue-500 text-white">
+          <Link href="/trading" className="flex items-center gap-2 px-4 py-2 text-sm font-medium rounded-lg btn-gradient text-white">
             <LineChart size={16} /> Trading
           </Link>
           <Link href="/agents" className="flex items-center gap-2 px-4 py-2 text-sm font-medium rounded-lg border hover:bg-white/5" style={{ borderColor: "var(--border)" }}>
@@ -202,7 +202,7 @@ function DashboardView() {
         <Card glow className="lg:col-span-2">
           <h2 className="text-sm font-medium mb-3">Quick Actions</h2>
           <div className="space-y-2">
-            <Link href="/trading" className="flex items-center gap-2 w-full px-3 py-2.5 text-sm rounded-lg bg-blue-600 hover:bg-blue-500 text-white font-medium">
+            <Link href="/trading" className="flex items-center gap-2 w-full px-3 py-2.5 text-sm rounded-lg btn-gradient text-white font-medium">
               <LineChart size={16} /> Trading Terminal
             </Link>
             <Link href="/agents" className="flex items-center gap-2 w-full px-3 py-2.5 text-sm rounded-lg border hover:bg-white/5" style={{ borderColor: "var(--border)" }}>

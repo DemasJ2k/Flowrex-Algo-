@@ -63,6 +63,68 @@ body {
   animation: fadeInUp 0.4s ease both;
 }
 
+@keyframes pulse-border {
+  0%, 100% { border-left-color: #22c55e; }
+  50% { border-left-color: #86efac; }
+}
+
+.agent-running-pulse {
+  animation: pulse-border 2s ease-in-out infinite;
+}
+
+/* Card hover glow */
+.card-hover-glow {
+  transition: box-shadow 0.3s ease, border-color 0.3s ease;
+}
+.card-hover-glow:hover {
+  box-shadow: 0 0 20px rgba(139, 92, 246, 0.08);
+}
+
+/* Grade badge glow */
+.grade-glow-a { box-shadow: 0 0 8px rgba(34, 197, 94, 0.3); }
+.grade-glow-b { box-shadow: 0 0 8px rgba(59, 130, 246, 0.3); }
+.grade-glow-c { box-shadow: 0 0 8px rgba(245, 158, 11, 0.3); }
+.grade-glow-f { box-shadow: 0 0 8px rgba(239, 68, 68, 0.3); }
+
+/* Impact badge glow */
+.impact-glow-high { box-shadow: 0 0 8px rgba(239, 68, 68, 0.25); }
+.impact-glow-medium { box-shadow: 0 0 8px rgba(245, 158, 11, 0.25); }
+.impact-glow-low { box-shadow: 0 0 8px rgba(34, 197, 94, 0.2); }
+
+/* Image hover zoom */
+.img-hover-zoom {
+  transition: transform 0.4s ease;
+}
+.img-hover-zoom:hover {
+  transform: scale(1.05);
+}
+
+/* Gradient button */
+.btn-gradient {
+  background: linear-gradient(135deg, #8b5cf6, #3b82f6);
+  transition: transform 0.15s ease, box-shadow 0.15s ease;
+}
+.btn-gradient:hover {
+  transform: scale(1.02);
+  box-shadow: 0 0 20px rgba(139, 92, 246, 0.25);
+}
+
+/* Auth page background glow */
+.auth-glow::before {
+  content: '';
+  position: absolute;
+  top: 20%;
+  left: 50%;
+  transform: translateX(-50%);
+  width: 500px;
+  height: 350px;
+  border-radius: 50%;
+  opacity: 0.12;
+  background: linear-gradient(135deg, #8b5cf6, #3b82f6);
+  filter: blur(100px);
+  pointer-events: none;
+}
+
 /* Scrollbar styling */
 ::-webkit-scrollbar {
   width: 6px;

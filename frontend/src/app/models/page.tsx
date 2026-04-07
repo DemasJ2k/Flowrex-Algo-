@@ -118,7 +118,7 @@ export default function ModelsPage() {
     <div className="space-y-4">
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-2xl font-semibold">ML Models</h1>
+          <h1 className="text-2xl font-semibold bg-gradient-to-r from-violet-400 to-blue-400 bg-clip-text text-transparent">ML Models</h1>
           <p className="text-xs mt-0.5" style={{ color: "var(--muted)" }}>{models.length} models across {symbols.length} symbols</p>
         </div>
         <div className="flex gap-2">
@@ -166,7 +166,7 @@ export default function ModelsPage() {
                       <div className="flex items-center gap-2">
                         <span className="text-xs font-medium w-20">{m.model_type}</span>
                         <StatusBadge value={m.pipeline} />
-                        {m.grade && <StatusBadge value={m.grade} />}
+                        {m.grade && <span className={m.grade === "A" ? "grade-glow-a rounded" : m.grade === "B" ? "grade-glow-b rounded" : m.grade === "C" ? "grade-glow-c rounded" : m.grade === "F" ? "grade-glow-f rounded" : ""}><StatusBadge value={m.grade} /></span>}
                       </div>
                       <div className="flex items-center gap-3 text-xs" style={{ color: "var(--muted)" }}>
                         {m.metrics?.accuracy && <span>Acc: {(m.metrics.accuracy * 100).toFixed(1)}%</span>}
