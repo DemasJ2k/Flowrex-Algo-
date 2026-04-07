@@ -200,6 +200,12 @@ class AgentRunner:
             )
 
             if signal:
+                # Log signal evaluation
+                self._log_to_db(db, "signal",
+                    f"Eval #{self._eval_count}: SIGNAL {signal['direction']} {agent_record.symbol} "
+                    f"conf={signal['confidence']:.3f}",
+                    signal)
+
                 # Portfolio-level check: limit total open positions
                 engine = get_algo_engine()
                 open_count = db.query(AgentTrade).filter(AgentTrade.status == "open").count()
@@ -208,6 +214,11 @@ class AgentRunner:
                     self._log_to_db(db, "info", f"Portfolio limit: {open_count}/{max_open} positions open — skipping trade")
                 else:
                     await self._create_trade(signal, adapter, agent_record, db)
+            else:
+                # Log rejection evaluation
+                self._log_to_db(db, "eval",
+                    f"Eval #{self._eval_count}: no signal | "
+                    f"bars={len(self._bar_buffer)}, balance={balance:.2f}")
 
             # Health check every 12 evaluations (~1 hour on M5)
             if self._eval_count % 12 == 0:

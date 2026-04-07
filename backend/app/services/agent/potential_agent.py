@@ -32,6 +32,7 @@ class PotentialAgent:
     CONFIDENCE_THRESHOLD = 0.52
     MIN_BARS = 300  # need enough for Volume Profile (288-bar window)
     COOLDOWN_BARS = 3
+    EXPECTED_FEATURE_COUNT = 85
 
     def __init__(self, agent_id: int, symbol: str, broker_name: str, config: dict = None):
         self.agent_id = agent_id
@@ -62,21 +63,67 @@ class PotentialAgent:
         self._daily_pnl = 0.0
 
     def load(self) -> bool:
-        """Load ML models from disk."""
+        """Load ML models from disk with validation."""
         self.models.clear()
+        loaded_any = False
+
         for mtype in ["xgboost", "lightgbm"]:
             path = os.path.join(MODEL_DIR, f"potential_{self.symbol}_M5_{mtype}.joblib")
-            if os.path.exists(path):
+
+            if not os.path.exists(path):
+                self._log("warn", f"Model file not found: {os.path.basename(path)}")
+                continue
+
+            try:
                 data = joblib.load(path)
-                self.models[mtype] = data
-                if not self.feature_names and "feature_names" in data:
-                    self.feature_names = data["feature_names"]
-                if "risk_config" in data:
-                    self.risk_config = data["risk_config"]
-                self._log("info", f"Loaded potential model: {mtype} "
-                          f"(grade={data.get('grade', '?')}, "
-                          f"features={len(data.get('feature_names', []))})")
-        return len(self.models) > 0
+            except Exception as e:
+                self._log("error", f"Failed to load model {os.path.basename(path)}: {e}")
+                continue
+
+            model_features = data.get("feature_names", [])
+            feat_count = len(model_features)
+            grade = data.get("grade", "?")
+            pipeline_version = data.get("pipeline_version", data.get("version", "?"))
+
+            # Validate feature count matches expected
+            if feat_count != self.EXPECTED_FEATURE_COUNT:
+                self._log("warn",
+                    f"Feature count mismatch for {mtype}: model has {feat_count} features, "
+                    f"expected {self.EXPECTED_FEATURE_COUNT} from compute_potential_features")
+
+            self.models[mtype] = data
+            loaded_any = True
+
+            if not self.feature_names and model_features:
+                self.feature_names = model_features
+            if "risk_config" in data:
+                self.risk_config = data["risk_config"]
+
+            self._log("info",
+                f"Loaded potential model: {mtype} "
+                f"(grade={grade}, features={feat_count}, "
+                f"pipeline_version={pipeline_version})")
+
+        if not loaded_any:
+            # List available model files so user can diagnose
+            available = []
+            try:
+                for f in os.listdir(MODEL_DIR):
+                    if f.startswith("potential_") and f.endswith(".joblib"):
+                        available.append(f)
+            except OSError:
+                pass
+
+            if available:
+                self._log("error",
+                    f"No models found for symbol={self.symbol}. "
+                    f"Available potential models: {', '.join(sorted(available))}")
+            else:
+                self._log("error",
+                    f"No models found for symbol={self.symbol}. "
+                    f"No potential model files exist in {MODEL_DIR}")
+
+        return loaded_any
 
     async def evaluate(
         self,
