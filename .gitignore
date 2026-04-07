@@ -43,3 +43,4 @@ Thumbs.db
 .coverage
 htmlcov/
 .pytest_cache/
+backend/flowrex_algo.db
