@@ -7,7 +7,7 @@ import { AlertTriangle } from "lucide-react";
 import { toast } from "sonner";
 import { getErrorMessage } from "@/lib/errors";
 
-const STEPS = ["Symbol", "Agent", "Risk", "Filters", "Mode", "Review"];
+const STEPS = ["Setup", "Risk & Mode", "Review"];
 
 const AGENT_TYPES = [
   { value: "potential", label: "Potential Agent", desc: "Institutional strategies (VWAP, ADX, ORB, EMA). Grade A model.", badge: "A", color: "#22c55e" },
@@ -116,7 +116,7 @@ export default function AgentWizard({
         ))}
       </div>
 
-      {/* Step 1: Symbol + Config */}
+      {/* Step 1: Setup — Symbol + Agent Type + Broker */}
       {step === 0 && (
         <div className="space-y-4">
           <div>
@@ -134,6 +134,20 @@ export default function AgentWizard({
                   style={{ borderColor: symbol === s ? undefined : "var(--border)" }}>{s}</button>
               ))}
             </div>
+          </div>
+          <div>
+            <label className="block text-xs font-medium mb-2" style={{ color: "var(--muted)" }}>Agent Strategy</label>
+            {AGENT_TYPES.map((a) => (
+              <button key={a.value} onClick={() => setAgentType(a.value)}
+                className={`w-full text-left p-2.5 rounded-lg border transition-colors mb-2 ${agentType === a.value ? "border-blue-500 bg-blue-500/10" : "hover:bg-white/5"}`}
+                style={{ borderColor: agentType === a.value ? undefined : "var(--border)" }}>
+                <div className="flex items-center justify-between">
+                  <span className="font-medium text-sm">{a.label}</span>
+                  {a.badge && <span className="text-xs px-1.5 py-0.5 rounded font-bold" style={{ background: `${a.color}20`, color: a.color }}>Grade {a.badge}</span>}
+                </div>
+                <span className="text-xs" style={{ color: "var(--muted)" }}>{a.desc}</span>
+              </button>
+            ))}
           </div>
           <div className="grid grid-cols-2 gap-3">
             <div>
@@ -156,130 +170,49 @@ export default function AgentWizard({
         </div>
       )}
 
-      {/* Step 2: Agent Type */}
+      {/* Step 2: Risk & Mode */}
       {step === 1 && (
-        <div className="space-y-3">
-          <p className="text-sm mb-1" style={{ color: "var(--muted)" }}>Select agent strategy</p>
-          {AGENT_TYPES.map((a) => (
-            <button
-              key={a.value}
-              onClick={() => setAgentType(a.value)}
-              className={`w-full text-left p-3 rounded-lg border transition-colors ${
-                agentType === a.value ? "border-blue-500 bg-blue-500/10" : "hover:bg-white/5"
-              }`}
-              style={{ borderColor: agentType === a.value ? undefined : "var(--border)" }}
-            >
-              <div className="flex items-center justify-between">
-                <span className="font-medium text-sm">{a.label}</span>
-                {a.badge && (
-                  <span className="text-xs px-1.5 py-0.5 rounded font-bold" style={{ background: `${a.color}20`, color: a.color }}>
-                    Grade {a.badge}
-                  </span>
-                )}
-              </div>
-              <span className="text-xs mt-1 block" style={{ color: "var(--muted)" }}>{a.desc}</span>
-            </button>
-          ))}
-        </div>
-      )}
-
-      {/* Step 3: Risk */}
-      {step === 2 && (
-        <div className="space-y-3">
-          <p className="text-sm mb-3" style={{ color: "var(--muted)" }}>Risk per trade</p>
-          {RISK_PRESETS.map((r) => (
-            <button
-              key={r.value}
-              onClick={() => setRiskPerTrade(r.value)}
-              className={`w-full text-left p-3 rounded-lg border transition-colors ${
-                riskPerTrade === r.value ? "border-blue-500 bg-blue-500/10" : "hover:bg-white/5"
-              }`}
-              style={{ borderColor: riskPerTrade === r.value ? undefined : "var(--border)" }}
-            >
-              <span className="font-medium text-sm">{r.label}</span>
-              <span className="text-xs ml-2" style={{ color: "var(--muted)" }}>{r.desc}</span>
-            </button>
-          ))}
-          <div className="pt-2">
-            <label className="text-xs" style={{ color: "var(--muted)" }}>Custom Risk (%)</label>
-            <input
-              type="number"
-              min="0.1" max="3" step="0.1"
-              value={(riskPerTrade * 100).toFixed(1)}
-              onChange={(e) => setRiskPerTrade(parseFloat(e.target.value) / 100)}
-              className="w-full px-3 py-2 text-sm rounded-lg border bg-transparent outline-none focus:border-blue-500 mt-1"
-              style={{ borderColor: "var(--border)" }}
-            />
-          </div>
-          <div className="grid grid-cols-2 gap-3 pt-2">
-            <div>
-              <label className="text-xs" style={{ color: "var(--muted)" }}>Max Daily Loss (%)</label>
-              <input type="number" min="1" max="10" step="0.5" value={maxDailyLoss.toFixed(1)}
-                onChange={(e) => setMaxDailyLoss(parseFloat(e.target.value) || 4)}
-                className="w-full px-3 py-2 text-sm rounded-lg border bg-transparent outline-none focus:border-blue-500 mt-1"
-                style={{ borderColor: "var(--border)" }} />
-            </div>
-            <div>
-              <label className="text-xs" style={{ color: "var(--muted)" }}>Cooldown (bars)</label>
-              <input type="number" min="1" max="20" value={cooldownBars}
-                onChange={(e) => setCooldownBars(parseInt(e.target.value) || 3)}
-                className="w-full px-3 py-2 text-sm rounded-lg border bg-transparent outline-none focus:border-blue-500 mt-1"
-                style={{ borderColor: "var(--border)" }} />
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* Step 4: Filters */}
-      {step === 3 && (
         <div className="space-y-4">
-          <p className="text-sm mb-3" style={{ color: "var(--muted)" }}>Smart filters adapt your agent to market conditions</p>
-          <label className="flex items-center gap-2 text-sm cursor-pointer">
-            <input type="checkbox" checked={sessionFilter} onChange={(e) => setSessionFilter(e.target.checked)} className="rounded" />
-            Session filter (reduce risk during Asian hours, skip dead zones)
-          </label>
-          <label className="flex items-center gap-2 text-sm cursor-pointer">
-            <input type="checkbox" checked={regimeFilter} onChange={(e) => setRegimeFilter(e.target.checked)} className="rounded" />
-            Regime filter (adjust risk by market regime: trending/ranging/volatile)
-          </label>
-          <label className="flex items-center gap-2 text-sm cursor-pointer">
-            <input type="checkbox" checked={newsFilter} onChange={(e) => setNewsFilter(e.target.checked)} className="rounded" />
-            News filter (skip trading during high-impact economic events)
-          </label>
-        </div>
-      )}
-
-      {/* Step 5: Mode */}
-      {step === 4 && (
-        <div className="space-y-3">
-          <p className="text-sm mb-3" style={{ color: "var(--muted)" }}>Trading mode</p>
-          {[
-            { value: "paper", title: "Paper Trading", desc: "Simulated trades, no real money" },
-            { value: "live", title: "Live Trading", desc: "Real trades with real money" },
-          ].map((m) => (
-            <button
-              key={m.value}
-              onClick={() => setMode(m.value)}
-              className={`w-full text-left p-3 rounded-lg border transition-colors ${
-                mode === m.value ? "border-blue-500 bg-blue-500/10" : "hover:bg-white/5"
-              }`}
-              style={{ borderColor: mode === m.value ? undefined : "var(--border)" }}
-            >
-              <p className="font-medium text-sm">{m.title}</p>
-              <p className="text-xs mt-0.5" style={{ color: "var(--muted)" }}>{m.desc}</p>
-            </button>
-          ))}
-          {mode === "live" && (
-            <div className="flex items-center gap-2 p-3 rounded-lg bg-amber-500/10 border border-amber-500/30 text-amber-400 text-xs">
-              <AlertTriangle size={16} />
-              <span>Live trading uses real money. Make sure your risk settings are correct.</span>
+          <div>
+            <label className="block text-xs font-medium mb-2" style={{ color: "var(--muted)" }}>Risk per trade</label>
+            <div className="grid grid-cols-3 gap-2">
+              {RISK_PRESETS.map((r) => (
+                <button key={r.value} onClick={() => setRiskPerTrade(r.value)}
+                  className={`p-2 text-center rounded-lg border transition-colors ${riskPerTrade === r.value ? "border-blue-500 bg-blue-500/10" : "hover:bg-white/5"}`}
+                  style={{ borderColor: riskPerTrade === r.value ? undefined : "var(--border)" }}>
+                  <span className="font-medium text-sm block">{r.label}</span>
+                  <span className="text-xs" style={{ color: "var(--muted)" }}>{r.desc}</span>
+                </button>
+              ))}
             </div>
-          )}
+          </div>
+          <div>
+            <label className="block text-xs font-medium mb-2" style={{ color: "var(--muted)" }}>Trading Mode</label>
+            <div className="grid grid-cols-2 gap-2">
+              {[
+                { value: "paper", title: "Paper", desc: "Simulated" },
+                { value: "live", title: "Live", desc: "Real money" },
+              ].map((m) => (
+                <button key={m.value} onClick={() => setMode(m.value)}
+                  className={`p-3 text-center rounded-lg border transition-colors ${mode === m.value ? "border-blue-500 bg-blue-500/10" : "hover:bg-white/5"}`}
+                  style={{ borderColor: mode === m.value ? undefined : "var(--border)" }}>
+                  <p className="font-medium text-sm">{m.title}</p>
+                  <p className="text-xs" style={{ color: "var(--muted)" }}>{m.desc}</p>
+                </button>
+              ))}
+            </div>
+            {mode === "live" && (
+              <div className="flex items-center gap-2 p-2 mt-2 rounded-lg bg-amber-500/10 border border-amber-500/30 text-amber-400 text-xs">
+                <AlertTriangle size={16} />
+                <span>Live trading uses real money.</span>
+              </div>
+            )}
+          </div>
         </div>
       )}
 
-      {/* Step 6: Review */}
-      {step === 5 && (
+      {/* Step 3: Review */}
+      {step === 2 && (
         <div className="space-y-2 text-sm">
           <div className="flex justify-between py-1 border-b" style={{ borderColor: "var(--border)" }}>
             <span style={{ color: "var(--muted)" }}>Name</span><span>{agentName}</span>

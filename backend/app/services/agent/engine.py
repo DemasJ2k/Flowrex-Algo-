@@ -187,6 +187,9 @@ class AgentRunner:
             except Exception:
                 balance = 10000.0  # Fallback
 
+            # Check for closed trades EVERY poll (not just on new bars)
+            await self._check_closed_trades(adapter, agent_record, db)
+
             self._eval_count += 1
 
             # Evaluate signal
@@ -253,9 +256,9 @@ class AgentRunner:
             broker_symbols = {p.symbol for p in broker_positions}
 
             for trade in open_trades:
-                # If the symbol is no longer in open positions, trade was closed (TP/SL/manual)
+                # Match by broker_ticket (unique trade ID) — NOT by symbol
                 has_position = any(
-                    p.symbol == trade.symbol and p.direction == trade.direction
+                    str(p.id) == str(trade.broker_ticket)
                     for p in broker_positions
                 )
                 if not has_position:
