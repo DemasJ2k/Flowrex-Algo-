@@ -28,6 +28,11 @@ api.interceptors.response.use(
     if (error.response?.status === 401) {
       if (typeof window !== "undefined") {
         localStorage.removeItem("access_token");
+        localStorage.removeItem("refresh_token");
+        // Redirect to login unless already there
+        if (!window.location.pathname.startsWith("/login") && !window.location.pathname.startsWith("/register")) {
+          window.location.href = "/login";
+        }
       }
     }
     return Promise.reject(error);

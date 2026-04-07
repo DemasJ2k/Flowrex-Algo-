@@ -25,7 +25,7 @@ export default function RequestAccessModal({ open, onClose }: Props) {
     setStatus("loading");
     try {
       const API_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
-      const res = await fetch(`${API_URL}/api/access-requests`, {
+      const res = await fetch(`${API_URL}/api/access-requests/`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ name: name.trim(), email: email.trim(), phone: phone.trim() || null, message: message.trim() || null }),

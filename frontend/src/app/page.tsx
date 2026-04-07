@@ -51,7 +51,7 @@ function DashboardView() {
       api.get("/api/broker/status").then((r) => setBroker(r.data)).catch(() => {}),
       api.get("/api/broker/account").then((r) => setAccount(r.data)).catch(() => {}),
       api.get("/api/broker/positions").then((r) => setPositions(r.data)).catch(() => {}),
-      api.get("/api/agents").then((r) => setAgents(r.data)).catch(() => {}),
+      api.get("/api/agents/").then((r) => setAgents(r.data)).catch(() => {}),
       api.get("/api/agents/pnl-summary").then((r) => setPnl(r.data)).catch(() => {}),
       api.get("/api/agents/all-trades?limit=100").then((r) => setTrades(r.data)).catch(() => {}),
       api.get("/api/agents/engine-logs?limit=10").then((r) => setLogs(r.data)).catch(() => {}),

@@ -140,8 +140,18 @@ async def websocket_endpoint(websocket: WebSocket):
     Server pushes: {"channel": "price:XAUUSD", "data": {...}}
     """
     ws_manager = get_ws_manager()
-    # In dev mode, user_id=1 (auth bypass). Phase 9 will add JWT verification.
-    user_id = 1
+    # Extract user_id from query param token (e.g., /ws?token=xxx)
+    user_id = 0
+    token = websocket.query_params.get("token")
+    if token:
+        try:
+            from app.core.auth import verify_token
+            payload = verify_token(token)
+            user_id = int(payload.get("sub", 0))
+        except Exception:
+            pass
+    if user_id == 0 and settings.DEBUG:
+        user_id = 1  # Dev fallback only
     await ws_manager.connect(websocket, user_id)
 
     try:

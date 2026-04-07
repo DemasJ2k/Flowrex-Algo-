@@ -171,8 +171,10 @@ class PotentialAgent:
             self._log_reject("Empty feature matrix")
             return None
 
-        # Use last bar's features
+        # Use last bar's features — validate for NaN/Inf
         feature_vector = X[-1].reshape(1, -1)
+        if np.any(np.isnan(feature_vector)) or np.any(np.isinf(feature_vector)):
+            feature_vector = np.nan_to_num(feature_vector, nan=0.0, posinf=0.0, neginf=0.0)
 
         # 6. Ensemble prediction — best confidence wins
         signal = self._predict_ensemble(feature_vector, feat_names)

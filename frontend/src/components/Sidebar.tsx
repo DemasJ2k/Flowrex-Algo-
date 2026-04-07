@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { cn } from "@/lib/utils";
@@ -25,8 +25,8 @@ const navItems = [
   { label: "Backtest", href: "/backtest", icon: FlaskConical },
   { label: "News", href: "/news", icon: Newspaper },
   { label: "Settings", href: "/settings", icon: Settings },
-  { label: "Admin", href: "/admin", icon: ShieldCheck },
-];
+  { label: "Admin", href: "/admin", icon: ShieldCheck, adminOnly: true },
+] as const;
 
 const COLLAPSED_W = "w-16";   // 64px
 const EXPANDED_W = "w-56";    // 224px
@@ -35,8 +35,16 @@ export default function Sidebar() {
   const pathname = usePathname();
   const [mobileOpen, setMobileOpen] = useState(false);
   const [hovered, setHovered] = useState(false);
+  const [isAdmin, setIsAdmin] = useState(false);
+
+  useEffect(() => {
+    import("@/lib/api").then(({ default: api }) => {
+      api.get("/api/auth/me").then((r) => setIsAdmin(r.data?.is_admin || false)).catch(() => {});
+    });
+  }, []);
 
   const expanded = hovered;
+  const visibleItems = navItems.filter((item) => !("adminOnly" in item && item.adminOnly) || isAdmin);
 
   return (
     <>
@@ -73,7 +81,7 @@ export default function Sidebar() {
           </button>
         </div>
         <nav className="flex-1 px-3 py-4 space-y-1">
-          {navItems.map((item) => {
+          {visibleItems.map((item) => {
             const isActive = pathname === item.href;
             return (
               <Link key={item.href} href={item.href} onClick={() => setMobileOpen(false)}
@@ -107,7 +115,7 @@ export default function Sidebar() {
 
         {/* Navigation */}
         <nav className="flex-1 px-2 py-3 space-y-1">
-          {navItems.map((item) => {
+          {visibleItems.map((item) => {
             const isActive = pathname === item.href;
             return (
               <Link

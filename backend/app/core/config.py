@@ -5,7 +5,7 @@ from typing import List, Optional
 class Settings(BaseSettings):
     DATABASE_URL: str = "sqlite:///./flowrex_algo.db"
     SECRET_KEY: str = "dev-secret-key-change-in-production"
-    DEBUG: bool = True
+    DEBUG: bool = False  # MUST be False in production — True bypasses auth
     ALLOWED_ORIGINS: List[str] = ["http://localhost:3000"]
     ENCRYPTION_KEY: str = ""
 
