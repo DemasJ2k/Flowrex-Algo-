@@ -574,3 +574,65 @@ _Updated at the end of each phase. Read this to understand what has been built._
 - `backend/app/api/broker.py` — source=databento param, /ticks endpoint
 - `backend/app/api/market_data.py` — /sources endpoint
 - `frontend/src/app/trading/page.tsx` — data source selector, 1s timeframe, tick table
+
+---
+
+## Phase 15: UI Polish + News + Audit (2026-04-08)
+**Status:** Complete
+
+### Audit Fixes (13 critical/high issues)
+- DEBUG default False, WebSocket JWT auth, 401 redirect to login
+- ATR computed from bars (was looking for removed feature)
+- Phantom trades: match by broker_ticket not symbol+direction
+- Oanda price precision: OANDA_PRICE_DECIMALS per symbol
+- PotentialAgent reads config from wizard (was all hardcoded)
+- .dockerignore (600MB savings), HSTS header, pinned ML versions
+- Stale test fix, deploy.sh health check, backup error handling
+
+### Features Added
+- News page (Trading Economics calendar + Finnhub headlines)
+- Sydney timezone (AEST) for all timestamps
+- Agent wizard: 6 steps → 3 steps
+- Trade execution logging (signal details, ticket, errors, TP/SL hit)
+- TP/SL columns in Positions, Orders, History tables
+- Equity curve auto-refresh (30s dashboard polling)
+- Chart polling recovery after backend restart
+- Admin sidebar hidden for non-admins
+- Broker setup links in settings (Oanda + cTrader)
+
+### UI Polish (12 pages)
+- globals.css: fadeInUp, shimmer, pulse-glow, btn-gradient animations
+- Dashboard: gradient headers, staggered stat cards, glow effects
+- Trading: gradient chart border, staggered account stats
+- Agents: status-colored borders, running pulse, gradient buttons
+- Models: grade badges with colored glow
+- News: impact badge glow, image hover zoom
+- Login/Register: auth-glow background, gradient buttons
+- Admin: gradient headers, status-colored request cards
+- All pages: card hover glow, gradient tab underlines
+
+### Files Created
+- `frontend/src/lib/timezone.ts` — Sydney timezone utilities
+- `frontend/src/app/news/page.tsx` — News & Calendar page
+- `backend/app/api/news.py` — Finnhub + Trading Economics endpoints
+- `backend/.dockerignore` + `frontend/.dockerignore`
+
+### Files Modified (30+)
+- All frontend pages (12) — UI polish
+- `backend/app/services/agent/potential_agent.py` — ATR fix, config alignment, news filter
+- `backend/app/services/agent/engine.py` — trade logging, closed trade detection, portfolio limit
+- `backend/app/services/agent/instrument_specs.py` — OANDA_PRICE_DECIMALS
+- `backend/app/services/broker/oanda.py` — price rounding, SL/TP in positions
+- `backend/app/core/config.py` — DEBUG=False default
+- `backend/main.py` — WebSocket JWT auth, news router
+- `frontend/src/lib/api.ts` — 401 redirect to login
+- `frontend/src/components/Sidebar.tsx` — admin-only visibility, News link
+- `frontend/src/components/AgentWizard.tsx` — 3-step wizard
+- `frontend/src/components/AgentConfigEditor.tsx` — filters for all agent types
+- `nginx/nginx.conf` — HSTS, worker_processes, client_max_body_size
+
+### Next Steps
+- Monitor paper trades (5-day test in progress)
+- Onboard 2 beta testers (FLOWREX-BETA-001, FLOWREX-BETA-002)
+- cTrader OAuth (waiting on Spotware approval)
+- Trade count filter (reduce trades/day for prop firm compliance)

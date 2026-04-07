@@ -4,6 +4,48 @@ _Chronological record of all changes. Read this before starting any task._
 
 ---
 
+## 2026-04-08 — Full Audit + Trading Fixes + Config Alignment
+
+### Audit Results (3 parallel agents)
+- **Backend**: 4 critical (DEBUG default, WS auth, NaN features, ATR bug), 6 high, 4 medium
+- **Frontend**: 44 issues (25 silent catches, trailing slashes, admin sidebar, 2FA incomplete)
+- **Tests + Config**: broken tests, missing .dockerignore (600MB waste), HSTS header, deploy script
+
+### Critical Bugs Fixed
+- **ATR always zero**: PotentialAgent looked for `pot_atr_14` feature (removed in v2). Now computes from raw bars.
+- **Phantom open trades**: `_check_closed_trades()` matched by symbol+direction instead of broker_ticket. All closed trades appeared "open", blocking new trades with "Portfolio limit 6/6".
+- **Oanda price precision**: ES/NAS100 TP/SL had too many decimals. Added OANDA_PRICE_DECIMALS per symbol.
+- **PotentialAgent ignored config**: Hardcoded cooldown=3, daily_loss=3%, risk=1%. Now reads from wizard config.
+- **401 didn't redirect**: Users stuck on blank pages after token expired. Now redirects to /login.
+
+### Features Added
+- News page: Finnhub headlines + Trading Economics calendar (free API)
+- Sydney timezone for all timestamps
+- Agent wizard simplified: 6 steps → 3 steps
+- Trade execution logging: signal details, ticket, errors, TP/SL hit detection
+- TP/SL columns in Positions, Orders, History tables
+- Equity curve auto-refresh (30s polling)
+- Chart polling recovery (was freezing after backend restart)
+- Admin sidebar hidden for non-admin users
+- Broker setup links (Oanda + cTrader) in settings
+
+### UI Polish (12 pages)
+- Gradient headers, fade-in animations, glow effects across all pages
+- Agent status-colored borders (running=green pulse, paused=amber, stopped=gray)
+- Grade badges with colored glow (A=emerald, B=blue, C=amber, F=red)
+- Login/register auth-glow background
+- Impact badges on news page
+
+### Infrastructure
+- .dockerignore files (saves 600MB per build)
+- HSTS header in nginx
+- Pinned ML package versions
+- Fixed deploy.sh health check
+- Error handling in backup-db.sh
+- DEBUG default changed to False
+
+---
+
 ## 2026-04-07 — Multi-Symbol Training Complete (5/5 Grade A)
 
 ### Training Results

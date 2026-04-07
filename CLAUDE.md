@@ -8,8 +8,8 @@
 - **Brokers:** Oanda, cTrader, MT5
 
 ## Current Phase
-**PRODUCTION DEPLOYMENT** (2026-04-07)
-- Phase: Site live at https://flowrexalgo.com → Paper trading next → BTCUSD/XAUUSD training
+**PAPER TRADING + BETA** (2026-04-08)
+- Phase: 5 agents live on Oanda paper → monitoring trades → beta testers next
 
 ## Completed Phases
 - Phase 1 — Foundation (2026-03-28)
@@ -108,9 +108,10 @@ us30_primary_session: 13:30-15:30 UTC (cash open)
 | 10 | Deploy & Harden (Docker, CI/CD, monitoring) | done |
 | 11 | Potential Agent v2 (institutional features, Grade A) | done |
 | 12 | Production Deployment (flowrexalgo.com live) | done |
-| 13 | Paper Trading (Oanda US30) | in progress |
+| 13 | Paper Trading (Oanda, 5 symbols) | in progress |
 | 14 | Multi-Symbol (BTCUSD + XAUUSD + ES + NAS100 training) | done |
-| 15 | UI Polish + News + Cleanup | next |
+| 15 | UI Polish + News + Cleanup + Audit | done |
+| 16 | Beta Testers + Iteration | next |
 
 ## Rules (ALWAYS follow these)
 1. **ALWAYS** read `ARCHITECTURE.md` (in `VPrompt/`) before starting any phase.
