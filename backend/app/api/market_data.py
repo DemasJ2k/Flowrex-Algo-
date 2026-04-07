@@ -159,3 +159,29 @@ def test_provider(provider_id: int, user=Depends(get_current_user), db: Session 
         return {"status": "error", "message": "Unknown provider"}
     except Exception as e:
         return {"status": "error", "message": str(e)}
+
+
+@router.get("/sources")
+def get_data_sources(user=Depends(get_current_user), db: Session = Depends(get_db)):
+    """Return available data sources for the current user."""
+    from app.services.data.databento_adapter import SYMBOL_MAP as DB_SYMBOLS
+
+    sources = [{"name": "broker", "label": "Broker", "symbols": "*", "has_ticks": False}]
+
+    # Check for configured providers
+    providers = db.query(MarketDataProvider).filter(
+        MarketDataProvider.user_id == user.id,
+        MarketDataProvider.is_active == True,
+    ).all()
+
+    for p in providers:
+        if p.provider_name == "databento":
+            sources.append({
+                "name": "databento",
+                "label": "Databento",
+                "symbols": list(DB_SYMBOLS.keys()),
+                "has_ticks": True,
+                "data_type": p.data_type,
+            })
+
+    return sources

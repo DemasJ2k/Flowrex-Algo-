@@ -14,7 +14,7 @@ import Tabs from "@/components/ui/Tabs";
 import DataTable, { Column } from "@/components/ui/DataTable";
 import StatusBadge from "@/components/ui/StatusBadge";
 import type { AccountInfo, BrokerStatus, CandleData, LivePosition, LiveOrder, AgentTrade, EngineLog, PnlSummaryItem } from "@/types";
-import { Plug, Plus, ShoppingCart, Loader2, SlidersHorizontal } from "lucide-react";
+import { Plug, Plus, ShoppingCart, Loader2, SlidersHorizontal, Database } from "lucide-react";
 import Card from "@/components/ui/Card";
 import { toast } from "sonner";
 import { getErrorMessage } from "@/lib/errors";
@@ -48,6 +48,10 @@ export default function TradingPage() {
     }
     return {};
   });
+  const [dataSource, setDataSource] = useState("broker");
+  const [dataSources, setDataSources] = useState<Array<{name: string; label: string; symbols: string[] | string; has_ticks: boolean}>>([]);
+  const [showTicks, setShowTicks] = useState(false);
+  const [ticks, setTicks] = useState<Array<{time: number; price: number; size: number; side: string}>>([]);
   const [indicatorMenuOpen, setIndicatorMenuOpen] = useState(false);
   const [logFilter, setLogFilter] = useState("all");
   const [logSearch, setLogSearch] = useState("");
@@ -193,16 +197,32 @@ export default function TradingPage() {
   const fetchCandles = useCallback(async () => {
     if (!backendAlive.current) return;
     try {
-      const res = await api.get(`/api/broker/candles/${symbol}?timeframe=${timeframe}&count=200`);
+      const res = await api.get(`/api/broker/candles/${symbol}?timeframe=${timeframe}&count=200&source=${dataSource}`);
       setCandles(res.data);
     } catch {
       // silent — backendAlive handles retry
     }
-  }, [symbol, timeframe]);
+  }, [symbol, timeframe, dataSource]);
+
+  // Fetch tick data when tick view is active
+  const fetchTicks = useCallback(async () => {
+    if (!showTicks || dataSource !== "databento") return;
+    try {
+      const res = await api.get(`/api/broker/ticks/${symbol}?count=500&seconds_back=300`);
+      if (Array.isArray(res.data)) setTicks(res.data);
+    } catch {}
+  }, [symbol, showTicks, dataSource]);
+
+  // Fetch available data sources
+  useEffect(() => {
+    api.get("/api/market-data/sources").then((r) => setDataSources(r.data)).catch(() => {});
+  }, []);
 
   useEffect(() => { fetchStatus(); }, [fetchStatus]);
   useEffect(() => { fetchData(); }, [fetchData]);
   useEffect(() => { fetchCandles(); }, [fetchCandles]);
+
+  useEffect(() => { fetchTicks(); }, [fetchTicks]);
 
   // Polling with cleanup — also retries status check to recover when backend comes back
   useEffect(() => {
@@ -212,6 +232,7 @@ export default function TradingPage() {
       } else {
         fetchData();
         fetchCandles();
+        fetchTicks();
       }
     }, 5000);
     return () => { if (pollRef.current) clearInterval(pollRef.current); };
@@ -278,6 +299,42 @@ export default function TradingPage() {
       {/* ── Top Bar ────────────────────────────────────────────────── */}
       <div className="flex flex-wrap items-center gap-3">
         <SearchableSelect options={SYMBOLS} value={symbol} onChange={(v) => { setSymbol(v); setIndicatorMenuOpen(false); }} className="w-40" />
+
+        {/* Data Source Selector */}
+        {dataSources.length > 1 && (
+          <div className="flex items-center gap-1">
+            {dataSources.map((src) => {
+              const isSupported = src.symbols === "*" || (Array.isArray(src.symbols) && src.symbols.includes(symbol));
+              return (
+                <button
+                  key={src.name}
+                  onClick={() => isSupported && setDataSource(src.name)}
+                  disabled={!isSupported}
+                  className={`flex items-center gap-1 px-2.5 py-1.5 text-xs font-medium rounded-lg transition-colors ${
+                    dataSource === src.name ? "bg-purple-600 text-white" : "hover:bg-white/10 disabled:opacity-30"
+                  }`}
+                  style={{ color: dataSource === src.name ? undefined : "var(--muted)" }}
+                  title={!isSupported ? `${src.label} doesn't support ${symbol}` : src.label}
+                >
+                  <Database size={12} />
+                  {src.label}
+                </button>
+              );
+            })}
+            {/* Tick data toggle — only for Databento */}
+            {dataSource === "databento" && dataSources.find(s => s.name === "databento")?.has_ticks && (
+              <button
+                onClick={() => setShowTicks(!showTicks)}
+                className={`px-2.5 py-1.5 text-xs font-medium rounded-lg transition-colors ${
+                  showTicks ? "bg-amber-600 text-white" : "hover:bg-white/10"
+                }`}
+                style={{ color: showTicks ? undefined : "var(--muted)" }}
+              >
+                Ticks
+              </button>
+            )}
+          </div>
+        )}
 
         {/* Indicator Toggle */}
         <div className="relative">
@@ -359,6 +416,44 @@ export default function TradingPage() {
           </div>
         )}
       </Card>
+
+      {/* ── Tick Data Panel ─────────────────────────────────────────── */}
+      {showTicks && ticks.length > 0 && (
+        <Card>
+          <div className="flex items-center justify-between mb-2">
+            <h3 className="text-sm font-medium">Tick Data — {symbol} (last 5 min, {ticks.length} ticks)</h3>
+            <span className="text-xs px-2 py-0.5 rounded" style={{ background: "rgba(245,158,11,0.15)", color: "#f59e0b" }}>Databento</span>
+          </div>
+          <div className="max-h-48 overflow-y-auto">
+            <table className="w-full text-xs">
+              <thead>
+                <tr style={{ color: "var(--muted)" }}>
+                  <th className="text-left py-1 px-2">Time</th>
+                  <th className="text-right py-1 px-2">Price</th>
+                  <th className="text-right py-1 px-2">Size</th>
+                  <th className="text-center py-1 px-2">Side</th>
+                </tr>
+              </thead>
+              <tbody>
+                {ticks.slice(-100).reverse().map((t, i) => (
+                  <tr key={i} className="border-t" style={{ borderColor: "var(--border)" }}>
+                    <td className="py-0.5 px-2" style={{ color: "var(--muted)" }}>
+                      {new Date(t.time * 1000).toLocaleTimeString()}
+                    </td>
+                    <td className="text-right py-0.5 px-2 font-mono">{t.price.toFixed(2)}</td>
+                    <td className="text-right py-0.5 px-2">{t.size}</td>
+                    <td className="text-center py-0.5 px-2">
+                      <span className={t.side === "buy" ? "text-emerald-400" : t.side === "sell" ? "text-red-400" : ""}>
+                        {t.side || "—"}
+                      </span>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </Card>
+      )}
 
       {/* ── Account Cards ──────────────────────────────────────────── */}
       <div className="grid grid-cols-2 md:grid-cols-5 gap-3">

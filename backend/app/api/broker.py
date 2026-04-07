@@ -5,7 +5,9 @@ from dataclasses import asdict
 
 from app.core.database import get_db
 from app.core.auth import get_current_user
+from app.core.encryption import get_fernet
 from app.models.user import User
+from app.models.market_data import MarketDataProvider
 from app.services.broker.base import BrokerError
 from app.services.broker.manager import BrokerManager, get_broker_manager
 from app.schemas.broker import (
@@ -182,10 +184,38 @@ async def get_candles(
     symbol: str,
     timeframe: str = Query("M5"),
     count: int = Query(200, ge=1, le=5000),
+    source: str = Query("broker"),  # "broker" or "databento"
     broker: Optional[str] = None,
     current_user: User = Depends(get_current_user),
     manager: BrokerManager = Depends(get_broker_manager),
+    db: Session = Depends(get_db),
 ):
+    # If source is databento, use Databento adapter
+    if source == "databento":
+        try:
+            from app.services.data.databento_adapter import DatabentoAdapter
+            provider = db.query(MarketDataProvider).filter(
+                MarketDataProvider.user_id == current_user.id,
+                MarketDataProvider.provider_name == "databento",
+                MarketDataProvider.is_active == True,
+            ).first()
+            if not provider:
+                return []
+            api_key = get_fernet().decrypt(provider.api_key_encrypted.encode()).decode()
+            adapter = DatabentoAdapter(api_key)
+            candles = await adapter.get_candles(symbol, timeframe, count)
+            await adapter.close()
+            return [CandleResponse(
+                time=c.time, open=c.open, high=c.high,
+                low=c.low, close=c.close, volume=c.volume,
+            ) for c in candles]
+        except ValueError as e:
+            # Symbol not supported on Databento — fall back to broker
+            pass
+        except Exception:
+            pass
+
+    # Default: use broker adapter
     adapter = _get_adapter(current_user, manager, broker)
     if not adapter:
         return []
@@ -194,6 +224,35 @@ async def get_candles(
         return [CandleResponse(**asdict(c)) for c in candles]
     except BrokerError:
         return []
+
+
+@router.get("/ticks/{symbol}")
+async def get_ticks(
+    symbol: str,
+    count: int = Query(500, ge=1, le=5000),
+    seconds_back: int = Query(300, ge=10, le=3600),
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """Fetch tick/trade data from Databento (CME futures only)."""
+    from app.services.data.databento_adapter import DatabentoAdapter
+    provider = db.query(MarketDataProvider).filter(
+        MarketDataProvider.user_id == current_user.id,
+        MarketDataProvider.provider_name == "databento",
+        MarketDataProvider.is_active == True,
+    ).first()
+    if not provider:
+        return {"error": "No Databento provider configured. Add one in Settings → Providers."}
+    try:
+        api_key = get_fernet().decrypt(provider.api_key_encrypted.encode()).decode()
+        adapter = DatabentoAdapter(api_key)
+        ticks = await adapter.get_ticks(symbol, count, seconds_back)
+        await adapter.close()
+        return [{"time": t.time, "price": t.price, "size": t.size, "side": t.side} for t in ticks]
+    except ValueError as e:
+        return {"error": str(e)}
+    except Exception as e:
+        return {"error": f"Databento error: {str(e)}"}
 
 
 # ── Trading ────────────────────────────────────────────────────────────
