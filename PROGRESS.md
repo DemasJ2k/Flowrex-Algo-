@@ -544,8 +544,33 @@ _Updated at the end of each phase. Read this to understand what has been built._
 - Missing DB tables (invite_codes, access_requests, feedback_reports, market_data_providers)
 
 ### Next Steps
-- Upload Potential Agent v2 models to server
-- Connect Oanda paper account
-- Create US30 Potential Agent and start paper trading
-- Train BTCUSD + XAUUSD on v2 features
+- UI Polish (vibrant colors, animations, consistent theme)
+- News page (Finnhub economic calendar)
+- Trade count filter (reduce from ~13/day to 4-5/day)
 - Onboard 2 beta testers
+- Clean up stale files/code
+
+---
+
+## Multi-Symbol Training (2026-04-07)
+**Status:** 5/5 symbols Grade A — all deployed
+
+### Models Trained
+| Symbol | Grade | Sharpe | WR | DD | Return | Data Source |
+|--------|-------|--------|-----|-----|--------|------------|
+| US30 | A | 4.96 | 58.5% | 1.1% | +6.6% | History Data |
+| BTCUSD | A | 3.92 | 57.1% | 6.8% | +16.2% | History Data |
+| XAUUSD | A/B | 24.17 | 61.2% | 2.9% | +12.4% | History Data |
+| ES | A | 5.78 | 60.6% | 0.6% | +9.3% | Databento |
+| NAS100 | A | 6.39 | 59.5% | 0.7% | +12.0% | Databento |
+
+### Files Created
+- `backend/scripts/fetch_databento.py` — Fetch historical data from Databento API
+- `backend/app/services/data/databento_adapter.py` — Runtime Databento OHLCV + tick adapter
+- `backend/data/ml_models/potential_{BTCUSD,XAUUSD,ES,NAS100}_M5_*.joblib` — 8 model files
+
+### Files Modified
+- `backend/app/services/ml/symbol_config.py` — ES + NAS100 configs (cost, slippage, tp/sl)
+- `backend/app/api/broker.py` — source=databento param, /ticks endpoint
+- `backend/app/api/market_data.py` — /sources endpoint
+- `frontend/src/app/trading/page.tsx` — data source selector, 1s timeframe, tick table

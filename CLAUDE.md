@@ -75,16 +75,14 @@ target_wr: 55%
 us30_primary_session: 13:30-15:30 UTC (cash open)
 ```
 
-## Deployed Models (as of 2026-03-31)
+## Deployed Models (as of 2026-04-07)
 | Symbol | Best Model | Grade | Sharpe | Source |
 |--------|-----------|-------|--------|--------|
-| BTCUSD | LightGBM | B | 10.07 | Walk-forward v4 (2020-2024, 4 folds) |
-| BTCUSD | XGBoost | C | 7.96 | Walk-forward v8 (2020-2025, 4 folds, OOS Jan-Mar 2026) +meta +filters |
-| US30 | XGBoost | C | 1.84 | Beginner Agent v8 (2020-2025, 4 folds) +meta +filters |
-| US30 | XGBoost | A | 4.74 | Potential Agent v2 (2019-2025, 85 features, ATR-normalized) |
 | US30 | LightGBM | A | 4.96 | Potential Agent v2 (2019-2025, 85 features, ATR-normalized) |
-| XAUUSD | XGBoost | F | — | Walk-forward v5 (2010-2024, needs fresh data) |
-| XAUUSD | LightGBM | B | — | Walk-forward v8 (2010-2025, 4 folds, OOS too small: 1,141 bars) |
+| BTCUSD | LightGBM | A | 3.92 | Potential Agent v2 (2020-2025, 85 features, ATR-normalized) |
+| XAUUSD | XGBoost | A | 24.17 | Potential Agent v2 (2010-2025, 85 features, small OOS 85 trades) |
+| ES | XGBoost | A | 5.78 | Potential Agent v2 (Databento Dec 2024-Mar 2026, 88k bars) |
+| NAS100 | LightGBM | A | 6.39 | Potential Agent v2 (Databento Dec 2024-Mar 2026, 88k bars) |
 
 ## Production Deployment (2026-04-07)
 - **Domain:** flowrexalgo.com (GoDaddy → Cloudflare DNS)
@@ -110,8 +108,9 @@ us30_primary_session: 13:30-15:30 UTC (cash open)
 | 10 | Deploy & Harden (Docker, CI/CD, monitoring) | done |
 | 11 | Potential Agent v2 (institutional features, Grade A) | done |
 | 12 | Production Deployment (flowrexalgo.com live) | done |
-| 13 | Paper Trading (Oanda US30) | next |
-| 14 | Multi-Symbol (BTCUSD + XAUUSD v2 training) | pending |
+| 13 | Paper Trading (Oanda US30) | in progress |
+| 14 | Multi-Symbol (BTCUSD + XAUUSD + ES + NAS100 training) | done |
+| 15 | UI Polish + News + Cleanup | next |
 
 ## Rules (ALWAYS follow these)
 1. **ALWAYS** read `ARCHITECTURE.md` (in `VPrompt/`) before starting any phase.

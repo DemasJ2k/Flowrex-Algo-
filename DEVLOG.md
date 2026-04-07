@@ -4,6 +4,30 @@ _Chronological record of all changes. Read this before starting any task._
 
 ---
 
+## 2026-04-07 — Multi-Symbol Training Complete (5/5 Grade A)
+
+### Training Results
+| Symbol | Grade | Sharpe | WR | DD | Data Source | OOS Trades |
+|--------|-------|--------|-----|-----|------------|------------|
+| US30 | A | 4.96 | 58.5% | 1.1% | History Data (1M bars) | 253 |
+| BTCUSD | A | 3.92 | 57.1% | 6.8% | History Data (500k bars) | 714 |
+| XAUUSD | A/B | 24.17 | 61.2% | 2.9% | History Data (128k bars) | 85 |
+| ES | A | 5.78 | 60.6% | 0.6% | Databento (88k bars) | 246 |
+| NAS100 | A | 6.39 | 59.5% | 0.7% | Databento (88k bars) | 242 |
+
+### Key Fixes
+- ES/NAS100 symbol_config: added cost_bps, slippage_bps, tp/sl multipliers (was Grade F → Grade A)
+- Databento data fetcher: chained quarterly contracts (ESH5→ESM6, NQH5→NQH6)
+- fetch_databento.py: handles 206 partial responses, fixed-point price parsing
+
+### Infrastructure
+- Databento adapter: OHLCV + tick data via hist.databento.com REST API
+- Data source selector on trading page (Broker / Databento toggle)
+- 1-second candle timeframe when Databento active
+- Logo integrated (sidebar, landing page, login)
+
+---
+
 ## 2026-03-31 — Strategy-Informed ML Research Phase
 
 ### Context
