@@ -195,10 +195,12 @@ class PotentialAgent:
             self._log_reject("ATR is zero")
             return None
 
-        from app.services.agent.instrument_specs import calc_sl_tp, calc_lot_size
+        from app.services.agent.instrument_specs import calc_lot_size, get_spec
 
         last_bar = m5_bars[-1]
         entry_price = float(last_bar["close"])
+        spec = get_spec(self.symbol)
+
         # Use 1.2x ATR for TP, 0.8x ATR for SL (from training config)
         sl_distance = atr_value * 0.8
         tp_distance = atr_value * 1.2
@@ -209,9 +211,19 @@ class PotentialAgent:
             stop_loss = entry_price + sl_distance
             take_profit = entry_price - tp_distance
 
+        # Round prices to instrument precision (Oanda rejects excess decimals)
+        price_digits = max(0, len(str(spec.pip_size).rstrip('0').split('.')[-1]))
+        stop_loss = round(stop_loss, price_digits)
+        take_profit = round(take_profit, price_digits)
+        entry_price = round(entry_price, price_digits)
+
         # 8. Position sizing (1% risk)
         risk_amount = balance * self.risk_config["risk_per_trade_pct"]
         lot_size = calc_lot_size(self.symbol, risk_amount, sl_distance, self.broker_name)
+
+        # Oanda uses integer units — round to whole number
+        if self.broker_name == "oanda":
+            lot_size = max(1, int(round(lot_size)))
 
         # 9. Build signal dict
         hour_utc = datetime.now(timezone.utc).hour
