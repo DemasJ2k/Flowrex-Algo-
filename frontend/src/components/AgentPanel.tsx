@@ -8,6 +8,7 @@ import type { Agent, AgentLog, AgentTrade } from "@/types";
 import { Play, Pause, Square, Trash2, ChevronDown, ChevronRight } from "lucide-react";
 import { toast } from "sonner";
 import { toSydneyTime } from "@/lib/timezone";
+import { getErrorMessage } from "@/lib/errors";
 
 function AgentCard({ agent, onAction }: { agent: Agent; onAction: () => void }) {
   const [expanded, setExpanded] = useState(false);
