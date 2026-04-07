@@ -296,8 +296,8 @@ export default function NewsPage() {
       {/* Tabs */}
       <Tabs
         tabs={[
-          { label: "Economic Calendar", content: <CalendarSection /> },
           { label: "Market Headlines", content: <HeadlinesSection /> },
+          { label: "Economic Calendar", content: <CalendarSection /> },
         ]}
       />
     </div>

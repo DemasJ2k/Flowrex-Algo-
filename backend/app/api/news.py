@@ -39,61 +39,62 @@ def _get_finnhub_key(user, db: Session) -> str:
 
 @router.get("/calendar")
 async def get_economic_calendar(
-    country: Optional[str] = Query(None, description="Filter by country code (e.g. US, GB, EU)"),
+    country: Optional[str] = Query(None, description="Filter by country code (e.g. US, United States)"),
     impact: Optional[str] = Query(None, description="Filter by impact: low, medium, high"),
     user=Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
-    """Fetch economic calendar events from Finnhub."""
-    api_key = _get_finnhub_key(user, db)
-
-    today = datetime.now(timezone.utc).date()
-    from_date = (today - timedelta(days=1)).isoformat()
-    to_date = (today + timedelta(days=7)).isoformat()
-
+    """Fetch economic calendar from Trading Economics (free API)."""
     async with httpx.AsyncClient(timeout=15) as client:
         resp = await client.get(
-            f"{FINNHUB_BASE}/calendar/economic",
-            params={"from": from_date, "to": to_date, "token": api_key},
+            "https://api.tradingeconomics.com/calendar",
+            params={"c": "guest:guest"},
         )
 
-    if resp.status_code == 403:
-        raise HTTPException(status_code=403, detail="Economic calendar requires Finnhub Premium. Headlines are available on the free tier.")
     if resp.status_code != 200:
-        raise HTTPException(status_code=502, detail=f"Finnhub API error: {resp.status_code}")
+        raise HTTPException(status_code=502, detail=f"Trading Economics API error: {resp.status_code}")
 
-    data = resp.json()
-    events = data.get("economicCalendar", data.get("result", []))
+    raw = resp.json()
+    if not isinstance(raw, list):
+        raw = []
 
-    # Normalize into consistent format
+    # Map importance: 1=low, 2=medium, 3=high
+    imp_map = {1: "low", 2: "medium", 3: "high"}
+
     result = []
-    if isinstance(events, list):
-        for ev in events:
-            event_country = ev.get("country", "")
-            event_impact = ev.get("impact", "low")
+    for ev in raw:
+        event_country = ev.get("Country", "")
+        importance = ev.get("Importance", 1)
+        event_impact = imp_map.get(importance, "low")
 
-            # Country filter
-            if country and event_country.upper() != country.upper():
+        # Country filter
+        if country:
+            if country.upper() not in event_country.upper():
                 continue
 
-            # Impact filter
-            if impact and event_impact.lower() != impact.lower():
-                continue
+        # Impact filter
+        if impact and event_impact != impact.lower():
+            continue
 
-            result.append({
-                "event": ev.get("event", ""),
-                "country": event_country,
-                "impact": event_impact.lower() if event_impact else "low",
-                "actual": ev.get("actual"),
-                "estimate": ev.get("estimate"),
-                "previous": ev.get("prev"),
-                "time": ev.get("time", ""),
-                "date": ev.get("date", ""),
-                "unit": ev.get("unit", ""),
-                "currency": ev.get("currency", ""),
-            })
+        # Parse date
+        date_str = ev.get("Date", "")
+        date_part = date_str[:10] if date_str else ""
+        time_part = date_str[11:16] if len(date_str) > 11 else ""
 
-    # Sort by date+time descending (newest first)
+        result.append({
+            "event": ev.get("Event", ev.get("Category", "")),
+            "country": event_country,
+            "impact": event_impact,
+            "actual": ev.get("Actual"),
+            "estimate": ev.get("Forecast"),
+            "previous": ev.get("Previous"),
+            "time": time_part,
+            "date": date_part,
+            "unit": ev.get("Unit", ""),
+            "currency": ev.get("Currency", ""),
+        })
+
+    # Sort by date+time descending
     result.sort(key=lambda x: f"{x['date']} {x['time']}", reverse=True)
 
     return {"events": result, "count": len(result)}
