@@ -14,7 +14,7 @@ from app.services.broker.manager import get_broker_manager
 from app.services.agent.flowrex_agent import FlowrexAgent
 
 
-POLL_INTERVAL = 30  # seconds
+POLL_INTERVAL = 60  # seconds (was 30 — increased to reduce Oanda rate limiting with 5 agents)
 
 
 class AgentRunner:

@@ -305,14 +305,26 @@ class OandaAdapter(BrokerAdapter):
 
         data = await self._request("POST", f"/v3/accounts/{self._account_id}/orders", json=body)
 
+        # Check for cancellation FIRST — Oanda may create then immediately cancel
+        if "orderCancelTransaction" in data:
+            cancel = data["orderCancelTransaction"]
+            reason = cancel.get("reason", "unknown")
+            return OrderResult(success=False, order_id="", message=f"Order cancelled by broker: {reason}")
+
+        if "orderRejectTransaction" in data:
+            reject = data["orderRejectTransaction"]
+            reason = reject.get("rejectReason", reject.get("reason", "unknown"))
+            return OrderResult(success=False, order_id="", message=f"Order rejected: {reason}")
+
         if "orderFillTransaction" in data:
             txn = data["orderFillTransaction"]
             return OrderResult(success=True, order_id=txn.get("id", ""), message="Order filled")
         elif "orderCreateTransaction" in data:
+            # Order created but not yet filled — check if it was also cancelled in same response
             txn = data["orderCreateTransaction"]
             return OrderResult(success=True, order_id=txn.get("id", ""), message="Order created")
         else:
-            return OrderResult(success=False, message=str(data))
+            return OrderResult(success=False, message=f"Unexpected response: {str(data)[:300]}")
 
     # ── Close Position ─────────────────────────────────────────────────
 

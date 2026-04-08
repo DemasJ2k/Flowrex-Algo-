@@ -85,42 +85,34 @@ def calc_lot_size(
     broker_name: str = "oanda",
 ) -> float:
     """
-    Calculate position size based on risk amount and SL distance.
-    Formula: lot_size = risk_amount / (sl_distance * pip_value_per_lot)
-    For Oanda: returns units (not standard lots).
+    Calculate position size for Oanda CFDs.
+
+    Oanda CFD units: 1 unit = $1 per point movement for indices.
+    Formula: units = risk_amount / sl_distance_points
+
+    Example: risk=$50, SL=60 points on US30 → units = 50/60 ≈ 1
     """
-    spec = get_spec(symbol)
-
     if sl_distance <= 0:
-        return spec.min_lot
-
-    # Convert SL distance to pips
-    sl_pips = sl_distance / spec.pip_size
-
-    if sl_pips <= 0:
-        return spec.min_lot
-
-    # pip_value is per standard lot
-    risk_per_pip = risk_amount / sl_pips
+        return 1
 
     if broker_name == "oanda":
-        # Oanda uses units directly
-        # For XAUUSD: 1 unit = exposure to 1 oz, pip_value per unit = pip_size
-        # lot_size here represents Oanda units
-        if spec.pip_value > 0:
-            lots = risk_per_pip / spec.pip_value
-        else:
-            lots = spec.min_lot
-    else:
-        # Standard lot sizing
-        if spec.pip_value > 0:
-            lots = risk_per_pip / spec.pip_value
-        else:
-            lots = spec.min_lot
+        # Simple formula: units = risk / SL distance in points
+        # 1 Oanda unit = $1 per point for indices (US30, NAS100, SPX500)
+        # 1 Oanda unit = exposure to 1 oz for XAUUSD, 1 BTC for BTCUSD
+        units = risk_amount / sl_distance
+        return max(1, units)
 
-    # Round to lot step
+    # Standard lot sizing for other brokers
+    spec = get_spec(symbol)
+    sl_pips = sl_distance / spec.pip_size if spec.pip_size > 0 else sl_distance
+    if sl_pips <= 0:
+        return 1
+    risk_per_pip = risk_amount / sl_pips
+    lots = risk_per_pip / spec.pip_value if spec.pip_value > 0 else 1
+    lots = max(lots, spec.min_lot)
     if spec.lot_step > 0:
-        lots = math.floor(lots / spec.lot_step) * spec.lot_step
+        lots = int(lots / spec.lot_step) * spec.lot_step
+    return round(lots, 2)
 
     # Clamp to minimum
     lots = max(lots, spec.min_lot)
