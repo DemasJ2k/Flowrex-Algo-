@@ -4,6 +4,37 @@ _Chronological record of all changes. Read this before starting any task._
 
 ---
 
+## 2026-04-08 — Critical Trading Bugs Fixed
+
+### Phantom Trades
+- Root cause: AgentTrade recorded in DB BEFORE broker confirmed order
+- Failed/rejected orders appeared as "open" trades, blocking portfolio
+- Fix: trade only recorded after result.success=True
+
+### Position Sizing
+- NAS100: 71 lots instead of 1 — pip_value was 0.25 (standard lot) not 1.0 (Oanda unit)
+- All instrument specs corrected: pip_value=1.0 for all Oanda symbols
+- Added 5% balance safety cap on lot sizes
+
+### Agent Startup
+- Silent crash: no error logged when PotentialAgent.__init__() failed
+- Syntax error from leftover config lines (line 55)
+- Fix: wrapped start() in try/except, errors now visible in agent logs
+
+### Config Alignment
+- PotentialAgent was hardcoding cooldown=3, daily_loss=3%, risk=1%
+- Now reads from wizard config: risk_per_trade, max_daily_loss_pct, cooldown_bars
+- News filter implemented in PotentialAgent
+- AgentConfigEditor saves filters for all agent types (was expert only)
+- Settings: sane defaults, Max Positions capped 1-10, replaced dead feature toggles
+
+### Backtest + Models Pages
+- Backtest: reworked for Potential Agent v2, broker data source (Oanda 5000 bars)
+- Models: v2 model cards with Grade badges, SHAP features, retrain UI
+- Agent wizard: risk slider 0.05-3%, 3-step flow
+
+---
+
 ## 2026-04-08 — Full Audit + Trading Fixes + Config Alignment
 
 ### Audit Results (3 parallel agents)
