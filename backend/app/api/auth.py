@@ -4,7 +4,7 @@ Auth endpoints: register, login, refresh, 2FA setup/verify, forgot/reset passwor
 import secrets
 from datetime import datetime, timedelta, timezone
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel, EmailStr
 from sqlalchemy.orm import Session
 import pyotp
@@ -17,12 +17,14 @@ from app.core.password import hash_password, verify_password
 from app.core.encryption import encrypt, decrypt
 from app.models.user import User, UserSettings
 from app.schemas.auth import RegisterRequest, LoginRequest, TokenResponse
+from app.core.rate_limit import limiter
 
 router = APIRouter(prefix="/api/auth", tags=["auth"])
 
 
 @router.post("/register", response_model=TokenResponse)
-def register(body: RegisterRequest, db: Session = Depends(get_db)):
+@limiter.limit("3/minute")
+def register(request: Request, body: RegisterRequest, db: Session = Depends(get_db)):
     from app.models.invite import InviteCode
     from datetime import datetime, timezone
 
@@ -75,7 +77,8 @@ def register(body: RegisterRequest, db: Session = Depends(get_db)):
 
 
 @router.post("/login", response_model=TokenResponse)
-def login(body: LoginRequest, db: Session = Depends(get_db)):
+@limiter.limit("5/minute")
+def login(request: Request, body: LoginRequest, db: Session = Depends(get_db)):
     user = db.query(User).filter(User.email == body.email).first()
     if not user or not verify_password(body.password, user.password_hash):
         raise HTTPException(status_code=401, detail="Invalid email or password")
@@ -219,7 +222,8 @@ class ResetPasswordRequest(BaseModel):
 
 
 @router.post("/forgot-password")
-def forgot_password(body: ForgotPasswordRequest, db: Session = Depends(get_db)):
+@limiter.limit("3/minute")
+def forgot_password(request: Request, body: ForgotPasswordRequest, db: Session = Depends(get_db)):
     """Generate a password reset token. Returns the token directly (email integration TBD)."""
     user = db.query(User).filter(User.email == body.email).first()
     if not user:

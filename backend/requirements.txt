@@ -26,6 +26,7 @@ hmmlearn==0.3.2
 joblib==1.4.2
 apscheduler==3.10.4
 shap==0.45.1
+slowapi==0.1.9
 
 # Testing
 pytest==8.3.4

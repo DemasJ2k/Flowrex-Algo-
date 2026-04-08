@@ -65,6 +65,8 @@ class PotentialAgent:
         self._htf_fetch_time = 0
         self._peak_equity = 0.0
         self._daily_pnl = 0.0
+        self._feature_cache_key = None
+        self._feature_cache_result = None
 
     def load(self) -> bool:
         """Load ML models from disk with validation."""
