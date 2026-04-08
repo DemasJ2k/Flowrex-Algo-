@@ -114,14 +114,6 @@ def calc_lot_size(
         lots = int(lots / spec.lot_step) * spec.lot_step
     return round(lots, 2)
 
-    # Clamp to minimum
-    lots = max(lots, spec.min_lot)
-
-    # Round to reasonable precision
-    lots = round(lots, 8)
-
-    return lots
-
 
 def calc_sl_tp(
     entry_price: float,
