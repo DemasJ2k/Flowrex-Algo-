@@ -361,26 +361,25 @@ class AgentRunner:
                 tp=signal["take_profit"],
             )
 
-            # Record trade in DB
-            trade = AgentTrade(
-                agent_id=self.agent_id,
-                symbol=agent_record.symbol,
-                direction=direction,
-                entry_price=signal["entry_price"],
-                stop_loss=signal["stop_loss"],
-                take_profit=signal["take_profit"],
-                lot_size=signal["lot_size"],
-                status="open",
-                confidence=signal["confidence"],
-                signal_data=signal,
-                entry_time=datetime.now(timezone.utc),
-                broker_ticket=result.order_id if result.success else None,
-            )
-            db.add(trade)
-
-            self._daily_trade_count += 1
-
             if result.success:
+                # Only record trade in DB if broker confirmed the order
+                trade = AgentTrade(
+                    agent_id=self.agent_id,
+                    symbol=agent_record.symbol,
+                    direction=direction,
+                    entry_price=signal["entry_price"],
+                    stop_loss=signal["stop_loss"],
+                    take_profit=signal["take_profit"],
+                    lot_size=signal["lot_size"],
+                    status="open",
+                    confidence=signal["confidence"],
+                    signal_data=signal,
+                    entry_time=datetime.now(timezone.utc),
+                    broker_ticket=result.order_id,
+                )
+                db.add(trade)
+                self._daily_trade_count += 1
+
                 self._log_to_db(db, "trade",
                     f"OPENED {direction} {agent_record.symbol} @ {signal['entry_price']} | "
                     f"SL:{signal['stop_loss']} TP:{signal['take_profit']} | "
@@ -394,7 +393,7 @@ class AgentRunner:
                     f"Broker error: {result.message}",
                     signal,
                 )
-                self._active_direction = None  # Reset on failure
+                self._active_direction = None
 
         except Exception as e:
             self._log_to_db(db, "error",
