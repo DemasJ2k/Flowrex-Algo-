@@ -231,28 +231,40 @@ async def get_ticks(
     symbol: str,
     count: int = Query(500, ge=1, le=5000),
     seconds_back: int = Query(300, ge=10, le=3600),
+    broker: Optional[str] = None,
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
+    manager: BrokerManager = Depends(get_broker_manager),
 ):
-    """Fetch tick/trade data from Databento (CME futures only)."""
+    """Fetch tick/trade data from Databento (CME futures only), with broker fallback."""
     from app.services.data.databento_adapter import DatabentoAdapter
     provider = db.query(MarketDataProvider).filter(
         MarketDataProvider.user_id == current_user.id,
         MarketDataProvider.provider_name == "databento",
         MarketDataProvider.is_active == True,
     ).first()
-    if not provider:
-        return {"error": "No Databento provider configured. Add one in Settings → Providers."}
-    try:
-        api_key = get_fernet().decrypt(provider.api_key_encrypted.encode()).decode()
-        adapter = DatabentoAdapter(api_key)
-        ticks = await adapter.get_ticks(symbol, count, seconds_back)
-        await adapter.close()
-        return [{"time": t.time, "price": t.price, "size": t.size, "side": t.side} for t in ticks]
-    except ValueError as e:
-        return {"error": str(e)}
-    except Exception as e:
-        return {"error": f"Databento error: {str(e)}"}
+    if provider:
+        try:
+            api_key = get_fernet().decrypt(provider.api_key_encrypted.encode()).decode()
+            adapter = DatabentoAdapter(api_key)
+            ticks = await adapter.get_ticks(symbol, count, seconds_back)
+            await adapter.close()
+            if ticks:
+                return [{"time": t.time, "price": t.price, "size": t.size, "side": t.side} for t in ticks]
+        except (ValueError, Exception):
+            pass  # Fall through to broker fallback
+
+    # Broker fallback: return latest tick as a single-element list
+    broker_adapter = _get_adapter(current_user, manager, broker)
+    if broker_adapter:
+        try:
+            tick = await broker_adapter.get_tick(symbol)
+            mid = (tick.bid + tick.ask) / 2 if tick.bid and tick.ask else tick.bid or tick.ask
+            return [{"time": tick.time, "price": mid, "size": 0, "side": "", "bid": tick.bid, "ask": tick.ask}]
+        except Exception:
+            pass
+
+    return {"error": "No data source available. Configure Databento in Settings or connect a broker."}
 
 
 # ── Trading ────────────────────────────────────────────────────────────
@@ -305,6 +317,7 @@ async def close_position(
                 from app.services.broker.symbol_registry import get_symbol_registry
                 symbol = get_symbol_registry().to_canonical(parts[0], adapter.name if hasattr(adapter, 'name') else "oanda")
                 direction = "BUY" if parts[1] == "long" else "SELL"
+                # Match by broker_ticket if available, not ALL trades for symbol/direction
                 open_trades = (
                     db.query(AgentTrade)
                     .join(TradingAgent)
@@ -316,7 +329,11 @@ async def close_position(
                     )
                     .all()
                 )
-                for trade in open_trades:
+                # Only close the trade with a matching broker_ticket (position_id instrument)
+                # If no ticket match, fall back to closing the first open trade
+                matched = [t for t in open_trades if t.broker_ticket and str(t.broker_ticket) == parts[0]]
+                trades_to_close = matched if matched else open_trades[:1]
+                for trade in trades_to_close:
                     trade.status = "closed"
                     trade.exit_time = datetime.now(timezone.utc)
                     trade.exit_reason = "manual_close"

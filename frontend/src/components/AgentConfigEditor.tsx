@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import Modal from "@/components/ui/Modal";
 import api from "@/lib/api";
 import { toast } from "sonner";
@@ -32,16 +32,17 @@ export default function AgentConfigEditor({
   const [loading, setLoading] = useState(false);
 
   // Reset state when agent changes
-  if (agent && name !== agent.name && !loading) {
-    setName(agent.name);
+  useEffect(() => {
+    if (!agent || loading) return;
     const c = (agent.risk_config || {}) as Record<string, unknown>;
+    setName(agent.name);
     setSizingMode((c.sizing_mode as string) || "risk_pct");
     setRiskPerTrade(((c.risk_per_trade as number) || 0.005) * 100);
     setMaxLotSize((c.max_lot_size as number) || 5);
     setMaxDailyLoss(((c.max_daily_loss_pct as number) || 0.04) * 100);
     setCooldown((c.cooldown_bars as number) || 3);
     setMode(agent.mode);
-  }
+  }, [agent?.id]);
 
   if (!agent) return null;
 

@@ -221,8 +221,12 @@ class PotentialAgent:
         sl_distance = atr_value * 1.0
         tp_distance = atr_value * 1.5
 
-        # Ensure minimum distance (at least 0.2% of price to clear spread)
-        min_distance = entry_price * 0.002  # 0.2% minimum
+        # Ensure minimum distance using symbol-specific spread (3x spread for safety)
+        from app.services.ml.symbol_config import get_symbol_config
+        sym_cfg = get_symbol_config(self.symbol)
+        spread = sym_cfg.get("spread_pips", 1.0)
+        pip_size = spec.pip_size if spec.pip_size > 0 else 0.01
+        min_distance = spread * pip_size * 3  # 3x spread for safety
         sl_distance = max(sl_distance, min_distance)
         tp_distance = max(tp_distance, min_distance)
 

@@ -35,6 +35,7 @@ class AgentRunner:
         self._daily_pnl = 0.0
         self._daily_trade_count = 0
         self._daily_reset_date: Optional[str] = None
+        self._eval_lock = asyncio.Lock()
 
     async def start(self):
         """Load agent config from DB and start the polling loop."""
@@ -149,6 +150,11 @@ class AgentRunner:
         if not self._agent:
             return
 
+        async with self._eval_lock:
+            await self._poll_and_evaluate_inner()
+
+    async def _poll_and_evaluate_inner(self):
+        """Inner evaluation logic, called under _eval_lock."""
         db = SessionLocal()
         try:
             agent_record = db.query(TradingAgent).filter(TradingAgent.id == self.agent_id).first()

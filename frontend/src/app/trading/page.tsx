@@ -18,6 +18,7 @@ import { Plug, Plus, ShoppingCart, Loader2, SlidersHorizontal, Database } from "
 import Card from "@/components/ui/Card";
 import { toast } from "sonner";
 import { getErrorMessage } from "@/lib/errors";
+import { toSydneyTime } from "@/lib/timezone";
 import { useWebSocket, WSMessage } from "@/hooks/useWebSocket";
 import WSStatusBadge from "@/components/WSStatusBadge";
 
@@ -154,7 +155,7 @@ export default function TradingPage() {
 
   const fetchStatus = useCallback(async () => {
     try {
-      const res = await api.get("/api/broker/status");
+      const res = await api.get("/api/broker/status/");
       setBroker(res.data);
       if (!backendAlive.current) {
         backendAlive.current = true;
@@ -178,12 +179,12 @@ export default function TradingPage() {
     fetchingRef.current = true;
     try {
       const [acct, pos, ord, tr, logs, pnl] = await Promise.all([
-        api.get("/api/broker/account"),
-        api.get("/api/broker/positions"),
-        api.get("/api/broker/orders"),
-        api.get("/api/agents/all-trades?limit=100"),
-        api.get("/api/agents/engine-logs?limit=100"),
-        api.get("/api/agents/pnl-summary"),
+        api.get("/api/broker/account/"),
+        api.get("/api/broker/positions/"),
+        api.get("/api/broker/orders/"),
+        api.get("/api/agents/all-trades/?limit=100"),
+        api.get("/api/agents/engine-logs/?limit=100"),
+        api.get("/api/agents/pnl-summary/"),
       ]);
       setAccount(acct.data);
       setPositions(pos.data);
@@ -228,7 +229,7 @@ export default function TradingPage() {
 
   // Fetch available data sources
   useEffect(() => {
-    api.get("/api/market-data/sources").then((r) => setDataSources(r.data)).catch((e) => console.warn("fetch failed:", e?.message));
+    api.get("/api/market-data/sources/").then((r) => setDataSources(r.data)).catch((e) => console.warn("fetch failed:", e?.message));
   }, []);
 
   useEffect(() => { fetchStatus(); }, [fetchStatus]);
@@ -471,7 +472,7 @@ export default function TradingPage() {
                 {ticks.slice(-100).reverse().map((t, i) => (
                   <tr key={i} className="border-t" style={{ borderColor: "var(--border)" }}>
                     <td className="py-0.5 px-2" style={{ color: "var(--muted)" }}>
-                      {new Date(t.time * 1000).toLocaleTimeString("en-AU", { timeZone: "Australia/Sydney", hour12: false })}
+                      {toSydneyTime(t.time)}
                     </td>
                     <td className="text-right py-0.5 px-2 font-mono">{t.price.toFixed(2)}</td>
                     <td className="text-right py-0.5 px-2">{t.size}</td>
@@ -565,7 +566,7 @@ export default function TradingPage() {
                     filteredLogs.map((l) => (
                       <div key={l.id} className="flex items-start gap-2 py-1">
                         <span className="flex-shrink-0" style={{ color: "var(--muted)" }}>
-                          {new Date(l.created_at + (l.created_at.includes("Z") || l.created_at.includes("+") ? "" : "Z")).toLocaleTimeString("en-AU", { timeZone: "Australia/Sydney", hour12: false })}
+                          {toSydneyTime(l.created_at + (l.created_at.includes("Z") || l.created_at.includes("+") ? "" : "Z"))}
                         </span>
                         <StatusBadge value={l.level} />
                         <span className="break-all">{l.message}</span>

@@ -100,6 +100,9 @@ export default function BacktestPage() {
   };
 
   const runBacktest = async () => {
+    if (balance < 100) { toast.error("Balance must be at least $100"); return; }
+    if (riskPct <= 0 || riskPct > 5) { toast.error("Risk % must be between 0 and 5"); return; }
+    if (maxLot <= 0) { toast.error("Max lot must be greater than 0"); return; }
     setLoading(true);
     setResult(null);
     setProgress("Starting...");
@@ -137,7 +140,7 @@ export default function BacktestPage() {
           } else if (!status.active) {
             // Active is false but no results yet — allow grace cycles
             graceCycles++;
-            if (graceCycles >= 3) {
+            if (graceCycles >= 10) {
               clearInterval(poll);
               toast.error("Backtest finished but no results were returned");
               setLoading(false);

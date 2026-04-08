@@ -123,11 +123,12 @@ class DatabentoAdapter:
         return self._async_client
 
     def _resolve_symbol(self, symbol: str) -> str:
-        mapped = SYMBOL_MAP.get(symbol.upper())
+        current_map = _get_symbol_map()
+        mapped = current_map.get(symbol.upper())
         if not mapped:
             raise ValueError(
                 f"Symbol '{symbol}' not available on Databento. "
-                f"Supported: {list(SYMBOL_MAP.keys())}"
+                f"Supported: {list(current_map.keys())}"
             )
         return mapped
 
@@ -190,14 +191,7 @@ class DatabentoAdapter:
             if e.response.status_code == 401:
                 raise ValueError("Invalid Databento API key")
             if e.response.status_code == 422 and "data_end_after_available_end" in e.response.text:
-                # Data not available yet — try with earlier end time
-                end = end - timedelta(hours=2)
-                params["end"] = end.strftime("%Y-%m-%dT%H:%M:%S.000000000Z")
-                try:
-                    resp = await client.get("/timeseries.get_range", params=params)
-                    resp.raise_for_status()
-                except Exception:
-                    return []  # Give up gracefully
+                return []  # Don't retry with stale data, fall back to broker
             else:
                 raise ValueError(f"Databento API error: {e.response.status_code} {e.response.text[:200]}")
 

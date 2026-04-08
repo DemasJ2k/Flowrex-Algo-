@@ -106,7 +106,7 @@ class OandaAdapter(BrokerAdapter):
                 "Content-Type": "application/json",
             },
             timeout=15.0,
-            limits=httpx.Limits(max_connections=10, max_keepalive_connections=5, keepalive_expiry=30),
+            limits=httpx.Limits(max_connections=20, max_keepalive_connections=10, keepalive_expiry=60),
         )
 
         # Verify connection and auto-discover symbols
@@ -340,6 +340,10 @@ class OandaAdapter(BrokerAdapter):
             return CloseResult(success=False, message=f"Invalid position ID format: {position_id}")
 
         instrument, side = parts[0], parts[1]
+        # Ensure instrument is in broker format (e.g. "US30_USD" not "US30")
+        # Avoid double-convert: if it already contains "_" it's likely broker format
+        if "_" not in instrument:
+            instrument = self._to_broker(instrument)
         if side == "long":
             body = {"longUnits": "ALL"}
         else:
