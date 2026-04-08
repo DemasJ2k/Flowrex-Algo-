@@ -43,6 +43,7 @@ class AgentRunner:
             agent_record = db.query(TradingAgent).filter(TradingAgent.id == self.agent_id).first()
             if not agent_record:
                 self._log_to_db(db, "error", "Agent not found in DB")
+                db.commit()
                 return
 
             # Instantiate agent based on agent_type
@@ -53,33 +54,47 @@ class AgentRunner:
             }
             agent_args = (self.agent_id, agent_record.symbol, agent_record.broker_name, agent_config)
 
-            if agent_type == "potential":
-                from app.services.agent.potential_agent import PotentialAgent
-                self._agent = PotentialAgent(*agent_args)
-            elif agent_type == "scalping":
-                from app.services.agent.scalping_agent import ScalpingAgent
-                self._agent = ScalpingAgent(*agent_args)
-            elif agent_type == "expert":
-                from app.services.agent.expert_agent import ExpertAgent
-                self._agent = ExpertAgent(*agent_args)
-            else:
-                self._agent = FlowrexAgent(*agent_args)
+            try:
+                if agent_type == "potential":
+                    from app.services.agent.potential_agent import PotentialAgent
+                    self._agent = PotentialAgent(*agent_args)
+                elif agent_type == "scalping":
+                    from app.services.agent.scalping_agent import ScalpingAgent
+                    self._agent = ScalpingAgent(*agent_args)
+                elif agent_type == "expert":
+                    from app.services.agent.expert_agent import ExpertAgent
+                    self._agent = ExpertAgent(*agent_args)
+                else:
+                    self._agent = FlowrexAgent(*agent_args)
+            except Exception as e:
+                self._log_to_db(db, "error", f"Failed to create agent: {e}")
+                db.commit()
+                return
 
             # Inject logging callback
             self._agent._log_fn = lambda level, msg, data=None: self._log(level, msg, data)
 
             # Load ML models
-            if not self._agent.load():
-                self._log_to_db(db, "warn", "No ML models loaded — agent will not produce signals")
+            try:
+                if not self._agent.load():
+                    self._log_to_db(db, "warn", "No ML models loaded — agent will not produce signals")
+            except Exception as e:
+                self._log_to_db(db, "error", f"Failed to load models: {e}")
+                db.commit()
+                return
 
             self._running = True
             self._log_to_db(db, "info", f"Agent started — polling {agent_record.broker_name} every {POLL_INTERVAL}s for {agent_record.symbol}/M5")
+            db.commit()
+        except Exception as e:
+            self._log_to_db(db, "error", f"Start failed: {e}")
             db.commit()
         finally:
             db.close()
 
         # Start the loop as an asyncio task
-        self._task = asyncio.create_task(self._run_loop())
+        if self._running:
+            self._task = asyncio.create_task(self._run_loop())
 
     async def stop(self):
         """Stop the polling loop."""
