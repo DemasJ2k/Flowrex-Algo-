@@ -21,13 +21,35 @@ from dataclasses import dataclass
 
 DATASET = "GLBX.MDP3"
 
-# Map our symbols to Databento continuous front-month contracts
-SYMBOL_MAP = {
-    "US30": "YM.v.0",
-    "ES": "ES.v.0",
-    "NAS100": "NQ.v.0",
-    "SPX500": "ES.v.0",
-}
+# Map our symbols to Databento front-month contracts
+# Continuous symbols (YM.v.0) stopped working — use specific contracts
+# Contracts roll quarterly: H=Mar, M=Jun, U=Sep, Z=Dec
+# Current front month as of Apr 2026: M6 (June 2026)
+def _get_front_month():
+    """Get current front-month contract suffix based on date."""
+    now = datetime.now(timezone.utc)
+    month = now.month
+    year = now.year % 10  # last digit
+    # Contract months: Mar(H), Jun(M), Sep(U), Dec(Z)
+    if month <= 3:
+        return f"H{year}"
+    elif month <= 6:
+        return f"M{year}"
+    elif month <= 9:
+        return f"U{year}"
+    else:
+        return f"Z{year}"
+
+def _get_symbol_map():
+    fm = _get_front_month()
+    return {
+        "US30": f"YM{fm}",
+        "ES": f"ES{fm}",
+        "NAS100": f"NQ{fm}",
+        "SPX500": f"ES{fm}",
+    }
+
+SYMBOL_MAP = _get_symbol_map()
 
 # Map timeframes to available Databento schemas
 # Databento has: 1s, 1m, 1h, 1d — we aggregate where needed

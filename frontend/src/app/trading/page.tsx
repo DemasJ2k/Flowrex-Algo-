@@ -444,7 +444,7 @@ export default function TradingPage() {
           <CandlestickChart candles={candles} height={380} indicators={indicators} markers={chartMarkers} />
         ) : (
           <div className="flex items-center justify-center h-[380px] text-sm" style={{ color: "var(--muted)" }}>
-            {broker.connected ? "Loading chart..." : "Connect a broker to load chart data"}
+            {broker.connected || dataSource === "databento" ? "Loading chart..." : "Connect a broker or select Databento to load chart data"}
           </div>
         )}
       </Card>
