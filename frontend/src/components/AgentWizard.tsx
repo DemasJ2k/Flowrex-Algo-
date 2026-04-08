@@ -175,7 +175,7 @@ export default function AgentWizard({
         <div className="space-y-4">
           <div>
             <label className="block text-xs font-medium mb-2" style={{ color: "var(--muted)" }}>Risk per trade</label>
-            <div className="grid grid-cols-3 gap-2">
+            <div className="grid grid-cols-3 gap-2 mb-3">
               {RISK_PRESETS.map((r) => (
                 <button key={r.value} onClick={() => setRiskPerTrade(r.value)}
                   className={`p-2 text-center rounded-lg border transition-colors ${riskPerTrade === r.value ? "border-blue-500 bg-blue-500/10" : "hover:bg-white/5"}`}
@@ -184,6 +184,31 @@ export default function AgentWizard({
                   <span className="text-xs" style={{ color: "var(--muted)" }}>{r.desc}</span>
                 </button>
               ))}
+            </div>
+            {/* Custom slider + input */}
+            <div className="flex items-center gap-3">
+              <input
+                type="range"
+                min="0.05" max="3" step="0.05"
+                value={riskPerTrade * 100}
+                onChange={(e) => setRiskPerTrade(parseFloat(e.target.value) / 100)}
+                className="flex-1 h-1.5 rounded-full appearance-none cursor-pointer"
+                style={{ background: `linear-gradient(to right, #8b5cf6 ${(riskPerTrade * 100 / 3) * 100}%, var(--border) ${(riskPerTrade * 100 / 3) * 100}%)` }}
+              />
+              <div className="flex items-center gap-1">
+                <input
+                  type="number"
+                  min="0.05" max="3" step="0.05"
+                  value={(riskPerTrade * 100).toFixed(2)}
+                  onChange={(e) => {
+                    const v = parseFloat(e.target.value);
+                    if (!isNaN(v) && v >= 0.05 && v <= 3) setRiskPerTrade(v / 100);
+                  }}
+                  className="w-16 px-2 py-1 text-sm text-center rounded-lg border bg-transparent outline-none focus:border-blue-500"
+                  style={{ borderColor: "var(--border)" }}
+                />
+                <span className="text-xs" style={{ color: "var(--muted)" }}>%</span>
+              </div>
             </div>
           </div>
           <div>
