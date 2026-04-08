@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef } from "react";
+import { useEffect, useRef, useCallback } from "react";
 import { createChart, IChartApi, ISeriesApi, LineData, Time } from "lightweight-charts";
 
 export default function EquityCurveChart({
@@ -12,18 +12,12 @@ export default function EquityCurveChart({
 }) {
   const containerRef = useRef<HTMLDivElement>(null);
   const chartRef = useRef<IChartApi | null>(null);
-  const seriesRef = useRef<ISeriesApi<"Line"> | null>(null);
-  const disposedRef = useRef(false);
+  const lineRef = useRef<ISeriesApi<"Line"> | null>(null);
+  const areaRef = useRef<ISeriesApi<"Area"> | null>(null);
 
+  // Create chart ONCE on mount
   useEffect(() => {
-    if (!containerRef.current) return;
-    disposedRef.current = false;
-
-    // Clean up existing
-    if (chartRef.current) {
-      try { chartRef.current.remove(); } catch { /* already disposed */ }
-      chartRef.current = null;
-    }
+    if (!containerRef.current || chartRef.current) return;
 
     const chart = createChart(containerRef.current, {
       width: containerRef.current.clientWidth,
@@ -52,7 +46,7 @@ export default function EquityCurveChart({
       },
     });
 
-    const series = chart.addLineSeries({
+    lineRef.current = chart.addLineSeries({
       color: "#3b82f6",
       lineWidth: 2,
       priceLineVisible: false,
@@ -61,8 +55,7 @@ export default function EquityCurveChart({
       crosshairMarkerRadius: 4,
     });
 
-    // Add area fill
-    const areaSeries = chart.addAreaSeries({
+    areaRef.current = chart.addAreaSeries({
       topColor: "rgba(59, 130, 246, 0.15)",
       bottomColor: "rgba(59, 130, 246, 0.02)",
       lineColor: "transparent",
@@ -73,33 +66,39 @@ export default function EquityCurveChart({
     });
 
     chartRef.current = chart;
-    seriesRef.current = series;
 
-    // Set data
-    if (data.length > 0) {
-      const lineData: LineData[] = data.map((d) => ({
-        time: d.time as Time,
-        value: d.value,
-      }));
-      series.setData(lineData);
-      areaSeries.setData(lineData);
-      chart.timeScale().fitContent();
-    }
-
-    // Resize handler
     const handleResize = () => {
-      if (!disposedRef.current && chart && containerRef.current) {
-        chart.applyOptions({ width: containerRef.current.clientWidth });
+      if (chartRef.current && containerRef.current) {
+        try { chartRef.current.applyOptions({ width: containerRef.current.clientWidth }); } catch {}
       }
     };
     window.addEventListener("resize", handleResize);
 
     return () => {
-      disposedRef.current = true;
       window.removeEventListener("resize", handleResize);
-      try { chart.remove(); } catch { /* already disposed */ }
+      chartRef.current = null;
+      lineRef.current = null;
+      areaRef.current = null;
+      try { chart.remove(); } catch {}
     };
-  }, [data, height]);
+  }, [height]);
+
+  // Update data WITHOUT recreating chart
+  useEffect(() => {
+    if (!lineRef.current || !areaRef.current || !chartRef.current) return;
+    if (data.length === 0) return;
+
+    const lineData: LineData[] = data.map((d) => ({
+      time: d.time as Time,
+      value: d.value,
+    }));
+
+    try {
+      lineRef.current.setData(lineData);
+      areaRef.current.setData(lineData);
+      chartRef.current.timeScale().fitContent();
+    } catch {}
+  }, [data]);
 
   return <div ref={containerRef} className="w-full" />;
 }
