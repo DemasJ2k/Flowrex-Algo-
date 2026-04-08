@@ -21,7 +21,8 @@ export default function EquityCurveChart({
 
     // Clean up existing
     if (chartRef.current) {
-      chartRef.current.remove();
+      try { chartRef.current.remove(); } catch { /* already disposed */ }
+      chartRef.current = null;
     }
 
     const chart = createChart(containerRef.current, {
@@ -96,7 +97,7 @@ export default function EquityCurveChart({
     return () => {
       disposedRef.current = true;
       window.removeEventListener("resize", handleResize);
-      chart.remove();
+      try { chart.remove(); } catch { /* already disposed */ }
     };
   }, [data, height]);
 

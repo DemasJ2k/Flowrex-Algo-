@@ -56,20 +56,25 @@ class OandaAdapter(BrokerAdapter):
         if not self._client:
             raise BrokerError("Not connected to Oanda")
         async with self._semaphore:
-            try:
-                resp = await self._client.request(method, path, **kwargs)
-                if not resp.text or not resp.text.strip():
-                    raise BrokerError(f"Oanda returned empty response for {method} {path}")
+            for attempt in range(2):  # Retry once on transport errors
                 try:
-                    data = resp.json()
-                except Exception:
-                    raise BrokerError(f"Oanda returned non-JSON: {resp.text[:200]}")
-                if resp.status_code >= 400:
-                    msg = data.get("errorMessage", str(data))
-                    raise BrokerError(f"Oanda API error: {msg}", code=str(resp.status_code))
-                return data
-            except httpx.HTTPError as e:
-                raise BrokerError(f"Oanda HTTP error: {e}")
+                    resp = await self._client.request(method, path, **kwargs)
+                    if not resp.text or not resp.text.strip():
+                        raise BrokerError(f"Oanda returned empty response for {method} {path}")
+                    try:
+                        data = resp.json()
+                    except Exception:
+                        raise BrokerError(f"Oanda returned non-JSON: {resp.text[:200]}")
+                    if resp.status_code >= 400:
+                        msg = data.get("errorMessage", str(data))
+                        raise BrokerError(f"Oanda API error: {msg}", code=str(resp.status_code))
+                    return data
+                except (httpx.RemoteProtocolError, httpx.ReadError, httpx.WriteError, httpx.PoolTimeout) as e:
+                    if attempt == 0:
+                        continue  # Retry on transport errors
+                    raise BrokerError(f"Oanda connection error: {e}")
+                except httpx.HTTPError as e:
+                    raise BrokerError(f"Oanda HTTP error: {e}")
 
     # ── Connection ─────────────────────────────────────────────────────
 
@@ -101,6 +106,7 @@ class OandaAdapter(BrokerAdapter):
                 "Content-Type": "application/json",
             },
             timeout=15.0,
+            limits=httpx.Limits(max_connections=10, max_keepalive_connections=5, keepalive_expiry=30),
         )
 
         # Verify connection and auto-discover symbols
