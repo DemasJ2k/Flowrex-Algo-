@@ -110,3 +110,8 @@ def get_symbol_config(symbol: str) -> dict:
 
 def get_all_symbols() -> list[str]:
     return list(SYMBOL_CONFIGS.keys())
+
+
+# Backward compatibility — delegates to unified symbols.py
+from app.services.symbols import get_symbol as _get_unified
+# get_symbol_config still works as before (returns dict, not dataclass)

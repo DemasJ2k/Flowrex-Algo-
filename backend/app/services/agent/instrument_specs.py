@@ -154,3 +154,7 @@ def get_session_multiplier(hour_utc: int, symbol: str) -> float:
     if is_asian and not is_crypto:
         return 0.5
     return 1.0
+
+
+# Backward compatibility — new code should use app.services.symbols
+from app.services.symbols import get_symbol as get_unified_symbol
