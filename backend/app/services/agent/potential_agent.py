@@ -89,11 +89,12 @@ class PotentialAgent:
             grade = data.get("grade", "?")
             pipeline_version = data.get("pipeline_version", data.get("version", "?"))
 
-            # Validate feature count matches expected
+            # Validate feature count matches expected — abort if mismatch
             if feat_count != self.EXPECTED_FEATURE_COUNT:
-                self._log("warn",
+                self._log("error",
                     f"Feature count mismatch for {mtype}: model has {feat_count} features, "
                     f"expected {self.EXPECTED_FEATURE_COUNT} from compute_potential_features")
+                return False
 
             self.models[mtype] = data
             loaded_any = True
@@ -160,8 +161,8 @@ class PotentialAgent:
                 if not news.should_trade:
                     self._log_reject(f"News filter: {news.reason}")
                     return None
-            except Exception:
-                pass  # Fail-open if news service is down
+            except Exception as e:
+                self._log("warn", f"News filter unavailable: {e}")
 
         # 3. Risk checks (simple)
         if not self._check_risk(balance, daily_pnl, daily_trade_count):

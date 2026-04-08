@@ -163,48 +163,17 @@ class AgentRunner:
                 db.commit()
                 return
 
-            # Fetch M5 candles — prefer Databento for supported symbols
-            candles = None
-            data_source = "broker"
-
-            # Check if user has Databento configured and symbol is supported
-            from app.services.data.databento_adapter import SYMBOL_MAP as DB_SYMBOLS
-            if agent_record.symbol in DB_SYMBOLS:
-                try:
-                    from app.models.market_data import MarketDataProvider
-                    from app.core.encryption import get_fernet
-                    provider = db.query(MarketDataProvider).filter(
-                        MarketDataProvider.user_id == agent_record.created_by,
-                        MarketDataProvider.provider_name == "databento",
-                        MarketDataProvider.is_active == True,
-                    ).first()
-                    if provider:
-                        from app.services.data.databento_adapter import DatabentoAdapter
-                        api_key = get_fernet().decrypt(provider.api_key_encrypted.encode()).decode()
-                        db_adapter = DatabentoAdapter(api_key)
-                        db_candles = await db_adapter.get_candles(agent_record.symbol, "M5", 500)
-                        await db_adapter.close()
-                        if db_candles and len(db_candles) >= 100:
-                            candles = db_candles
-                            data_source = "databento"
-                except Exception as e:
-                    # Databento failed — fall back to broker silently
-                    pass
-
-            # Fall back to broker candles if Databento didn't work
-            if candles is None:
-                candles = await adapter.get_candles(agent_record.symbol, "M5", 500)
-                data_source = "broker"
+            # Fetch M5 candles — ALWAYS use broker (real-time) for signal generation.
+            # Databento has ~2hr delay which is unacceptable for M5 scalping.
+            # Databento is only used for chart display, not agent signals.
+            data_source = "BROKER"
+            candles = await adapter.get_candles(agent_record.symbol, "M5", 500)
 
             if not candles:
                 return
 
             # Convert to dicts
-            if data_source == "databento":
-                from dataclasses import asdict
-                bars = [{"time": c.time, "open": c.open, "high": c.high, "low": c.low, "close": c.close, "volume": c.volume} for c in candles]
-            else:
-                bars = [{"time": c.time, "open": c.open, "high": c.high, "low": c.low, "close": c.close, "volume": c.volume} for c in candles]
+            bars = [{"time": c.time, "open": c.open, "high": c.high, "low": c.low, "close": c.close, "volume": c.volume} for c in candles]
 
             # Detect new closed bar
             last_time = bars[-1]["time"] if bars else 0
@@ -217,7 +186,7 @@ class AgentRunner:
             # Log data source on first bar (once)
             if not self._warmup_done:
                 self._log_to_db(db, "info",
-                    f"Data source: {data_source.upper()} | {len(bars)} bars loaded for {agent_record.symbol}/M5")
+                    f"Data source: {data_source} | {len(bars)} bars loaded for {agent_record.symbol}/M5")
 
             # Warm-up: first fetch loads the bar buffer but does NOT evaluate.
             # This ensures we wait for the NEXT new bar close before trading.
@@ -264,9 +233,11 @@ class AgentRunner:
                     f"conf={signal['confidence']:.3f}",
                     signal)
 
-                # Portfolio-level check: limit total open positions
-                engine = get_algo_engine()
-                open_count = db.query(AgentTrade).filter(AgentTrade.status == "open").count()
+                # Per-agent position limit: count only THIS agent's open trades
+                open_count = db.query(AgentTrade).filter(
+                    AgentTrade.agent_id == self.agent_id,
+                    AgentTrade.status == "open",
+                ).count()
                 max_open = (agent_record.risk_config or {}).get("max_positions", 6)
                 if open_count >= max_open:
                     self._log_to_db(db, "info", f"Portfolio limit: {open_count}/{max_open} positions open — skipping trade")
@@ -397,8 +368,6 @@ class AgentRunner:
         if self._active_direction == direction:
             return
 
-        # Set active direction BEFORE calling broker (avoid race condition)
-        self._active_direction = direction
         self._signal_count += 1
 
         # Log signal details BEFORE placing the order
@@ -422,6 +391,9 @@ class AgentRunner:
             )
 
             if result.success:
+                # Set active direction AFTER broker confirms (avoid race condition)
+                self._active_direction = direction
+
                 # Only record trade in DB if broker confirmed the order
                 trade = AgentTrade(
                     agent_id=self.agent_id,
