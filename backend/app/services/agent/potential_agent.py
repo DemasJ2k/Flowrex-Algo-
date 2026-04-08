@@ -216,9 +216,15 @@ class PotentialAgent:
         entry_price = float(last_bar["close"])
         spec = get_spec(self.symbol)
 
-        # Use 1.2x ATR for TP, 0.8x ATR for SL (from training config)
-        sl_distance = atr_value * 0.8
-        tp_distance = atr_value * 1.2
+        # Use 1.5x ATR for TP, 1.0x ATR for SL (wider to avoid spread rejection)
+        sl_distance = atr_value * 1.0
+        tp_distance = atr_value * 1.5
+
+        # Ensure minimum distance (at least 0.2% of price to clear spread)
+        min_distance = entry_price * 0.002  # 0.2% minimum
+        sl_distance = max(sl_distance, min_distance)
+        tp_distance = max(tp_distance, min_distance)
+
         if signal.direction == 1:  # BUY
             stop_loss = entry_price - sl_distance
             take_profit = entry_price + tp_distance
