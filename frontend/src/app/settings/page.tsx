@@ -19,7 +19,7 @@ interface TradingDefaults { risk_per_trade: number; max_daily_loss_pct: number; 
 interface ApiKeys { finnhub: string; alphavantage: string; newsapi: string; }
 interface ModelFeatureToggles { use_correlations: boolean; use_m15_features: boolean; use_external_macro: boolean; }
 
-const DEFAULT_TRADING: TradingDefaults = { risk_per_trade: 0.005, max_daily_loss_pct: 0.04, max_positions: 6, cooldown_bars: 3 };
+const DEFAULT_TRADING: TradingDefaults = { risk_per_trade: 0.01, max_daily_loss_pct: 0.03, max_positions: 4, cooldown_bars: 3 };
 const DEFAULT_FEATURES: ModelFeatureToggles = { use_correlations: true, use_m15_features: true, use_external_macro: false };
 const DEFAULT_KEYS: ApiKeys = { finnhub: "", alphavantage: "", newsapi: "" };
 
@@ -343,30 +343,30 @@ export default function SettingsPage() {
                   <div className="grid grid-cols-2 gap-3">
                     <div>
                       <label className="block text-xs mb-1" style={{ color: "var(--muted)" }}>Risk per Trade (%)</label>
-                      <input type="number" min="0.01" max="5" step="0.01"
-                        value={(trading.risk_per_trade * 100).toFixed(2)}
+                      <input type="number" min="0.1" max="3" step="0.1"
+                        value={(trading.risk_per_trade * 100).toFixed(1)}
                         onChange={(e) => setTrading({ ...trading, risk_per_trade: parseFloat(e.target.value) / 100 || DEFAULT_TRADING.risk_per_trade })}
                         className="w-full px-3 py-2 text-sm rounded-lg border bg-transparent outline-none focus:border-blue-500" style={{ borderColor: "var(--border)" }} />
                     </div>
                     <div>
                       <label className="block text-xs mb-1" style={{ color: "var(--muted)" }}>Max Daily Loss (%)</label>
-                      <input type="number" min="0.1" max="20" step="0.1"
+                      <input type="number" min="1" max="10" step="0.5"
                         value={(trading.max_daily_loss_pct * 100).toFixed(1)}
                         onChange={(e) => setTrading({ ...trading, max_daily_loss_pct: parseFloat(e.target.value) / 100 || DEFAULT_TRADING.max_daily_loss_pct })}
                         className="w-full px-3 py-2 text-sm rounded-lg border bg-transparent outline-none focus:border-blue-500" style={{ borderColor: "var(--border)" }} />
                     </div>
                     <div>
                       <label className="block text-xs mb-1" style={{ color: "var(--muted)" }}>Max Open Positions</label>
-                      <input type="number" min="1" max="50" step="1"
+                      <input type="number" min="1" max="10" step="1"
                         value={trading.max_positions}
-                        onChange={(e) => setTrading({ ...trading, max_positions: parseInt(e.target.value) || DEFAULT_TRADING.max_positions })}
+                        onChange={(e) => setTrading({ ...trading, max_positions: Math.min(10, Math.max(1, parseInt(e.target.value) || DEFAULT_TRADING.max_positions)) })}
                         className="w-full px-3 py-2 text-sm rounded-lg border bg-transparent outline-none focus:border-blue-500" style={{ borderColor: "var(--border)" }} />
                     </div>
                     <div>
                       <label className="block text-xs mb-1" style={{ color: "var(--muted)" }}>Cooldown Bars</label>
-                      <input type="number" min="0" max="100" step="1"
+                      <input type="number" min="1" max="20" step="1"
                         value={trading.cooldown_bars}
-                        onChange={(e) => setTrading({ ...trading, cooldown_bars: parseInt(e.target.value) || DEFAULT_TRADING.cooldown_bars })}
+                        onChange={(e) => setTrading({ ...trading, cooldown_bars: Math.min(20, Math.max(1, parseInt(e.target.value) || DEFAULT_TRADING.cooldown_bars)) })}
                         className="w-full px-3 py-2 text-sm rounded-lg border bg-transparent outline-none focus:border-blue-500" style={{ borderColor: "var(--border)" }} />
                     </div>
                   </div>
@@ -378,21 +378,20 @@ export default function SettingsPage() {
                 </div>
               </Card>
 
-              {/* Model Feature Toggles */}
+              {/* Agent Filters */}
               <Card>
-                <h3 className="text-sm font-medium mb-1">Model Feature Toggles</h3>
+                <h3 className="text-sm font-medium mb-1">Default Agent Filters</h3>
                 <p className="text-xs mb-4" style={{ color: "var(--muted)" }}>
-                  Control which feature sets are included when the ML models make predictions. Changes take effect on the next agent cycle.
+                  Filters applied to new agents by default. Each agent can override these individually via Edit Config.
                 </p>
                 <div className="space-y-3">
-                  {/* Correlation Features */}
+                  {/* News Filter */}
                   <div className="flex items-start justify-between gap-4">
                     <div className="flex-1">
-                      <p className="text-sm font-medium">Cross-Symbol Correlations</p>
+                      <p className="text-sm font-medium">News Filter</p>
                       <p className="text-xs mt-0.5" style={{ color: "var(--muted)" }}>
-                        20 features measuring lead-lag relationships between correlated instruments
-                        (e.g. BTCUSD ↔ US30, XAUUSD ↔ DXY). Adds risk-on/risk-off composite indicators.
-                        Recommended ON for all symbols.
+                        Skip trading during high-impact economic events (NFP, FOMC, CPI).
+                        Uses Finnhub API to check for upcoming events. Recommended ON.
                       </p>
                     </div>
                     <button
@@ -407,13 +406,13 @@ export default function SettingsPage() {
                     </button>
                   </div>
 
-                  {/* M15 Features */}
+                  {/* Session Filter */}
                   <div className="flex items-start justify-between gap-4">
                     <div className="flex-1">
-                      <p className="text-sm font-medium">M15 Intermediate Timeframe</p>
+                      <p className="text-sm font-medium">Session Filter</p>
                       <p className="text-xs mt-0.5" style={{ color: "var(--muted)" }}>
-                        7 features from the 15-minute chart — trend, RSI, ATR, MACD histogram and momentum.
-                        Acts as a bridge between M5 entry signals and H1 trend context. Reduces false signals from M5 noise.
+                        Reduce risk during low-liquidity hours (Asian session for indices).
+                        Agents skip signals outside prime trading hours for each symbol.
                       </p>
                     </div>
                     <button
