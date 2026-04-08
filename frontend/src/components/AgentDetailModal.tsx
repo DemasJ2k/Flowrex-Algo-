@@ -69,8 +69,8 @@ export default function AgentDetailModal({
     { header: "Side", key: "direction", render: (r) => <StatusBadge value={r.direction} /> },
     { header: "Size", key: "lot_size", align: "right" },
     { header: "Entry", key: "entry_price", align: "right", render: (r) => fmt(r.entry_price) },
-    { header: "SL", key: "stop_loss", align: "right", render: (r) => r.stop_loss ? <span className="text-red-400">{fmt(r.stop_loss)}</span> : <span style={{ color: "var(--muted)" }}>{"\u2014"}</span> },
-    { header: "TP", key: "take_profit", align: "right", render: (r) => r.take_profit ? <span className="text-emerald-400">{fmt(r.take_profit)}</span> : <span style={{ color: "var(--muted)" }}>{"\u2014"}</span> },
+    { header: "SL", key: "stop_loss", align: "right", render: (r) => r.stop_loss !== null && r.stop_loss !== undefined ? <span className="text-red-400">{fmt(r.stop_loss)}</span> : <span style={{ color: "var(--muted)" }}>{"\u2014"}</span> },
+    { header: "TP", key: "take_profit", align: "right", render: (r) => r.take_profit !== null && r.take_profit !== undefined ? <span className="text-emerald-400">{fmt(r.take_profit)}</span> : <span style={{ color: "var(--muted)" }}>{"\u2014"}</span> },
     { header: "Exit", key: "exit_price", align: "right", render: (r) => r.exit_price ? fmt(r.exit_price) : "\u2014" },
     { header: "P&L", key: "pnl", align: "right", render: (r) => {
       const p = r.broker_pnl ?? r.pnl ?? 0;

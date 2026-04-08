@@ -209,10 +209,12 @@ export default function TradingPage() {
     }
   }, [symbol, timeframe, dataSource]);
 
-  // Clear candles when symbol/timeframe/dataSource changes so stale data is not shown
+  // Clear candles when symbol/timeframe/dataSource changes and immediately fetch new data
   useEffect(() => {
     setCandles([]);
     setTicks([]);
+    fetchCandles();
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [symbol, timeframe, dataSource]);
 
   // Fetch tick data when tick view is active
@@ -226,7 +228,7 @@ export default function TradingPage() {
 
   // Fetch available data sources
   useEffect(() => {
-    api.get("/api/market-data/sources").then((r) => setDataSources(r.data)).catch(() => {});
+    api.get("/api/market-data/sources").then((r) => setDataSources(r.data)).catch((e) => console.warn("fetch failed:", e?.message));
   }, []);
 
   useEffect(() => { fetchStatus(); }, [fetchStatus]);

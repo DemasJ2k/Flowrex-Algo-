@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState, useCallback } from "react";
+import { useEffect, useState, useCallback, useRef } from "react";
 import api from "@/lib/api";
 import Card from "@/components/ui/Card";
 import Tabs from "@/components/ui/Tabs";
@@ -279,6 +279,15 @@ function HeadlinesSection() {
 }
 
 export default function NewsPage() {
+  const [lastUpdated, setLastUpdated] = useState<Date | null>(null);
+
+  // Listen for data fetch completions from child components
+  useEffect(() => {
+    const handler = () => setLastUpdated(new Date());
+    window.addEventListener("news-refreshed", handler);
+    return () => window.removeEventListener("news-refreshed", handler);
+  }, []);
+
   return (
     <div className="space-y-6">
       {/* Header */}
@@ -290,6 +299,11 @@ export default function NewsPage() {
           <h1 className="text-xl font-semibold bg-gradient-to-r from-violet-400 to-blue-400 bg-clip-text text-transparent">News & Calendar</h1>
           <p className="text-xs" style={{ color: "var(--muted)" }}>
             Economic events and market headlines -- auto-refreshes every 5 minutes
+            {lastUpdated && (
+              <span className="ml-2">
+                | Last updated: {lastUpdated.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}
+              </span>
+            )}
           </p>
         </div>
       </div>

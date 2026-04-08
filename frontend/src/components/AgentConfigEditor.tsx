@@ -111,9 +111,9 @@ export default function AgentConfigEditor({
           </div>
         </div>
 
-        {agent.agent_type === "expert" && (
+        {(
           <div className="space-y-2 pt-2 border-t" style={{ borderColor: "var(--border)" }}>
-            <p className="text-xs font-medium" style={{ color: "var(--muted)" }}>Expert Filters</p>
+            <p className="text-xs font-medium" style={{ color: "var(--muted)" }}>Agent Filters</p>
             <label className="flex items-center gap-2 text-sm cursor-pointer">
               <input type="checkbox" checked={sessionFilter} onChange={(e) => setSessionFilter(e.target.checked)} className="rounded" />
               Session filter
@@ -127,7 +127,7 @@ export default function AgentConfigEditor({
               News filter
             </label>
           </div>
-        )}
+        )
 
         <div className="flex justify-end gap-2 pt-2">
           <button onClick={onClose} className="px-4 py-2 text-sm rounded-lg border hover:bg-white/5" style={{ borderColor: "var(--border)" }}>Cancel</button>

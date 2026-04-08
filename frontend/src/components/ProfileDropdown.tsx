@@ -16,7 +16,7 @@ export default function ProfileDropdown() {
     api.get("/api/auth/me").then((r) => {
       setEmail(r.data.email || "");
       setIsAdmin(r.data.is_admin || false);
-    }).catch(() => {});
+    }).catch((e) => console.warn("fetch failed:", e?.message));
   }, []);
 
   useEffect(() => {

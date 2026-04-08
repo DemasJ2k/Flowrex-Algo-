@@ -115,6 +115,10 @@ export default function RegisterPage() {
           Already have an account?{" "}
           <Link href="/login" className="text-blue-400 hover:text-blue-300">Sign in</Link>
         </p>
+        <p className="text-xs text-center mt-2" style={{ color: "var(--muted)" }}>
+          Don&apos;t have an invite code?{" "}
+          <Link href="/" className="text-blue-400 hover:text-blue-300">Request access</Link>
+        </p>
       </div>
     </div>
   );

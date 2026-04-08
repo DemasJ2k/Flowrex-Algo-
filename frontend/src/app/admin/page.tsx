@@ -27,11 +27,11 @@ export default function AdminPage() {
 
   const fetchData = () => {
     Promise.all([
-      api.get("/api/admin/invites").then((r) => setInvites(r.data)).catch(() => {}),
-      api.get("/api/admin/users").then((r) => setUsers(r.data)).catch(() => {}),
-      api.get("/api/admin/system").then((r) => setSystem(r.data)).catch(() => {}),
-      api.get("/api/admin/access-requests").then((r) => setAccessRequests(r.data)).catch(() => {}),
-      api.get("/api/admin/feedback").then((r) => setFeedback(r.data)).catch(() => {}),
+      api.get("/api/admin/invites").then((r) => setInvites(r.data)).catch((e) => console.warn("fetch failed:", e?.message)),
+      api.get("/api/admin/users").then((r) => setUsers(r.data)).catch((e) => console.warn("fetch failed:", e?.message)),
+      api.get("/api/admin/system").then((r) => setSystem(r.data)).catch((e) => console.warn("fetch failed:", e?.message)),
+      api.get("/api/admin/access-requests").then((r) => setAccessRequests(r.data)).catch((e) => console.warn("fetch failed:", e?.message)),
+      api.get("/api/admin/feedback").then((r) => setFeedback(r.data)).catch((e) => console.warn("fetch failed:", e?.message)),
     ]).finally(() => setLoading(false));
   };
   useEffect(() => { fetchData(); }, []);

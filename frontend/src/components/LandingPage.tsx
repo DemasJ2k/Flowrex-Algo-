@@ -159,6 +159,9 @@ export default function LandingPage() {
                 </div>
               ))}
             </div>
+            <p className="text-xs mt-3" style={{ color: "var(--muted)", opacity: 0.7 }}>
+              Based on US30 Potential Agent v2 walk-forward validation. Past performance does not guarantee future results.
+            </p>
           </FadeIn>
         </div>
       </section>
