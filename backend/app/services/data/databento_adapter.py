@@ -168,9 +168,9 @@ class DatabentoAdapter:
         # Need more raw bars if aggregating
         raw_count = count * agg_factor
 
-        # Calculate time range
-        end = datetime.now(timezone.utc)
-        start = end - timedelta(seconds=bar_seconds * raw_count * 3)  # 3x buffer for non-trading hours
+        # Calculate time range — Databento historical has ~2hr delay
+        end = datetime.now(timezone.utc) - timedelta(hours=2)
+        start = end - timedelta(seconds=bar_seconds * raw_count * 3)
 
         params = {
             "dataset": DATASET,
@@ -189,7 +189,17 @@ class DatabentoAdapter:
         except httpx.HTTPStatusError as e:
             if e.response.status_code == 401:
                 raise ValueError("Invalid Databento API key")
-            raise ValueError(f"Databento API error: {e.response.status_code} {e.response.text[:200]}")
+            if e.response.status_code == 422 and "data_end_after_available_end" in e.response.text:
+                # Data not available yet — try with earlier end time
+                end = end - timedelta(hours=2)
+                params["end"] = end.strftime("%Y-%m-%dT%H:%M:%S.000000000Z")
+                try:
+                    resp = await client.get("/timeseries.get_range", params=params)
+                    resp.raise_for_status()
+                except Exception:
+                    return []  # Give up gracefully
+            else:
+                raise ValueError(f"Databento API error: {e.response.status_code} {e.response.text[:200]}")
 
         # Parse CSV response
         candles = []
@@ -224,7 +234,7 @@ class DatabentoAdapter:
         """Fetch tick/trade data from Databento."""
         db_symbol = self._resolve_symbol(symbol)
 
-        end = datetime.now(timezone.utc)
+        end = datetime.now(timezone.utc) - timedelta(hours=2)
         start = end - timedelta(seconds=seconds_back)
 
         params = {
