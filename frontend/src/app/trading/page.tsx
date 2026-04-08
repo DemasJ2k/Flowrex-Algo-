@@ -155,7 +155,7 @@ export default function TradingPage() {
 
   const fetchStatus = useCallback(async () => {
     try {
-      const res = await api.get("/api/broker/status/");
+      const res = await api.get("/api/broker/status");
       setBroker(res.data);
       if (!backendAlive.current) {
         backendAlive.current = true;
@@ -179,12 +179,12 @@ export default function TradingPage() {
     fetchingRef.current = true;
     try {
       const [acct, pos, ord, tr, logs, pnl] = await Promise.all([
-        api.get("/api/broker/account/"),
-        api.get("/api/broker/positions/"),
-        api.get("/api/broker/orders/"),
-        api.get("/api/agents/all-trades/?limit=100"),
-        api.get("/api/agents/engine-logs/?limit=100"),
-        api.get("/api/agents/pnl-summary/"),
+        api.get("/api/broker/account"),
+        api.get("/api/broker/positions"),
+        api.get("/api/broker/orders"),
+        api.get("/api/agents/all-trades?limit=100"),
+        api.get("/api/agents/engine-logs?limit=100"),
+        api.get("/api/agents/pnl-summary"),
       ]);
       setAccount(acct.data);
       setPositions(pos.data);
@@ -229,7 +229,7 @@ export default function TradingPage() {
 
   // Fetch available data sources
   useEffect(() => {
-    api.get("/api/market-data/sources/").then((r) => setDataSources(r.data)).catch((e) => console.warn("fetch failed:", e?.message));
+    api.get("/api/market-data/sources").then((r) => setDataSources(r.data)).catch((e) => console.warn("fetch failed:", e?.message));
   }, []);
 
   useEffect(() => { fetchStatus(); }, [fetchStatus]);
