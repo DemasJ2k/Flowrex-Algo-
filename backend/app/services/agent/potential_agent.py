@@ -241,6 +241,12 @@ class PotentialAgent:
         if self.broker_name == "oanda":
             lot_size = max(1, int(round(lot_size)))
 
+        # Safety cap: never risk more than 5% of balance in a single trade
+        max_safe_lots = int(balance * 0.05 / max(sl_distance, 1))
+        if lot_size > max_safe_lots and max_safe_lots > 0:
+            self._log("warn", f"Lot size capped: {lot_size} → {max_safe_lots} (safety limit)")
+            lot_size = max_safe_lots
+
         # 9. Build signal dict
         hour_utc = datetime.now(timezone.utc).hour
         direction_str = "BUY" if signal.direction == 1 else "SELL"

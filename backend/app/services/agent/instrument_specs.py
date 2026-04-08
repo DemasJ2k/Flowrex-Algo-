@@ -15,19 +15,21 @@ class InstrumentSpec:
     contract_size: float = 1.0
 
 
-# Default specs — broker-specific overrides applied in calc_lot_size
+# Default specs — pip_value is per 1 Oanda unit for Oanda broker
+# Oanda: 1 unit of US30 = $1/point, 1 unit of NAS100 = $1/point,
+# 1 unit of XAUUSD = price of 1 oz, 1 unit BTCUSD = 1 BTC
 INSTRUMENT_SPECS: dict[str, InstrumentSpec] = {
-    "XAUUSD": InstrumentSpec("XAUUSD", pip_size=0.01, pip_value=1.0, min_lot=0.01, lot_step=0.01),
-    "XAGUSD": InstrumentSpec("XAGUSD", pip_size=0.001, pip_value=5.0, min_lot=0.01, lot_step=0.01),
-    "BTCUSD": InstrumentSpec("BTCUSD", pip_size=0.01, pip_value=0.01, min_lot=0.01, lot_step=0.01),
-    "ETHUSD": InstrumentSpec("ETHUSD", pip_size=0.01, pip_value=0.01, min_lot=0.01, lot_step=0.01),
-    "US30":   InstrumentSpec("US30", pip_size=1.0, pip_value=1.0, min_lot=0.01, lot_step=0.01),
-    "NAS100": InstrumentSpec("NAS100", pip_size=0.25, pip_value=0.25, min_lot=0.01, lot_step=0.01),
-    "SPX500": InstrumentSpec("SPX500", pip_size=0.25, pip_value=0.25, min_lot=0.01, lot_step=0.01),
-    "EURUSD": InstrumentSpec("EURUSD", pip_size=0.0001, pip_value=10.0, min_lot=0.01, lot_step=0.01),
-    "GBPUSD": InstrumentSpec("GBPUSD", pip_size=0.0001, pip_value=10.0, min_lot=0.01, lot_step=0.01),
-    "USDJPY": InstrumentSpec("USDJPY", pip_size=0.01, pip_value=6.7, min_lot=0.01, lot_step=0.01),
-    # Oanda uses unit-based sizing (1 unit = smallest tradeable amount)
+    "XAUUSD": InstrumentSpec("XAUUSD", pip_size=0.01, pip_value=1.0, min_lot=1, lot_step=1),
+    "XAGUSD": InstrumentSpec("XAGUSD", pip_size=0.001, pip_value=5.0, min_lot=1, lot_step=1),
+    "BTCUSD": InstrumentSpec("BTCUSD", pip_size=0.01, pip_value=1.0, min_lot=1, lot_step=1),
+    "ETHUSD": InstrumentSpec("ETHUSD", pip_size=0.01, pip_value=1.0, min_lot=1, lot_step=1),
+    "US30":   InstrumentSpec("US30", pip_size=1.0, pip_value=1.0, min_lot=1, lot_step=1),
+    "NAS100": InstrumentSpec("NAS100", pip_size=1.0, pip_value=1.0, min_lot=1, lot_step=1),
+    "SPX500": InstrumentSpec("SPX500", pip_size=0.1, pip_value=1.0, min_lot=1, lot_step=1),
+    "ES":     InstrumentSpec("ES", pip_size=0.1, pip_value=1.0, min_lot=1, lot_step=1),
+    "EURUSD": InstrumentSpec("EURUSD", pip_size=0.0001, pip_value=1.0, min_lot=1, lot_step=1),
+    "GBPUSD": InstrumentSpec("GBPUSD", pip_size=0.0001, pip_value=1.0, min_lot=1, lot_step=1),
+    "USDJPY": InstrumentSpec("USDJPY", pip_size=0.01, pip_value=1.0, min_lot=1, lot_step=1),
 }
 
 # Oanda requires specific decimal precision per instrument.
