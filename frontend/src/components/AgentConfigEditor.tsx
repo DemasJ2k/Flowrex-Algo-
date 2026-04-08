@@ -20,7 +20,9 @@ export default function AgentConfigEditor({
 }) {
   const cfg = (agent?.risk_config || {}) as Record<string, unknown>;
   const [name, setName] = useState(agent?.name || "");
+  const [sizingMode, setSizingMode] = useState((cfg.sizing_mode as string) || "risk_pct");
   const [riskPerTrade, setRiskPerTrade] = useState(((cfg.risk_per_trade as number) || 0.005) * 100);
+  const [maxLotSize, setMaxLotSize] = useState((cfg.max_lot_size as number) || 5);
   const [maxDailyLoss, setMaxDailyLoss] = useState(((cfg.max_daily_loss_pct as number) || 0.04) * 100);
   const [cooldown, setCooldown] = useState((cfg.cooldown_bars as number) || 3);
   const [mode, setMode] = useState(agent?.mode || "paper");
@@ -32,9 +34,12 @@ export default function AgentConfigEditor({
   // Reset state when agent changes
   if (agent && name !== agent.name && !loading) {
     setName(agent.name);
-    setRiskPerTrade((agent.risk_config?.risk_per_trade || 0.005) * 100);
-    setMaxDailyLoss((agent.risk_config?.max_daily_loss_pct || 0.04) * 100);
-    setCooldown(agent.risk_config?.cooldown_bars || 3);
+    const c = (agent.risk_config || {}) as Record<string, unknown>;
+    setSizingMode((c.sizing_mode as string) || "risk_pct");
+    setRiskPerTrade(((c.risk_per_trade as number) || 0.005) * 100);
+    setMaxLotSize((c.max_lot_size as number) || 5);
+    setMaxDailyLoss(((c.max_daily_loss_pct as number) || 0.04) * 100);
+    setCooldown((c.cooldown_bars as number) || 3);
     setMode(agent.mode);
   }
 
@@ -47,7 +52,9 @@ export default function AgentConfigEditor({
         name,
         mode,
         risk_config: {
+          sizing_mode: sizingMode,
           risk_per_trade: riskPerTrade / 100,
+          max_lot_size: maxLotSize,
           max_daily_loss_pct: maxDailyLoss / 100,
           cooldown_bars: cooldown,
           session_filter: sessionFilter,
@@ -75,14 +82,41 @@ export default function AgentConfigEditor({
             style={{ borderColor: "var(--border)" }} />
         </div>
 
-        <div className="grid grid-cols-2 gap-3">
-          <div>
-            <label className="block text-xs font-medium mb-1" style={{ color: "var(--muted)" }}>Risk per Trade (%)</label>
-            <input type="number" step="0.1" min="0.1" max="5" value={riskPerTrade.toFixed(1)}
-              onChange={(e) => setRiskPerTrade(parseFloat(e.target.value) || 0.5)}
-              className="w-full px-3 py-2 text-sm rounded-lg border bg-transparent outline-none focus:border-blue-500"
-              style={{ borderColor: "var(--border)" }} />
+        {/* Position Sizing Mode */}
+        <div>
+          <label className="block text-xs font-medium mb-1" style={{ color: "var(--muted)" }}>Position Sizing</label>
+          <div className="grid grid-cols-2 gap-2">
+            <button type="button" onClick={() => setSizingMode("risk_pct")}
+              className={`p-2 text-center rounded-lg border text-xs transition-colors ${sizingMode === "risk_pct" ? "border-blue-500 bg-blue-500/10" : "hover:bg-white/5"}`}
+              style={{ borderColor: sizingMode === "risk_pct" ? undefined : "var(--border)" }}>
+              Risk % of Balance
+            </button>
+            <button type="button" onClick={() => setSizingMode("max_lots")}
+              className={`p-2 text-center rounded-lg border text-xs transition-colors ${sizingMode === "max_lots" ? "border-blue-500 bg-blue-500/10" : "hover:bg-white/5"}`}
+              style={{ borderColor: sizingMode === "max_lots" ? undefined : "var(--border)" }}>
+              Max Lot Size
+            </button>
           </div>
+        </div>
+
+        <div className="grid grid-cols-2 gap-3">
+          {sizingMode === "risk_pct" ? (
+            <div>
+              <label className="block text-xs font-medium mb-1" style={{ color: "var(--muted)" }}>Risk per Trade (%)</label>
+              <input type="number" step="0.01" min="0.01" max="3" value={riskPerTrade.toFixed(2)}
+                onChange={(e) => setRiskPerTrade(parseFloat(e.target.value) || 0.5)}
+                className="w-full px-3 py-2 text-sm rounded-lg border bg-transparent outline-none focus:border-blue-500"
+                style={{ borderColor: "var(--border)" }} />
+            </div>
+          ) : (
+            <div>
+              <label className="block text-xs font-medium mb-1" style={{ color: "var(--muted)" }}>Max Lot Size</label>
+              <input type="number" step="1" min="1" max="100" value={maxLotSize}
+                onChange={(e) => setMaxLotSize(parseInt(e.target.value) || 5)}
+                className="w-full px-3 py-2 text-sm rounded-lg border bg-transparent outline-none focus:border-blue-500"
+                style={{ borderColor: "var(--border)" }} />
+            </div>
+          )}
           <div>
             <label className="block text-xs font-medium mb-1" style={{ color: "var(--muted)" }}>Max Daily Loss (%)</label>
             <input type="number" step="0.5" min="1" max="10" value={maxDailyLoss.toFixed(1)}
