@@ -233,19 +233,35 @@ class PotentialAgent:
         take_profit = round(take_profit, price_digits)
         entry_price = round(entry_price, price_digits)
 
-        # 8. Position sizing (1% risk)
-        risk_amount = balance * self.risk_config["risk_per_trade_pct"]
-        lot_size = calc_lot_size(self.symbol, risk_amount, sl_distance, self.broker_name)
+        # 8. Position sizing — two modes
+        sizing_mode = self.config.get("sizing_mode", "risk_pct")  # "risk_pct" or "max_lots"
+        max_lot_size = self.config.get("max_lot_size", 10)
 
-        # Oanda uses integer units — round to whole number
+        if sizing_mode == "max_lots":
+            # Mode 2: Max Lot Size — scale by confidence within user's cap
+            # Confidence range: 0.52 (threshold) to ~1.0
+            # Map to 20% → 100% of max lot size
+            conf = signal.confidence
+            conf_pct = min(1.0, max(0.2, (conf - 0.52) / (0.95 - 0.52)))
+            lot_size = max(1, int(round(max_lot_size * conf_pct)))
+        else:
+            # Mode 1: Risk % of Balance
+            risk_amount = balance * self.risk_config.get("risk_per_trade_pct", 0.01)
+            lot_size = calc_lot_size(self.symbol, risk_amount, sl_distance, self.broker_name)
+
+        # Oanda uses integer units
         if self.broker_name == "oanda":
             lot_size = max(1, int(round(lot_size)))
 
-        # Safety cap: never risk more than 5% of balance in a single trade
-        max_safe_lots = int(balance * 0.05 / max(sl_distance, 1))
-        if lot_size > max_safe_lots and max_safe_lots > 0:
-            self._log("warn", f"Lot size capped: {lot_size} → {max_safe_lots} (safety limit)")
-            lot_size = max_safe_lots
+        # Hard cap from user config
+        if max_lot_size and lot_size > max_lot_size:
+            lot_size = int(max_lot_size)
+
+        # Safety cap: never risk more than 5% of balance
+        max_safe = int(balance * 0.05 / max(sl_distance, 1))
+        if max_safe > 0 and lot_size > max_safe:
+            self._log("warn", f"Lot size capped: {lot_size} → {max_safe} (safety)")
+            lot_size = max_safe
 
         # 9. Build signal dict
         hour_utc = datetime.now(timezone.utc).hour

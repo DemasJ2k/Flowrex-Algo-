@@ -40,7 +40,9 @@ export default function AgentWizard({
   const [customName, setCustomName] = useState("");
   const [broker, setBroker] = useState(FALLBACK_BROKER);
   const [timeframe, setTimeframe] = useState("M5");
+  const [sizingMode, setSizingMode] = useState<"risk_pct" | "max_lots">("risk_pct");
   const [riskPerTrade, setRiskPerTrade] = useState(FALLBACK_RISK);
+  const [maxLotSize, setMaxLotSize] = useState(5);
   const [maxDailyLoss, setMaxDailyLoss] = useState(FALLBACK_LOSS);
   const [cooldownBars, setCooldownBars] = useState(FALLBACK_COOLDOWN);
   const [agentType, setAgentType] = useState("potential");
@@ -83,7 +85,9 @@ export default function AgentWizard({
         broker_name: broker,
         mode,
         risk_config: {
+          sizing_mode: sizingMode,
           risk_per_trade: riskPerTrade,
+          max_lot_size: maxLotSize,
           max_daily_loss_pct: maxDailyLoss / 100,
           cooldown_bars: cooldownBars,
           session_filter: sessionFilter,
@@ -173,44 +177,86 @@ export default function AgentWizard({
       {/* Step 2: Risk & Mode */}
       {step === 1 && (
         <div className="space-y-4">
+          {/* Sizing Mode Toggle */}
           <div>
-            <label className="block text-xs font-medium mb-2" style={{ color: "var(--muted)" }}>Risk per trade</label>
-            <div className="grid grid-cols-3 gap-2 mb-3">
-              {RISK_PRESETS.map((r) => (
-                <button key={r.value} onClick={() => setRiskPerTrade(r.value)}
-                  className={`p-2 text-center rounded-lg border transition-colors ${riskPerTrade === r.value ? "border-blue-500 bg-blue-500/10" : "hover:bg-white/5"}`}
-                  style={{ borderColor: riskPerTrade === r.value ? undefined : "var(--border)" }}>
-                  <span className="font-medium text-sm block">{r.label}</span>
-                  <span className="text-xs" style={{ color: "var(--muted)" }}>{r.desc}</span>
-                </button>
-              ))}
-            </div>
-            {/* Custom slider + input */}
-            <div className="flex items-center gap-3">
-              <input
-                type="range"
-                min="0.05" max="3" step="0.05"
-                value={riskPerTrade * 100}
-                onChange={(e) => setRiskPerTrade(parseFloat(e.target.value) / 100)}
-                className="flex-1 h-1.5 rounded-full appearance-none cursor-pointer"
-                style={{ background: `linear-gradient(to right, #8b5cf6 ${(riskPerTrade * 100 / 3) * 100}%, var(--border) ${(riskPerTrade * 100 / 3) * 100}%)` }}
-              />
-              <div className="flex items-center gap-1">
-                <input
-                  type="number"
-                  min="0.05" max="3" step="0.05"
-                  value={(riskPerTrade * 100).toFixed(2)}
-                  onChange={(e) => {
-                    const v = parseFloat(e.target.value);
-                    if (!isNaN(v) && v >= 0.05 && v <= 3) setRiskPerTrade(v / 100);
-                  }}
-                  className="w-16 px-2 py-1 text-sm text-center rounded-lg border bg-transparent outline-none focus:border-blue-500"
-                  style={{ borderColor: "var(--border)" }}
-                />
-                <span className="text-xs" style={{ color: "var(--muted)" }}>%</span>
-              </div>
+            <label className="block text-xs font-medium mb-2" style={{ color: "var(--muted)" }}>Position Sizing Mode</label>
+            <div className="grid grid-cols-2 gap-2">
+              <button onClick={() => setSizingMode("risk_pct")}
+                className={`p-2.5 text-center rounded-lg border transition-colors ${sizingMode === "risk_pct" ? "border-blue-500 bg-blue-500/10" : "hover:bg-white/5"}`}
+                style={{ borderColor: sizingMode === "risk_pct" ? undefined : "var(--border)" }}>
+                <p className="font-medium text-sm">Risk % of Balance</p>
+                <p className="text-xs" style={{ color: "var(--muted)" }}>Size based on risk tolerance</p>
+              </button>
+              <button onClick={() => setSizingMode("max_lots")}
+                className={`p-2.5 text-center rounded-lg border transition-colors ${sizingMode === "max_lots" ? "border-blue-500 bg-blue-500/10" : "hover:bg-white/5"}`}
+                style={{ borderColor: sizingMode === "max_lots" ? undefined : "var(--border)" }}>
+                <p className="font-medium text-sm">Max Lot Size</p>
+                <p className="text-xs" style={{ color: "var(--muted)" }}>Cap lots, scale by confidence</p>
+              </button>
             </div>
           </div>
+
+          {/* Risk % Mode */}
+          {sizingMode === "risk_pct" && (
+            <div>
+              <label className="block text-xs font-medium mb-2" style={{ color: "var(--muted)" }}>Risk per trade</label>
+              <div className="grid grid-cols-3 gap-2 mb-3">
+                {RISK_PRESETS.map((r) => (
+                  <button key={r.value} onClick={() => setRiskPerTrade(r.value)}
+                    className={`p-2 text-center rounded-lg border transition-colors ${riskPerTrade === r.value ? "border-blue-500 bg-blue-500/10" : "hover:bg-white/5"}`}
+                    style={{ borderColor: riskPerTrade === r.value ? undefined : "var(--border)" }}>
+                    <span className="font-medium text-sm block">{r.label}</span>
+                    <span className="text-xs" style={{ color: "var(--muted)" }}>{r.desc}</span>
+                  </button>
+                ))}
+              </div>
+              <div className="flex items-center gap-3">
+                <input type="range" min="0.05" max="3" step="0.05"
+                  value={riskPerTrade * 100}
+                  onChange={(e) => setRiskPerTrade(parseFloat(e.target.value) / 100)}
+                  className="flex-1 h-1.5 rounded-full appearance-none cursor-pointer"
+                  style={{ background: `linear-gradient(to right, #8b5cf6 ${(riskPerTrade * 100 / 3) * 100}%, var(--border) ${(riskPerTrade * 100 / 3) * 100}%)` }} />
+                <div className="flex items-center gap-1">
+                  <input type="number" min="0.05" max="3" step="0.05"
+                    value={(riskPerTrade * 100).toFixed(2)}
+                    onChange={(e) => { const v = parseFloat(e.target.value); if (!isNaN(v) && v >= 0.05 && v <= 3) setRiskPerTrade(v / 100); }}
+                    className="w-16 px-2 py-1 text-sm text-center rounded-lg border bg-transparent outline-none focus:border-blue-500"
+                    style={{ borderColor: "var(--border)" }} />
+                  <span className="text-xs" style={{ color: "var(--muted)" }}>%</span>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* Max Lots Mode */}
+          {sizingMode === "max_lots" && (
+            <div>
+              <label className="block text-xs font-medium mb-2" style={{ color: "var(--muted)" }}>Maximum Lot Size</label>
+              <p className="text-xs mb-3" style={{ color: "var(--muted)" }}>
+                Agent scales lots by confidence: low confidence → fewer lots, high confidence → up to max.
+              </p>
+              <div className="flex items-center gap-3">
+                <input type="range" min="1" max="100" step="1"
+                  value={maxLotSize}
+                  onChange={(e) => setMaxLotSize(parseInt(e.target.value))}
+                  className="flex-1 h-1.5 rounded-full appearance-none cursor-pointer"
+                  style={{ background: `linear-gradient(to right, #8b5cf6 ${maxLotSize}%, var(--border) ${maxLotSize}%)` }} />
+                <div className="flex items-center gap-1">
+                  <input type="number" min="1" max="100" step="1"
+                    value={maxLotSize}
+                    onChange={(e) => { const v = parseInt(e.target.value); if (!isNaN(v) && v >= 1 && v <= 100) setMaxLotSize(v); }}
+                    className="w-16 px-2 py-1 text-sm text-center rounded-lg border bg-transparent outline-none focus:border-blue-500"
+                    style={{ borderColor: "var(--border)" }} />
+                  <span className="text-xs" style={{ color: "var(--muted)" }}>lots</span>
+                </div>
+              </div>
+              <div className="grid grid-cols-3 gap-2 mt-3 text-xs text-center" style={{ color: "var(--muted)" }}>
+                <div className="p-1.5 rounded border" style={{ borderColor: "var(--border)" }}>Low conf (52%) → {Math.max(1, Math.round(maxLotSize * 0.2))} lots</div>
+                <div className="p-1.5 rounded border" style={{ borderColor: "var(--border)" }}>Med conf (70%) → {Math.max(1, Math.round(maxLotSize * 0.5))} lots</div>
+                <div className="p-1.5 rounded border" style={{ borderColor: "var(--border)" }}>High conf (90%+) → {maxLotSize} lots</div>
+              </div>
+            </div>
+          )}
           <div>
             <label className="block text-xs font-medium mb-2" style={{ color: "var(--muted)" }}>Trading Mode</label>
             <div className="grid grid-cols-2 gap-2">
