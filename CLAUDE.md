@@ -112,6 +112,7 @@ us30_primary_session: 13:30-15:30 UTC (cash open)
 | 14 | Multi-Symbol (BTCUSD + XAUUSD + ES + NAS100 training) | done |
 | 15 | UI Polish + News + Cleanup + Audit | done |
 | 16 | Beta Testers + Iteration | in progress |
+| 17 | Full Page Audit + Bug Fixes | done |
 
 ## Rules (ALWAYS follow these)
 1. **ALWAYS** read `ARCHITECTURE.md` (in `VPrompt/`) before starting any phase.

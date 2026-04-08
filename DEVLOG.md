@@ -4,6 +4,37 @@ _Chronological record of all changes. Read this before starting any task._
 
 ---
 
+## 2026-04-08 — Full 11-Page Audit Complete
+
+### Audit Scope
+Audited all 11 pages + every tab within each page. 146 findings total:
+- 41 bugs, 44 missing features, 6 dead code, 38 UX issues, 17 data accuracy concerns
+
+### Critical Fixes Applied
+1. **Settings toggle mismatch**: News Filter was modifying `use_correlations` instead of `trading.news_filter_enabled`. Session Filter was modifying `use_m15_features` instead of `trading.session_filter`. Fixed both.
+2. **Admin: no access request UI**: Backend had approve/reject endpoints but no frontend. Added Access Requests table with approve/reject buttons + Feedback review table.
+3. **Backtest polling race**: Results missed when status transitions to false before results populate. Added results-first check + 3-cycle grace period.
+4. **Delete without confirmation**: Invite code revocation now requires inline "Yes/No" confirmation.
+
+### All Other Fixes
+- Silent `.catch(() => {})` → `console.warn` across 25+ instances (6 files)
+- Landing page: performance disclaimer added
+- Equity curve: starts from zero baseline
+- Chart: immediate fetch on symbol/timeframe change (no 5s delay)
+- Register: "Request access" link for users without invite code
+- SL/TP: proper null checks (value=0 no longer renders as dash)
+- AgentConfigEditor: filters visible for ALL agent types (was expert-only)
+- Password strength: checks uppercase, numbers, special chars (not just length)
+- News page: last updated timestamp shown
+- Backtest: results persistence hint
+
+### Remaining (deferred, non-blocking)
+- 2FA verification page (login works, 2FA setup works, but no verify UI)
+- Forgot password flow
+- Backtest results persistence to DB (currently in-memory)
+
+---
+
 ## 2026-04-08 — Critical Trading Bugs Fixed
 
 ### Phantom Trades

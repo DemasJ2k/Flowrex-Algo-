@@ -636,3 +636,56 @@ _Updated at the end of each phase. Read this to understand what has been built._
 - Onboard 2 beta testers (FLOWREX-BETA-001, FLOWREX-BETA-002)
 - cTrader OAuth (waiting on Spotware approval)
 - Trade count filter (reduce trades/day for prop firm compliance)
+
+---
+
+## Phase 17: Full Page Audit + Bug Fixes (2026-04-08)
+**Status:** Complete — 146 findings, all critical/high fixed
+
+### Audit Coverage (11 pages, every tab)
+| Page | Bugs | Missing | Dead | UX | Data |
+|------|------|---------|------|-----|------|
+| Landing | 3 | 3 | 0 | 3 | 2 |
+| Login | 2 | 5 | 0 | 1 | 0 |
+| Register | 1 | 4 | 0 | 1 | 0 |
+| Dashboard | 3 | 2 | 0 | 4 | 2 |
+| Trading | 5 | 4 | 0 | 3 | 2 |
+| Agents | 3 | 2 | 0 | 3 | 0 |
+| Models | 5 | 4 | 2 | 3 | 3 |
+| Backtest | 6 | 5 | 0 | 5 | 3 |
+| News | 4 | 4 | 1 | 4 | 3 |
+| Settings | 5 | 6 | 2 | 6 | 0 |
+| Admin | 4 | 5 | 1 | 5 | 2 |
+
+### Critical Fixes
+- Settings: toggle state mismatch (News Filter → trading.news_filter_enabled)
+- Admin: access request approve/reject UI + feedback review table
+- Backtest: polling race condition + grace period
+- Admin: delete confirmation for invite revocation
+- Phantom trades: only record in DB after broker confirms
+- Position sizing: all Oanda pip_values=1.0 + safety lot cap
+- Agent startup: error handling (was crashing silently)
+- Config alignment: PotentialAgent reads wizard config (was hardcoded)
+
+### Other Fixes (15+)
+- Silent error handling → console.warn across 25+ instances
+- Landing page performance disclaimer
+- Equity curve zero baseline
+- Chart immediate fetch on change
+- Register "Request access" link
+- SL/TP null-safe rendering
+- Agent filters visible for all types
+- Password strength (uppercase, numbers, special chars)
+- News last updated timestamp
+- Backtest results persistence hint
+
+### Files Modified (20+)
+- All 11 frontend pages
+- AgentDetailModal, AgentConfigEditor, AgentWizard, LandingPage, ProfileDropdown
+- engine.py, potential_agent.py, instrument_specs.py, backtest.py
+- settings/page.tsx, admin/page.tsx, news/page.tsx
+
+### Deferred (non-blocking)
+- 2FA verification page
+- Forgot password flow
+- Backtest results persistence to DB
