@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState, useCallback, useRef } from "react";
+import { useEffect, useState, useCallback } from "react";
 import api from "@/lib/api";
 import Card from "@/components/ui/Card";
 import Tabs from "@/components/ui/Tabs";
