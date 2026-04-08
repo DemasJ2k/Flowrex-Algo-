@@ -58,7 +58,12 @@ class OandaAdapter(BrokerAdapter):
         async with self._semaphore:
             try:
                 resp = await self._client.request(method, path, **kwargs)
-                data = resp.json()
+                if not resp.text or not resp.text.strip():
+                    raise BrokerError(f"Oanda returned empty response for {method} {path}")
+                try:
+                    data = resp.json()
+                except Exception:
+                    raise BrokerError(f"Oanda returned non-JSON: {resp.text[:200]}")
                 if resp.status_code >= 400:
                     msg = data.get("errorMessage", str(data))
                     raise BrokerError(f"Oanda API error: {msg}", code=str(resp.status_code))
