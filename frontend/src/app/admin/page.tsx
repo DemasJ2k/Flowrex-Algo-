@@ -7,24 +7,31 @@ import StatusBadge from "@/components/ui/StatusBadge";
 import DataTable, { Column } from "@/components/ui/DataTable";
 import { toast } from "sonner";
 import { getErrorMessage } from "@/lib/errors";
-import { Loader2, Copy, Plus, Shield, Users } from "lucide-react";
+import { Loader2, Copy, Plus, Shield, Users, CheckCircle, XCircle, MessageSquare, Inbox } from "lucide-react";
 
 interface InviteCode { id: number; code: string; is_active: boolean; max_uses: number; use_count: number; status: string; created_at: string; }
 interface AdminUser { id: number; email: string; is_admin: boolean; created_at: string; }
 interface SystemHealth { database: string; running_agents: number[]; websocket_connections: number; }
+interface AccessRequest { id: number; name: string; email: string; phone: string | null; message: string | null; status: string; created_at: string; }
+interface FeedbackItem { id: number; user_id: number | null; type: string; message: string; status: string; created_at: string; }
 
 export default function AdminPage() {
   const [invites, setInvites] = useState<InviteCode[]>([]);
   const [users, setUsers] = useState<AdminUser[]>([]);
   const [system, setSystem] = useState<SystemHealth | null>(null);
+  const [accessRequests, setAccessRequests] = useState<AccessRequest[]>([]);
+  const [feedback, setFeedback] = useState<FeedbackItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [generating, setGenerating] = useState(false);
+  const [revokeConfirm, setRevokeConfirm] = useState<number | null>(null);
 
   const fetchData = () => {
     Promise.all([
       api.get("/api/admin/invites").then((r) => setInvites(r.data)).catch(() => {}),
       api.get("/api/admin/users").then((r) => setUsers(r.data)).catch(() => {}),
       api.get("/api/admin/system").then((r) => setSystem(r.data)).catch(() => {}),
+      api.get("/api/admin/access-requests").then((r) => setAccessRequests(r.data)).catch(() => {}),
+      api.get("/api/admin/feedback").then((r) => setFeedback(r.data)).catch(() => {}),
     ]).finally(() => setLoading(false));
   };
   useEffect(() => { fetchData(); }, []);
@@ -48,6 +55,23 @@ export default function AdminPage() {
     try {
       await api.delete("/api/admin/invites/" + id);
       toast.success("Invite revoked");
+      setRevokeConfirm(null);
+      fetchData();
+    } catch (e: unknown) { toast.error(getErrorMessage(e)); }
+  };
+
+  const handleApproveRequest = async (id: number) => {
+    try {
+      await api.post("/api/admin/access-requests/" + id + "/approve");
+      toast.success("Access request approved");
+      fetchData();
+    } catch (e: unknown) { toast.error(getErrorMessage(e)); }
+  };
+
+  const handleRejectRequest = async (id: number) => {
+    try {
+      await api.post("/api/admin/access-requests/" + id + "/reject");
+      toast.success("Access request rejected");
       fetchData();
     } catch (e: unknown) { toast.error(getErrorMessage(e)); }
   };
@@ -62,7 +86,15 @@ export default function AdminPage() {
     { header: "Uses", key: "use_count", render: (r) => r.use_count + "/" + r.max_uses },
     { header: "Created", key: "created_at", render: (r) => r.created_at ? new Date(r.created_at).toLocaleDateString() : "" },
     { header: "", key: "action", sortable: false, render: (r) => r.status === "active" ? (
-      <button onClick={() => handleRevoke(r.id)} className="text-xs text-red-400 hover:text-red-300">Revoke</button>
+      revokeConfirm === r.id ? (
+        <span className="flex items-center gap-1">
+          <span className="text-xs text-yellow-400">Revoke?</span>
+          <button onClick={() => handleRevoke(r.id)} className="text-xs text-red-400 hover:text-red-300 font-medium">Yes</button>
+          <button onClick={() => setRevokeConfirm(null)} className="text-xs hover:text-white" style={{ color: "var(--muted)" }}>No</button>
+        </span>
+      ) : (
+        <button onClick={() => setRevokeConfirm(r.id)} className="text-xs text-red-400 hover:text-red-300">Revoke</button>
+      )
     ) : null },
   ];
 
@@ -114,6 +146,83 @@ export default function AdminPage() {
             </div>
           ))}
         </div>
+      </Card>
+
+      {/* Access Requests */}
+      <Card>
+        <h2 className="text-sm font-medium mb-3 flex items-center gap-2"><Inbox size={16} /> Access Requests</h2>
+        {accessRequests.length === 0 ? (
+          <p className="text-xs" style={{ color: "var(--muted)" }}>No access requests</p>
+        ) : (
+          <div className="overflow-x-auto">
+            <table className="w-full text-xs">
+              <thead>
+                <tr className="border-b" style={{ borderColor: "var(--border)" }}>
+                  <th className="text-left py-2 px-2 font-medium" style={{ color: "var(--muted)" }}>Name</th>
+                  <th className="text-left py-2 px-2 font-medium" style={{ color: "var(--muted)" }}>Email</th>
+                  <th className="text-left py-2 px-2 font-medium" style={{ color: "var(--muted)" }}>Phone</th>
+                  <th className="text-left py-2 px-2 font-medium" style={{ color: "var(--muted)" }}>Message</th>
+                  <th className="text-left py-2 px-2 font-medium" style={{ color: "var(--muted)" }}>Status</th>
+                  <th className="text-left py-2 px-2 font-medium" style={{ color: "var(--muted)" }}>Date</th>
+                  <th className="text-right py-2 px-2 font-medium" style={{ color: "var(--muted)" }}>Actions</th>
+                </tr>
+              </thead>
+              <tbody>
+                {accessRequests.map((r) => (
+                  <tr key={r.id} className="border-b" style={{ borderColor: "var(--border)" }}>
+                    <td className="py-2 px-2">{r.name}</td>
+                    <td className="py-2 px-2">{r.email}</td>
+                    <td className="py-2 px-2">{r.phone || "\u2014"}</td>
+                    <td className="py-2 px-2 max-w-[200px] truncate" title={r.message || ""}>{r.message || "\u2014"}</td>
+                    <td className="py-2 px-2"><StatusBadge value={r.status} /></td>
+                    <td className="py-2 px-2">{r.created_at ? new Date(r.created_at).toLocaleDateString() : ""}</td>
+                    <td className="py-2 px-2 text-right">
+                      {r.status === "pending" ? (
+                        <span className="flex items-center justify-end gap-2">
+                          <button onClick={() => handleApproveRequest(r.id)} className="flex items-center gap-1 text-emerald-400 hover:text-emerald-300"><CheckCircle size={12} /> Approve</button>
+                          <button onClick={() => handleRejectRequest(r.id)} className="flex items-center gap-1 text-red-400 hover:text-red-300"><XCircle size={12} /> Reject</button>
+                        </span>
+                      ) : null}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </Card>
+
+      {/* Feedback */}
+      <Card>
+        <h2 className="text-sm font-medium mb-3 flex items-center gap-2"><MessageSquare size={16} /> Feedback</h2>
+        {feedback.length === 0 ? (
+          <p className="text-xs" style={{ color: "var(--muted)" }}>No feedback reports</p>
+        ) : (
+          <div className="overflow-x-auto">
+            <table className="w-full text-xs">
+              <thead>
+                <tr className="border-b" style={{ borderColor: "var(--border)" }}>
+                  <th className="text-left py-2 px-2 font-medium" style={{ color: "var(--muted)" }}>User ID</th>
+                  <th className="text-left py-2 px-2 font-medium" style={{ color: "var(--muted)" }}>Type</th>
+                  <th className="text-left py-2 px-2 font-medium" style={{ color: "var(--muted)" }}>Message</th>
+                  <th className="text-left py-2 px-2 font-medium" style={{ color: "var(--muted)" }}>Status</th>
+                  <th className="text-left py-2 px-2 font-medium" style={{ color: "var(--muted)" }}>Date</th>
+                </tr>
+              </thead>
+              <tbody>
+                {feedback.map((f) => (
+                  <tr key={f.id} className="border-b" style={{ borderColor: "var(--border)" }}>
+                    <td className="py-2 px-2">{f.user_id ?? "Public"}</td>
+                    <td className="py-2 px-2"><StatusBadge value={f.type} /></td>
+                    <td className="py-2 px-2 max-w-[300px] truncate" title={f.message}>{f.message}</td>
+                    <td className="py-2 px-2"><StatusBadge value={f.status} /></td>
+                    <td className="py-2 px-2">{f.created_at ? new Date(f.created_at).toLocaleDateString() : ""}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
       </Card>
     </div>
   );

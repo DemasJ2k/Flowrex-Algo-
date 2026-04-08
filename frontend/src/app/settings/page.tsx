@@ -15,11 +15,11 @@ import { Download, Shield, ShieldCheck, Key, Eye, EyeOff, Trash2, Loader2, Datab
 interface UserProfile { id: number; email: string; is_admin: boolean; created_at: string | null; has_2fa: boolean; }
 interface BrokerConnection { broker_name: string; stored: boolean; is_active: boolean; connected: boolean; balance: number | null; currency: string | null; account_id: string | null; server: string | null; connected_since: number | null; }
 
-interface TradingDefaults { risk_per_trade: number; max_daily_loss_pct: number; max_positions: number; cooldown_bars: number; }
+interface TradingDefaults { risk_per_trade: number; max_daily_loss_pct: number; max_positions: number; cooldown_bars: number; news_filter_enabled: boolean; session_filter: boolean; }
 interface ApiKeys { finnhub: string; alphavantage: string; newsapi: string; }
 interface ModelFeatureToggles { use_correlations: boolean; use_m15_features: boolean; use_external_macro: boolean; }
 
-const DEFAULT_TRADING: TradingDefaults = { risk_per_trade: 0.01, max_daily_loss_pct: 0.03, max_positions: 4, cooldown_bars: 3 };
+const DEFAULT_TRADING: TradingDefaults = { risk_per_trade: 0.01, max_daily_loss_pct: 0.03, max_positions: 4, cooldown_bars: 3, news_filter_enabled: true, session_filter: true };
 const DEFAULT_FEATURES: ModelFeatureToggles = { use_correlations: true, use_m15_features: true, use_external_macro: false };
 const DEFAULT_KEYS: ApiKeys = { finnhub: "", alphavantage: "", newsapi: "" };
 
@@ -396,13 +396,17 @@ export default function SettingsPage() {
                     </div>
                     <button
                       onClick={() => {
-                        const updated = { ...modelFeatures, use_correlations: !modelFeatures.use_correlations };
-                        setModelFeatures(updated);
-                        handleSaveModelFeatures(updated);
+                        const updated = { ...trading, news_filter_enabled: !trading.news_filter_enabled };
+                        setTrading(updated);
+                        const merged_json = { ...(settings.settings_json || {}), trading: updated };
+                        api.put("/api/settings/", { settings_json: merged_json }).then(() => {
+                          setSettings((s) => ({ ...s, settings_json: merged_json }));
+                          toast.success("News filter " + (!trading.news_filter_enabled ? "enabled" : "disabled"));
+                        }).catch((e: unknown) => toast.error(getErrorMessage(e)));
                       }}
-                      className={`flex-shrink-0 relative inline-flex h-6 w-11 items-center rounded-full transition-colors ${modelFeatures.use_correlations ? "bg-blue-600" : "bg-white/10"}`}
+                      className={`flex-shrink-0 relative inline-flex h-6 w-11 items-center rounded-full transition-colors ${trading.news_filter_enabled ? "bg-blue-600" : "bg-white/10"}`}
                     >
-                      <span className={`inline-block h-4 w-4 transform rounded-full bg-white shadow transition-transform ${modelFeatures.use_correlations ? "translate-x-6" : "translate-x-1"}`} />
+                      <span className={`inline-block h-4 w-4 transform rounded-full bg-white shadow transition-transform ${trading.news_filter_enabled ? "translate-x-6" : "translate-x-1"}`} />
                     </button>
                   </div>
 
@@ -417,13 +421,17 @@ export default function SettingsPage() {
                     </div>
                     <button
                       onClick={() => {
-                        const updated = { ...modelFeatures, use_m15_features: !modelFeatures.use_m15_features };
-                        setModelFeatures(updated);
-                        handleSaveModelFeatures(updated);
+                        const updated = { ...trading, session_filter: !trading.session_filter };
+                        setTrading(updated);
+                        const merged_json = { ...(settings.settings_json || {}), trading: updated };
+                        api.put("/api/settings/", { settings_json: merged_json }).then(() => {
+                          setSettings((s) => ({ ...s, settings_json: merged_json }));
+                          toast.success("Session filter " + (!trading.session_filter ? "enabled" : "disabled"));
+                        }).catch((e: unknown) => toast.error(getErrorMessage(e)));
                       }}
-                      className={`flex-shrink-0 relative inline-flex h-6 w-11 items-center rounded-full transition-colors ${modelFeatures.use_m15_features ? "bg-blue-600" : "bg-white/10"}`}
+                      className={`flex-shrink-0 relative inline-flex h-6 w-11 items-center rounded-full transition-colors ${trading.session_filter ? "bg-blue-600" : "bg-white/10"}`}
                     >
-                      <span className={`inline-block h-4 w-4 transform rounded-full bg-white shadow transition-transform ${modelFeatures.use_m15_features ? "translate-x-6" : "translate-x-1"}`} />
+                      <span className={`inline-block h-4 w-4 transform rounded-full bg-white shadow transition-transform ${trading.session_filter ? "translate-x-6" : "translate-x-1"}`} />
                     </button>
                   </div>
 

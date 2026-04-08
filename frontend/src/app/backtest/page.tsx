@@ -115,13 +115,15 @@ export default function BacktestPage() {
       });
       toast.success("Backtest started for " + symbol);
 
+      let graceCycles = 0;
       const poll = setInterval(async () => {
         try {
           const res = await api.get("/api/backtest/potential/status");
           const status = res.data.running;
           if (status.progress) setProgress(status.progress);
 
-          if (!status.active && res.data.results[symbol]) {
+          // Check for results first (primary condition)
+          if (res.data.results[symbol]) {
             clearInterval(poll);
             const r = res.data.results[symbol];
             if (r.error) {
@@ -132,6 +134,15 @@ export default function BacktestPage() {
             }
             setLoading(false);
             setProgress("");
+          } else if (!status.active) {
+            // Active is false but no results yet — allow grace cycles
+            graceCycles++;
+            if (graceCycles >= 3) {
+              clearInterval(poll);
+              toast.error("Backtest finished but no results were returned");
+              setLoading(false);
+              setProgress("");
+            }
           }
         } catch {
           /* keep polling */
