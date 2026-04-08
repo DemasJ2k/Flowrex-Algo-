@@ -24,6 +24,15 @@ export default function AdminPage() {
   const [loading, setLoading] = useState(true);
   const [generating, setGenerating] = useState(false);
   const [revokeConfirm, setRevokeConfirm] = useState<number | null>(null);
+  const [isAdmin, setIsAdmin] = useState<boolean | null>(null);
+
+  // Check admin status first
+  useEffect(() => {
+    api.get("/api/auth/me").then((r) => {
+      setIsAdmin(r.data?.is_admin || false);
+      if (!r.data?.is_admin) window.location.href = "/";
+    }).catch(() => { window.location.href = "/login"; });
+  }, []);
 
   const fetchData = () => {
     Promise.all([
@@ -34,7 +43,7 @@ export default function AdminPage() {
       api.get("/api/admin/feedback").then((r) => setFeedback(r.data)).catch((e) => console.warn("fetch failed:", e?.message)),
     ]).finally(() => setLoading(false));
   };
-  useEffect(() => { fetchData(); }, []);
+  useEffect(() => { if (isAdmin) fetchData(); }, [isAdmin]);
 
   const handleGenerate = async (count: number = 5) => {
     setGenerating(true);

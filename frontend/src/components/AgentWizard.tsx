@@ -67,7 +67,8 @@ export default function AgentWizard({
 
   const reset = () => {
     setStep(0); setSymbol("XAUUSD"); setCustomName(""); setBroker(FALLBACK_BROKER);
-    setTimeframe("M5"); setAgentType("potential"); setRiskPerTrade(FALLBACK_RISK);
+    setTimeframe("M5"); setAgentType("potential"); setSizingMode("risk_pct");
+    setRiskPerTrade(FALLBACK_RISK); setMaxLotSize(5);
     setMaxDailyLoss(FALLBACK_LOSS); setCooldownBars(FALLBACK_COOLDOWN); setMode("paper");
     setSessionFilter(true); setRegimeFilter(true); setNewsFilter(true);
   };
