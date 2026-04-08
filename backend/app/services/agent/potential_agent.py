@@ -174,16 +174,21 @@ class PotentialAgent:
         if broker_adapter:
             await self._refresh_htf_context(broker_adapter)
 
-        # 5. Compute features
-        import pandas as pd
+        # 5. Compute features (with caching to avoid redundant recomputation)
         from app.services.ml.features_potential import compute_potential_features
 
-        m5_df = pd.DataFrame(m5_bars)
-        h1_df = pd.DataFrame(self._h1_bars) if self._h1_bars else None
-        h4_df = pd.DataFrame(self._h4_bars) if self._h4_bars else None
-        d1_df = pd.DataFrame(self._d1_bars) if self._d1_bars else None
-
-        feat_names, X = compute_potential_features(m5_df, h1_df, h4_df, d1_df, symbol=self.symbol)
+        cache_key = (m5_bars[-1]["time"], len(m5_bars))
+        if self._feature_cache_key == cache_key and self._feature_cache_result is not None:
+            feat_names, X = self._feature_cache_result
+        else:
+            import pandas as pd
+            m5_df = pd.DataFrame(m5_bars)
+            h1_df = pd.DataFrame(self._h1_bars) if self._h1_bars else None
+            h4_df = pd.DataFrame(self._h4_bars) if self._h4_bars else None
+            d1_df = pd.DataFrame(self._d1_bars) if self._d1_bars else None
+            feat_names, X = compute_potential_features(m5_df, h1_df, h4_df, d1_df, symbol=self.symbol)
+            self._feature_cache_key = cache_key
+            self._feature_cache_result = (feat_names, X)
 
         if X.shape[0] == 0:
             self._log_reject("Empty feature matrix")

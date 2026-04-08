@@ -1,5 +1,6 @@
 """Backtest API endpoints — with transaction cost configuration."""
 import os, traceback
+from datetime import datetime, timezone
 from fastapi import APIRouter, Depends, BackgroundTasks, HTTPException
 from pydantic import BaseModel
 from typing import Optional
@@ -7,9 +8,12 @@ from dataclasses import asdict
 import numpy as np
 import pandas as pd
 import joblib
+from sqlalchemy.orm import Session
 
 from app.core.auth import get_current_user
+from app.core.database import get_db, SessionLocal
 from app.models.user import User
+from app.models.backtest import BacktestResult
 from app.services.backtest.engine import BacktestEngine
 
 router = APIRouter(prefix="/api/backtest", tags=["backtest"])
@@ -181,7 +185,7 @@ def _load_tf(symbol: str, tf: str) -> Optional[pd.DataFrame]:
     return None
 
 
-def _run_potential_backtest(body: PotentialBacktestRequest):
+def _run_potential_backtest(body: PotentialBacktestRequest, result_id: int = None):
     """Background worker for Potential Agent backtest."""
     try:
         from app.services.ml.features_potential import compute_potential_features
@@ -204,7 +208,10 @@ def _run_potential_backtest(body: PotentialBacktestRequest):
                     adapter = adp
                     break
                 if adapter is None:
-                    _potential_results[symbol] = {"error": "No broker connected. Connect Oanda in Settings first."}
+                    err = "No broker connected. Connect Oanda in Settings first."
+                    _potential_results[symbol] = {"error": err}
+                    if result_id:
+                        _update_backtest_record(result_id, status="error", error_message=err)
                     return
 
                 # Fetch M5 candles (max 5000 from Oanda)
@@ -223,11 +230,17 @@ def _run_potential_backtest(body: PotentialBacktestRequest):
                 d1 = pd.DataFrame([asdict(c) for c in candles_d1]) if candles_d1 else None
 
                 if m5.empty or len(m5) < 300:
-                    _potential_results[symbol] = {"error": f"Broker returned only {len(m5)} M5 bars (need 300+)"}
+                    err = f"Broker returned only {len(m5)} M5 bars (need 300+)"
+                    _potential_results[symbol] = {"error": err}
+                    if result_id:
+                        _update_backtest_record(result_id, status="error", error_message=err)
                     return
 
             except Exception as e:
-                _potential_results[symbol] = {"error": f"Broker data fetch failed: {e}"}
+                err = f"Broker data fetch failed: {e}"
+                _potential_results[symbol] = {"error": err}
+                if result_id:
+                    _update_backtest_record(result_id, status="error", error_message=err)
                 return
         else:
             # History data from CSV files
@@ -236,7 +249,10 @@ def _run_potential_backtest(body: PotentialBacktestRequest):
             h4 = _load_tf(symbol, "H4")
             d1 = _load_tf(symbol, "D1")
             if m5 is None:
-                _potential_results[symbol] = {"error": f"No M5 data for {symbol}"}
+                err = f"No M5 data for {symbol}"
+                _potential_results[symbol] = {"error": err}
+                if result_id:
+                    _update_backtest_record(result_id, status="error", error_message=err)
                 return
 
             # Cap rows for memory
@@ -293,7 +309,10 @@ def _run_potential_backtest(body: PotentialBacktestRequest):
                 models[mtype] = {"model": data["model"], "grade": data.get("grade", "?")}
 
         if not models:
-            _potential_results[symbol] = {"error": f"No trained model found for {symbol}"}
+            err = f"No trained model found for {symbol}"
+            _potential_results[symbol] = {"error": err}
+            if result_id:
+                _update_backtest_record(result_id, status="error", error_message=err)
             return
 
         model_name = "xgboost" if "xgboost" in models else list(models.keys())[0]
@@ -431,7 +450,10 @@ def _run_potential_backtest(body: PotentialBacktestRequest):
         _potential_status["progress"] = "computing results"
         n_trades = len(trades)
         if n_trades == 0:
-            _potential_results[symbol] = {"error": "No trades in selected period", "total_trades": 0}
+            err = "No trades in selected period"
+            _potential_results[symbol] = {"error": err, "total_trades": 0}
+            if result_id:
+                _update_backtest_record(result_id, status="error", error_message=err)
             return
 
         pnls = [t["dollar_pnl"] for t in trades]
@@ -492,7 +514,7 @@ def _run_potential_backtest(body: PotentialBacktestRequest):
             step = len(eq_points) // 300
             eq_points = eq_points[::step] + [eq_points[-1]]
 
-        _potential_results[symbol] = {
+        result_data = {
             "symbol": symbol,
             "model": model_name,
             "grade": model_grade,
@@ -527,12 +549,40 @@ def _run_potential_backtest(body: PotentialBacktestRequest):
                 for t in trades[-50:]
             ],
         }
+        _potential_results[symbol] = result_data
+
+        # Persist to DB
+        if result_id:
+            _update_backtest_record(result_id, status="completed", results=result_data)
+
     except Exception as e:
         traceback.print_exc()
-        _potential_results[body.symbol] = {"error": str(e)}
+        error_msg = str(e)
+        _potential_results[body.symbol] = {"error": error_msg}
+        if result_id:
+            _update_backtest_record(result_id, status="error", error_message=error_msg)
     finally:
         _potential_status["active"] = False
         _potential_status["progress"] = "done"
+
+
+def _update_backtest_record(result_id: int, status: str, results: dict = None, error_message: str = None):
+    """Update a BacktestResult record in a new DB session (safe for background tasks)."""
+    db = SessionLocal()
+    try:
+        record = db.query(BacktestResult).filter(BacktestResult.id == result_id).first()
+        if record:
+            record.status = status
+            record.completed_at = datetime.now(timezone.utc)
+            if results is not None:
+                record.results = results
+            if error_message is not None:
+                record.error_message = error_message[:500]
+            db.commit()
+    except Exception:
+        db.rollback()
+    finally:
+        db.close()
 
 
 @router.post("/potential")
@@ -540,6 +590,7 @@ def run_potential_backtest(
     body: PotentialBacktestRequest,
     background_tasks: BackgroundTasks,
     current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
 ):
     if _potential_status["active"]:
         return {"status": "busy", "message": f"Potential backtest running for {_potential_status['symbol']}"}
@@ -548,19 +599,78 @@ def run_potential_backtest(
     if body.symbol not in valid_symbols:
         raise HTTPException(status_code=400, detail=f"Symbol must be one of: {valid_symbols}")
 
+    # Create DB record before starting background task
+    bt_record = BacktestResult(
+        user_id=current_user.id,
+        symbol=body.symbol,
+        agent_type="potential",
+        config={
+            "start_date": body.start_date,
+            "end_date": body.end_date,
+            "balance": body.balance,
+            "max_lot": body.max_lot,
+            "risk_pct": body.risk_pct,
+            "data_source": body.data_source,
+        },
+        status="running",
+    )
+    db.add(bt_record)
+    db.commit()
+    db.refresh(bt_record)
+    result_id = bt_record.id
+
     _potential_status.update({"active": True, "symbol": body.symbol, "progress": "starting"})
 
-    background_tasks.add_task(_run_potential_backtest, body)
-    return {"status": "started", "symbol": body.symbol}
+    background_tasks.add_task(_run_potential_backtest, body, result_id)
+    return {"status": "started", "symbol": body.symbol, "result_id": result_id}
 
 
 @router.get("/potential/status")
-def potential_status(current_user: User = Depends(get_current_user)):
-    return {"running": _potential_status, "results": _potential_results}
+def potential_status(
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    # Check DB for the latest running backtest for this user
+    latest = db.query(BacktestResult).filter(
+        BacktestResult.user_id == current_user.id,
+        BacktestResult.agent_type == "potential",
+    ).order_by(BacktestResult.created_at.desc()).first()
+
+    db_info = None
+    if latest:
+        db_info = {
+            "id": latest.id,
+            "symbol": latest.symbol,
+            "status": latest.status,
+            "config": latest.config,
+            "created_at": latest.created_at.isoformat() if latest.created_at else None,
+            "completed_at": latest.completed_at.isoformat() if latest.completed_at else None,
+            "results": latest.results if latest.status == "completed" else None,
+            "error_message": latest.error_message,
+        }
+
+    return {"running": _potential_status, "results": _potential_results, "latest_db": db_info}
 
 
 @router.get("/potential/results/{symbol}")
-def potential_result(symbol: str, current_user: User = Depends(get_current_user)):
-    if symbol not in _potential_results:
-        raise HTTPException(status_code=404, detail="No potential backtest result for this symbol")
-    return _potential_results[symbol]
+def potential_result(
+    symbol: str,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    # First check in-memory cache
+    if symbol in _potential_results:
+        return _potential_results[symbol]
+
+    # Fall back to DB for latest completed backtest for this user + symbol
+    latest = db.query(BacktestResult).filter(
+        BacktestResult.user_id == current_user.id,
+        BacktestResult.symbol == symbol,
+        BacktestResult.agent_type == "potential",
+        BacktestResult.status == "completed",
+    ).order_by(BacktestResult.created_at.desc()).first()
+
+    if latest and latest.results:
+        return latest.results
+
+    raise HTTPException(status_code=404, detail="No potential backtest result for this symbol")
