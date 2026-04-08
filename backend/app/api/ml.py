@@ -1,6 +1,8 @@
 from fastapi import APIRouter, Depends, HTTPException, BackgroundTasks, Query
 from sqlalchemy.orm import Session
 from typing import Optional
+import os
+import glob as glob_mod
 
 from app.core.database import get_db
 from app.core.auth import get_current_user
@@ -12,6 +14,9 @@ from app.schemas.ml import (
 )
 
 router = APIRouter(prefix="/api/ml", tags=["ml"])
+
+# Path to model files
+_MODEL_DIR = os.path.join(os.path.dirname(__file__), "..", "..", "data", "ml_models")
 
 # Simple in-memory training status tracker
 _training_status: dict = {"active": False, "symbol": None, "pipeline": None, "progress": ""}
@@ -37,6 +42,139 @@ def get_model(
     if not model:
         raise HTTPException(status_code=404, detail="Model not found")
     return model
+
+
+# ── Potential Agent v2 Model Metadata ────────────────────────────────────
+
+# Asset class lookup
+_ASSET_CLASS = {
+    "BTCUSD": "Crypto",
+    "XAUUSD": "Commodities",
+    "US30": "Indices",
+    "ES": "Indices",
+    "NAS100": "Indices",
+}
+
+# Best model per symbol (from walk-forward selection)
+_BEST_MODEL = {
+    "US30": "lightgbm",
+    "BTCUSD": "lightgbm",
+    "XAUUSD": "xgboost",
+    "ES": "xgboost",
+    "NAS100": "lightgbm",
+}
+
+# Data source per symbol
+_DATA_SOURCE = {
+    "US30": "History Data (2010-2025)",
+    "BTCUSD": "History Data (2020-2025)",
+    "XAUUSD": "History Data (2010-2025)",
+    "ES": "Databento (Dec 2024-Mar 2026)",
+    "NAS100": "Databento (Dec 2024-Mar 2026)",
+}
+
+
+def _extract_feature_importance(model_obj, feature_names: list[str], top_n: int = 10) -> list[dict]:
+    """Extract top N feature importances from a trained model object."""
+    try:
+        if hasattr(model_obj, "feature_importances_"):
+            # LightGBM — importance is split count (int)
+            fi = list(zip(feature_names, [float(v) for v in model_obj.feature_importances_]))
+        elif hasattr(model_obj, "get_booster"):
+            # XGBoost — use gain importance
+            booster = model_obj.get_booster()
+            scores = booster.get_score(importance_type="gain")
+            fi = [(name, scores.get(name, 0.0)) for name in feature_names]
+        else:
+            return []
+
+        fi.sort(key=lambda x: x[1], reverse=True)
+        top = fi[:top_n]
+        # Normalize to 0-1 range for display
+        max_val = top[0][1] if top and top[0][1] > 0 else 1.0
+        return [{"feature": name, "importance": round(val / max_val, 4)} for name, val in top]
+    except Exception:
+        return []
+
+
+@router.get("/potential-models")
+def list_potential_models(
+    current_user: User = Depends(get_current_user),
+):
+    """
+    Scan potential_*.joblib model files and return metadata without
+    loading models into memory for prediction. Returns the 'best' model
+    per symbol plus feature importance from tree splits.
+    """
+    import joblib
+
+    model_dir = os.path.abspath(_MODEL_DIR)
+    pattern = os.path.join(model_dir, "potential_*_M5_*.joblib")
+    files = glob_mod.glob(pattern)
+
+    # Group files by symbol
+    symbol_files: dict[str, list[str]] = {}
+    for f in files:
+        basename = os.path.basename(f)  # potential_US30_M5_lightgbm.joblib
+        parts = basename.replace(".joblib", "").split("_")
+        # potential_{SYMBOL}_M5_{model_type}
+        if len(parts) >= 4:
+            sym = parts[1]
+            symbol_files.setdefault(sym, []).append(f)
+
+    results = []
+    for sym, sym_files in symbol_files.items():
+        # Pick the 'best' model type for this symbol
+        best_type = _BEST_MODEL.get(sym, "lightgbm")
+        best_file = None
+        for f in sym_files:
+            if best_type in os.path.basename(f).lower():
+                best_file = f
+                break
+        if not best_file:
+            best_file = sym_files[0]
+
+        try:
+            data = joblib.load(best_file)
+        except Exception:
+            continue
+
+        oos = data.get("oos_metrics", {})
+        feature_names = data.get("feature_names", [])
+        model_obj = data.get("model")
+
+        # Extract feature importance from the actual model
+        top_features = _extract_feature_importance(model_obj, feature_names) if model_obj else []
+
+        # Determine model type from the filename
+        model_type = "LightGBM" if "lightgbm" in os.path.basename(best_file) else "XGBoost"
+
+        results.append({
+            "symbol": sym,
+            "asset_class": _ASSET_CLASS.get(sym, "Unknown"),
+            "model_type": model_type,
+            "grade": data.get("grade", "?"),
+            "sharpe": round(oos.get("sharpe", 0), 2),
+            "win_rate": round(oos.get("win_rate", 0), 1),
+            "max_drawdown": round(oos.get("max_drawdown", 0), 2),
+            "total_return": round(oos.get("total_return", 0), 2),
+            "profit_factor": round(oos.get("profit_factor", 0), 2),
+            "total_trades": oos.get("total_trades", 0),
+            "accuracy": round(oos.get("accuracy", 0), 4),
+            "pipeline_version": data.get("pipeline_version", "unknown"),
+            "trained_at": data.get("trained_at", ""),
+            "feature_count": len(feature_names),
+            "data_source": _DATA_SOURCE.get(sym, "Unknown"),
+            "top_features": top_features,
+            "oos_start": data.get("oos_start", ""),
+            "file_path": os.path.basename(best_file),
+        })
+
+    # Sort: US30 first, then alphabetically
+    priority = {"US30": 0, "BTCUSD": 1, "XAUUSD": 2, "ES": 3, "NAS100": 4}
+    results.sort(key=lambda x: priority.get(x["symbol"], 99))
+
+    return results
 
 
 @router.post("/train")

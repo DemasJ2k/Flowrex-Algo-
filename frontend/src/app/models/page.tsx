@@ -6,9 +6,30 @@ import type { MLModel } from "@/types";
 import Card from "@/components/ui/Card";
 import StatusBadge from "@/components/ui/StatusBadge";
 import ModelDetailModal from "@/components/ModelDetailModal";
-import { BrainCircuit, Loader2, RefreshCw, Calendar, History, ArrowRight } from "lucide-react";
+import { BrainCircuit, Loader2, RefreshCw, Calendar, History, ArrowRight, ChevronDown, ChevronUp, Zap, BarChart3, Shield, Database } from "lucide-react";
 import { toast } from "sonner";
 import { getErrorMessage } from "@/lib/errors";
+
+interface PotentialModel {
+  symbol: string;
+  asset_class: string;
+  model_type: string;
+  grade: string;
+  sharpe: number;
+  win_rate: number;
+  max_drawdown: number;
+  total_return: number;
+  profit_factor: number;
+  total_trades: number;
+  accuracy: number;
+  pipeline_version: string;
+  trained_at: string;
+  feature_count: number;
+  data_source: string;
+  top_features: { feature: string; importance: number }[];
+  oos_start: string;
+  file_path: string;
+}
 
 interface RetrainRun {
   id: number; symbol: string; triggered_by: string; started_at: string;
@@ -18,16 +39,36 @@ interface RetrainRun {
 }
 interface RetrainSchedule { enabled: boolean; cron_expression: string; next_run: string | null; }
 
+const GRADE_COLORS: Record<string, { bg: string; text: string; glow: string; border: string }> = {
+  A: { bg: "bg-emerald-500/10", text: "text-emerald-400", glow: "shadow-[0_0_12px_rgba(34,197,94,0.35)]", border: "border-emerald-500/40" },
+  B: { bg: "bg-blue-500/10", text: "text-blue-400", glow: "shadow-[0_0_12px_rgba(59,130,246,0.35)]", border: "border-blue-500/40" },
+  C: { bg: "bg-amber-500/10", text: "text-amber-400", glow: "shadow-[0_0_12px_rgba(245,158,11,0.35)]", border: "border-amber-500/40" },
+  D: { bg: "bg-orange-500/10", text: "text-orange-400", glow: "shadow-[0_0_12px_rgba(249,115,22,0.35)]", border: "border-orange-500/40" },
+  F: { bg: "bg-red-500/10", text: "text-red-400", glow: "shadow-[0_0_12px_rgba(239,68,68,0.35)]", border: "border-red-500/40" },
+};
+
+function GradeBadge({ grade }: { grade: string }) {
+  const colors = GRADE_COLORS[grade] || GRADE_COLORS.F;
+  return (
+    <span className={`inline-flex items-center justify-center w-10 h-10 rounded-lg text-lg font-bold ${colors.bg} ${colors.text} ${colors.glow} border ${colors.border}`}>
+      {grade}
+    </span>
+  );
+}
+
 export default function ModelsPage() {
   const [models, setModels] = useState<MLModel[]>([]);
+  const [potentialModels, setPotentialModels] = useState<PotentialModel[]>([]);
   const [loading, setLoading] = useState(true);
   const [training, setTraining] = useState(false);
   const [trainingStatus, setTrainingStatus] = useState("");
   const [selectedModel, setSelectedModel] = useState<MLModel | null>(null);
   const [symbolFilter, setSymbolFilter] = useState("all");
+  const [expandedShap, setExpandedShap] = useState<Record<string, boolean>>({});
 
   // Retrain state
   const [retraining, setRetraining] = useState(false);
+  const [retrainSymbol, setRetrainSymbol] = useState<string | null>(null);
   const [retrainProgress, setRetrainProgress] = useState("");
   const [retrainHistory, setRetrainHistory] = useState<RetrainRun[]>([]);
   const [schedule, setSchedule] = useState<RetrainSchedule | null>(null);
@@ -35,11 +76,14 @@ export default function ModelsPage() {
   const fetchModels = () => {
     api.get("/api/ml/models").then((r) => setModels(r.data)).catch(() => {}).finally(() => setLoading(false));
   };
+  const fetchPotentialModels = () => {
+    api.get("/api/ml/potential-models").then((r) => setPotentialModels(r.data)).catch(() => {});
+  };
   const fetchRetrainData = () => {
     api.get("/api/ml/retrain/history?limit=10").then((r) => setRetrainHistory(r.data)).catch(() => {});
     api.get("/api/ml/retrain/schedule").then((r) => setSchedule(r.data)).catch(() => {});
   };
-  useEffect(() => { fetchModels(); fetchRetrainData(); }, []);
+  useEffect(() => { fetchModels(); fetchPotentialModels(); fetchRetrainData(); }, []);
 
   useEffect(() => {
     if (!training) return;
@@ -62,7 +106,9 @@ export default function ModelsPage() {
         setRetrainProgress(res.data.progress || "");
         if (!res.data.active) {
           setRetraining(false);
+          setRetrainSymbol(null);
           fetchModels();
+          fetchPotentialModels();
           fetchRetrainData();
           toast.success("Monthly retrain complete");
         }
@@ -78,6 +124,7 @@ export default function ModelsPage() {
       const res = await api.post(url, body);
       if (res.data.status === "started") {
         setRetraining(true);
+        setRetrainSymbol(symbol || "ALL");
         setRetrainProgress("Starting...");
         toast.success(symbol ? `Retraining ${symbol}` : "Retraining all symbols");
       } else {
@@ -112,6 +159,10 @@ export default function ModelsPage() {
   const gradeMap: Record<string, number> = { A: 4, B: 3, C: 2, D: 1, F: 0 };
   const gradeReverse: Record<number, string> = { 4: "A", 3: "B", 2: "C", 1: "D", 0: "F" };
 
+  const toggleShap = (symbol: string) => {
+    setExpandedShap((prev) => ({ ...prev, [symbol]: !prev[symbol] }));
+  };
+
   if (loading) return <div className="flex items-center justify-center h-64"><Loader2 size={24} className="animate-spin" style={{ color: "var(--muted)" }} /></div>;
 
   return (
@@ -119,68 +170,206 @@ export default function ModelsPage() {
       <div className="flex items-center justify-between">
         <div>
           <h1 className="text-2xl font-semibold bg-gradient-to-r from-violet-400 to-blue-400 bg-clip-text text-transparent">ML Models</h1>
-          <p className="text-xs mt-0.5" style={{ color: "var(--muted)" }}>{models.length} models across {symbols.length} symbols</p>
+          <p className="text-xs mt-0.5" style={{ color: "var(--muted)" }}>{potentialModels.length} deployed models | Potential Agent v2 Pipeline</p>
         </div>
         <div className="flex gap-2">
-          {training && <span className="flex items-center gap-2 px-3 py-2 text-xs rounded-lg bg-blue-500/10 text-blue-400 border border-blue-500/30"><Loader2 size={14} className="animate-spin" /> {trainingStatus}</span>}
-          <button onClick={fetchModels} className="p-2 rounded-lg border hover:bg-white/5" style={{ borderColor: "var(--border)" }} title="Refresh"><RefreshCw size={16} style={{ color: "var(--muted)" }} /></button>
+          {(training || retraining) && (
+            <span className="flex items-center gap-2 px-3 py-2 text-xs rounded-lg bg-blue-500/10 text-blue-400 border border-blue-500/30">
+              <Loader2 size={14} className="animate-spin" /> {retraining ? retrainProgress : trainingStatus}
+            </span>
+          )}
+          <button onClick={() => { fetchModels(); fetchPotentialModels(); }} className="p-2 rounded-lg border hover:bg-white/5" style={{ borderColor: "var(--border)" }} title="Refresh"><RefreshCw size={16} style={{ color: "var(--muted)" }} /></button>
         </div>
       </div>
 
-      {symbols.length > 0 && (
-        <div className="flex gap-1 overflow-x-auto">
-          <button onClick={() => setSymbolFilter("all")} className={"px-3 py-1.5 text-xs font-medium rounded-lg transition-colors " + (symbolFilter === "all" ? "bg-blue-600 text-white" : "hover:bg-white/10")} style={{ color: symbolFilter === "all" ? undefined : "var(--muted)" }}>All</button>
-          {symbols.map((s) => <button key={s} onClick={() => setSymbolFilter(s)} className={"px-3 py-1.5 text-xs font-medium rounded-lg transition-colors " + (symbolFilter === s ? "bg-blue-600 text-white" : "hover:bg-white/10")} style={{ color: symbolFilter === s ? undefined : "var(--muted)" }}>{s}</button>)}
-        </div>
-      )}
-
-      {models.length === 0 ? (
-        <Card className="text-center py-12">
-          <BrainCircuit size={40} className="mx-auto mb-3 opacity-30" />
-          <p className="text-sm mb-3" style={{ color: "var(--muted)" }}>No trained models yet</p>
-          <div className="flex justify-center gap-2">
-            {["XAUUSD", "BTCUSD", "US30"].map((s) => <button key={s} onClick={() => handleTrain(s)} disabled={training} className="px-3 py-2 text-xs rounded-lg bg-blue-600 hover:bg-blue-500 text-white disabled:opacity-50">Train {s}</button>)}
+      {/* ── Potential Agent v2 — Deployed Models ─────────────────────────── */}
+      {potentialModels.length > 0 && (
+        <>
+          <div className="flex items-center gap-2">
+            <Zap size={16} className="text-violet-400" />
+            <h2 className="text-sm font-semibold bg-gradient-to-r from-violet-400 to-blue-400 bg-clip-text text-transparent">Deployed Models</h2>
+            <span className="text-xs px-2 py-0.5 rounded-full bg-violet-500/15 text-violet-400 border border-violet-500/30">potential_v2</span>
           </div>
-        </Card>
-      ) : (
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-          {filteredSymbols.map((sym) => {
-            const symModels = models.filter((m) => m.symbol === sym);
-            const graded = symModels.filter((m) => m.grade);
-            const avgNum = graded.length > 0 ? graded.reduce((s, m) => s + (gradeMap[m.grade!] ?? 0), 0) / graded.length : -1;
-            const avgGrade = avgNum >= 0 ? gradeReverse[Math.round(avgNum)] : null;
-            return (
-              <Card key={sym}>
-                <div className="flex items-center justify-between mb-3">
-                  <div className="flex items-center gap-2">
-                    <BrainCircuit size={18} style={{ color: "var(--accent)" }} />
-                    <span className="font-semibold text-sm">{sym}</span>
-                    {avgGrade && <StatusBadge value={avgGrade} />}
-                    <span className="text-xs" style={{ color: "var(--muted)" }}>{symModels.length} models</span>
-                  </div>
-                  <button onClick={() => handleTrain(sym)} disabled={training} className="px-2.5 py-1 text-xs rounded border hover:bg-white/5 disabled:opacity-30" style={{ borderColor: "var(--border)" }}>{training ? "..." : "Retrain"}</button>
-                </div>
-                <div className="space-y-2">
-                  {symModels.map((m) => (
-                    <div key={m.id} onClick={() => setSelectedModel(m)} className="flex items-center justify-between px-3 py-2 rounded-lg hover:bg-white/[0.03] cursor-pointer transition-colors border" style={{ borderColor: "var(--border)" }}>
-                      <div className="flex items-center gap-2">
-                        <span className="text-xs font-medium w-20">{m.model_type}</span>
-                        <StatusBadge value={m.pipeline} />
-                        {m.grade && <span className={m.grade === "A" ? "grade-glow-a rounded" : m.grade === "B" ? "grade-glow-b rounded" : m.grade === "C" ? "grade-glow-c rounded" : m.grade === "F" ? "grade-glow-f rounded" : ""}><StatusBadge value={m.grade} /></span>}
-                      </div>
-                      <div className="flex items-center gap-3 text-xs" style={{ color: "var(--muted)" }}>
-                        {m.metrics?.accuracy && <span>Acc: {(m.metrics.accuracy * 100).toFixed(1)}%</span>}
-                        {m.metrics?.sharpe !== undefined && <span>Sharpe: {fmt(m.metrics.sharpe)}</span>}
-                        {m.metrics?.win_rate !== undefined && <span>WR: {m.metrics.win_rate.toFixed(0)}%</span>}
-                        <span>{m.trained_at ? new Date(m.trained_at).toLocaleDateString() : ""}</span>
+
+          <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
+            {potentialModels.map((pm) => {
+              const gc = GRADE_COLORS[pm.grade] || GRADE_COLORS.F;
+              const isRetrainingThis = retraining && (retrainSymbol === pm.symbol || retrainSymbol === "ALL");
+              return (
+                <Card key={pm.symbol} className={`relative overflow-hidden ${gc.glow}`}>
+                  {/* Gradient accent top bar */}
+                  <div className={`absolute top-0 left-0 right-0 h-0.5 bg-gradient-to-r ${
+                    pm.grade === "A" ? "from-emerald-500 to-emerald-300" :
+                    pm.grade === "B" ? "from-blue-500 to-blue-300" :
+                    pm.grade === "C" ? "from-amber-500 to-amber-300" :
+                    "from-red-500 to-red-300"
+                  }`} />
+
+                  {/* Header: Symbol + Grade */}
+                  <div className="flex items-start justify-between mb-3">
+                    <div className="flex items-center gap-3">
+                      <GradeBadge grade={pm.grade} />
+                      <div>
+                        <div className="flex items-center gap-2">
+                          <span className="text-base font-bold">{pm.symbol}</span>
+                          <span className="text-xs px-1.5 py-0.5 rounded bg-white/5" style={{ color: "var(--muted)" }}>{pm.asset_class}</span>
+                        </div>
+                        <div className="flex items-center gap-2 mt-0.5">
+                          <StatusBadge value={pm.model_type} />
+                          <span className="text-xs" style={{ color: "var(--muted)" }}>{pm.feature_count} features</span>
+                        </div>
                       </div>
                     </div>
-                  ))}
-                </div>
-              </Card>
-            );
-          })}
-        </div>
+                    <button
+                      onClick={() => handleRetrain(pm.symbol)}
+                      disabled={retraining || training}
+                      className="px-2.5 py-1.5 text-xs font-medium rounded-lg border hover:bg-white/5 disabled:opacity-30 transition-colors flex items-center gap-1.5"
+                      style={{ borderColor: "var(--border)" }}
+                    >
+                      {isRetrainingThis ? <Loader2 size={12} className="animate-spin" /> : <RefreshCw size={12} />}
+                      {isRetrainingThis ? "Training..." : "Retrain"}
+                    </button>
+                  </div>
+
+                  {/* Key Metrics Grid */}
+                  <div className="grid grid-cols-3 gap-2 mb-3">
+                    <div className="text-center p-2 rounded-lg" style={{ background: "var(--sidebar-active)" }}>
+                      <div className="text-xs" style={{ color: "var(--muted)" }}>Sharpe</div>
+                      <div className="text-sm font-bold text-white">{pm.sharpe.toFixed(2)}</div>
+                    </div>
+                    <div className="text-center p-2 rounded-lg" style={{ background: "var(--sidebar-active)" }}>
+                      <div className="text-xs" style={{ color: "var(--muted)" }}>Win Rate</div>
+                      <div className="text-sm font-bold text-white">{pm.win_rate.toFixed(1)}%</div>
+                    </div>
+                    <div className="text-center p-2 rounded-lg" style={{ background: "var(--sidebar-active)" }}>
+                      <div className="text-xs" style={{ color: "var(--muted)" }}>Max DD</div>
+                      <div className="text-sm font-bold text-red-400">{pm.max_drawdown.toFixed(2)}%</div>
+                    </div>
+                  </div>
+
+                  {/* Secondary Metrics */}
+                  <div className="grid grid-cols-2 gap-x-4 gap-y-1 text-xs mb-3">
+                    <div className="flex justify-between">
+                      <span style={{ color: "var(--muted)" }}>Profit Factor</span>
+                      <span className="text-white font-medium">{pm.profit_factor.toFixed(2)}</span>
+                    </div>
+                    <div className="flex justify-between">
+                      <span style={{ color: "var(--muted)" }}>Total Return</span>
+                      <span className="text-emerald-400 font-medium">{pm.total_return.toFixed(1)}%</span>
+                    </div>
+                    <div className="flex justify-between">
+                      <span style={{ color: "var(--muted)" }}>OOS Trades</span>
+                      <span className="text-white font-medium">{pm.total_trades}</span>
+                    </div>
+                    <div className="flex justify-between">
+                      <span style={{ color: "var(--muted)" }}>Accuracy</span>
+                      <span className="text-white font-medium">{(pm.accuracy * 100).toFixed(1)}%</span>
+                    </div>
+                  </div>
+
+                  {/* Meta Info */}
+                  <div className="flex items-center gap-3 text-xs mb-2" style={{ color: "var(--muted)" }}>
+                    <span className="flex items-center gap-1"><Database size={10} /> {pm.data_source}</span>
+                  </div>
+                  <div className="flex items-center gap-3 text-xs" style={{ color: "var(--muted)" }}>
+                    <span className="flex items-center gap-1"><Calendar size={10} /> Trained {pm.trained_at ? new Date(pm.trained_at).toLocaleDateString() : "Unknown"}</span>
+                    {pm.oos_start && <span>OOS from {pm.oos_start}</span>}
+                  </div>
+
+                  {/* SHAP Feature Importance (expandable) */}
+                  {pm.top_features.length > 0 && (
+                    <div className="mt-3 border-t pt-2" style={{ borderColor: "var(--border)" }}>
+                      <button
+                        onClick={() => toggleShap(pm.symbol)}
+                        className="flex items-center gap-1.5 text-xs font-medium w-full hover:text-white transition-colors"
+                        style={{ color: "var(--muted)" }}
+                      >
+                        <BarChart3 size={12} />
+                        Top Features
+                        {expandedShap[pm.symbol] ? <ChevronUp size={12} /> : <ChevronDown size={12} />}
+                      </button>
+                      {expandedShap[pm.symbol] && (
+                        <div className="mt-2 space-y-1.5">
+                          {pm.top_features.map((f, idx) => (
+                            <div key={f.feature} className="flex items-center gap-2 text-xs">
+                              <span className="w-4 text-right font-medium" style={{ color: "var(--muted)" }}>{idx + 1}</span>
+                              <span className="w-44 truncate" title={f.feature} style={{ color: "var(--muted)" }}>{f.feature.replace("pot_", "")}</span>
+                              <div className="flex-1 h-2.5 rounded-full overflow-hidden" style={{ background: "var(--sidebar-active)" }}>
+                                <div
+                                  className={`h-full rounded-full ${
+                                    pm.grade === "A" ? "bg-gradient-to-r from-emerald-600 to-emerald-400" :
+                                    pm.grade === "B" ? "bg-gradient-to-r from-blue-600 to-blue-400" :
+                                    "bg-gradient-to-r from-violet-600 to-violet-400"
+                                  }`}
+                                  style={{ width: `${f.importance * 100}%` }}
+                                />
+                              </div>
+                              <span className="w-10 text-right tabular-nums" style={{ color: "var(--muted)" }}>{(f.importance * 100).toFixed(0)}%</span>
+                            </div>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+                  )}
+                </Card>
+              );
+            })}
+          </div>
+        </>
+      )}
+
+      {/* ── Legacy DB Models ──────────────────────────────────────────────── */}
+      {symbols.length > 0 && models.length > 0 && (
+        <>
+          <div className="flex items-center gap-2 mt-2">
+            <Shield size={16} style={{ color: "var(--muted)" }} />
+            <h2 className="text-sm font-semibold" style={{ color: "var(--muted)" }}>Database Models (Legacy Pipelines)</h2>
+          </div>
+
+          <div className="flex gap-1 overflow-x-auto">
+            <button onClick={() => setSymbolFilter("all")} className={"px-3 py-1.5 text-xs font-medium rounded-lg transition-colors " + (symbolFilter === "all" ? "bg-blue-600 text-white" : "hover:bg-white/10")} style={{ color: symbolFilter === "all" ? undefined : "var(--muted)" }}>All</button>
+            {symbols.map((s) => <button key={s} onClick={() => setSymbolFilter(s)} className={"px-3 py-1.5 text-xs font-medium rounded-lg transition-colors " + (symbolFilter === s ? "bg-blue-600 text-white" : "hover:bg-white/10")} style={{ color: symbolFilter === s ? undefined : "var(--muted)" }}>{s}</button>)}
+          </div>
+
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            {filteredSymbols.map((sym) => {
+              const symModels = models.filter((m) => m.symbol === sym);
+              const graded = symModels.filter((m) => m.grade);
+              const avgNum = graded.length > 0 ? graded.reduce((s, m) => s + (gradeMap[m.grade!] ?? 0), 0) / graded.length : -1;
+              const avgGrade = avgNum >= 0 ? gradeReverse[Math.round(avgNum)] : null;
+              return (
+                <Card key={sym}>
+                  <div className="flex items-center justify-between mb-3">
+                    <div className="flex items-center gap-2">
+                      <BrainCircuit size={18} style={{ color: "var(--accent)" }} />
+                      <span className="font-semibold text-sm">{sym}</span>
+                      {avgGrade && <StatusBadge value={avgGrade} />}
+                      <span className="text-xs" style={{ color: "var(--muted)" }}>{symModels.length} models</span>
+                    </div>
+                    <button onClick={() => handleTrain(sym)} disabled={training} className="px-2.5 py-1 text-xs rounded border hover:bg-white/5 disabled:opacity-30" style={{ borderColor: "var(--border)" }}>{training ? "..." : "Retrain"}</button>
+                  </div>
+                  <div className="space-y-2">
+                    {symModels.map((m) => (
+                      <div key={m.id} onClick={() => setSelectedModel(m)} className="flex items-center justify-between px-3 py-2 rounded-lg hover:bg-white/[0.03] cursor-pointer transition-colors border" style={{ borderColor: "var(--border)" }}>
+                        <div className="flex items-center gap-2">
+                          <span className="text-xs font-medium w-20">{m.model_type}</span>
+                          <StatusBadge value={m.pipeline} />
+                          {m.grade && <span className={m.grade === "A" ? "grade-glow-a rounded" : m.grade === "B" ? "grade-glow-b rounded" : m.grade === "C" ? "grade-glow-c rounded" : m.grade === "F" ? "grade-glow-f rounded" : ""}><StatusBadge value={m.grade} /></span>}
+                        </div>
+                        <div className="flex items-center gap-3 text-xs" style={{ color: "var(--muted)" }}>
+                          {m.metrics?.accuracy && <span>Acc: {(m.metrics.accuracy * 100).toFixed(1)}%</span>}
+                          {m.metrics?.sharpe !== undefined && <span>Sharpe: {fmt(m.metrics.sharpe)}</span>}
+                          {m.metrics?.win_rate !== undefined && <span>WR: {m.metrics.win_rate.toFixed(0)}%</span>}
+                          <span>{m.trained_at ? new Date(m.trained_at).toLocaleDateString() : ""}</span>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </Card>
+              );
+            })}
+          </div>
+        </>
       )}
 
       {/* Monthly Retrain Controls */}
@@ -211,7 +400,7 @@ export default function ModelsPage() {
           )}
         </div>
         <div className="flex flex-wrap gap-2">
-          {["BTCUSD", "XAUUSD", "US30"].map((s) => (
+          {["US30", "BTCUSD", "XAUUSD", "ES", "NAS100"].map((s) => (
             <button
               key={s}
               onClick={() => handleRetrain(s)}
@@ -219,7 +408,7 @@ export default function ModelsPage() {
               className="px-3 py-1.5 text-xs font-medium rounded-lg border hover:bg-white/5 disabled:opacity-30 transition-colors"
               style={{ borderColor: "var(--border)" }}
             >
-              Retrain {s}
+              {retrainSymbol === s ? <span className="flex items-center gap-1"><Loader2 size={10} className="animate-spin" /> {s}</span> : `Retrain ${s}`}
             </button>
           ))}
           <button
