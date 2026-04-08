@@ -52,8 +52,6 @@ class PotentialAgent:
         self.cooldown_bars = self.config.get("cooldown_bars", 3)
         self.session_filter = self.config.get("session_filter", False)
         self.news_filter = self.config.get("news_filter_enabled", False)
-            "max_trades_per_day": 10,
-        }
 
         self._log_fn: Optional[Callable] = None
         self._eval_count = 0
