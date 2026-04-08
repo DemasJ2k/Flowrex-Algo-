@@ -30,7 +30,7 @@ api.interceptors.response.use(
         localStorage.removeItem("access_token");
         localStorage.removeItem("refresh_token");
         // Redirect to login unless already there
-        if (!window.location.pathname.startsWith("/login") && !window.location.pathname.startsWith("/register")) {
+        if (!window.location.pathname.startsWith("/login") && !window.location.pathname.startsWith("/register") && !window.location.pathname.startsWith("/2fa")) {
           window.location.href = "/login";
         }
       }

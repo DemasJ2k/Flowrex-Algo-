@@ -1,8 +1,11 @@
 """
-Auth endpoints: register, login, refresh, 2FA setup/verify.
+Auth endpoints: register, login, refresh, 2FA setup/verify, forgot/reset password.
 """
+import secrets
+from datetime import datetime, timedelta, timezone
+
 from fastapi import APIRouter, Depends, HTTPException
-from pydantic import BaseModel
+from pydantic import BaseModel, EmailStr
 from sqlalchemy.orm import Session
 import pyotp
 
@@ -201,3 +204,59 @@ def disable_2fa(
     current_user.totp_secret = None
     db.commit()
     return {"message": "2FA disabled"}
+
+
+# ── Forgot / Reset Password ──────────────────────────────────────────
+
+
+class ForgotPasswordRequest(BaseModel):
+    email: EmailStr
+
+
+class ResetPasswordRequest(BaseModel):
+    token: str
+    new_password: str
+
+
+@router.post("/forgot-password")
+def forgot_password(body: ForgotPasswordRequest, db: Session = Depends(get_db)):
+    """Generate a password reset token. Returns the token directly (email integration TBD)."""
+    user = db.query(User).filter(User.email == body.email).first()
+    if not user:
+        # Don't reveal whether the email exists — return a generic success
+        return {"message": "If that email is registered, a reset token has been generated."}
+
+    token = secrets.token_urlsafe(32)
+    user.reset_token = token
+    user.reset_token_expires = datetime.now(timezone.utc) + timedelta(hours=1)
+    db.commit()
+
+    return {
+        "message": "Reset token generated. Use it to set a new password.",
+        "reset_token": token,  # Temporary — remove once email sending is integrated
+    }
+
+
+@router.post("/reset-password")
+def reset_password(body: ResetPasswordRequest, db: Session = Depends(get_db)):
+    """Reset password using a valid reset token."""
+    if len(body.new_password) < 8:
+        raise HTTPException(status_code=400, detail="New password must be at least 8 characters")
+
+    user = db.query(User).filter(User.reset_token == body.token).first()
+    if not user:
+        raise HTTPException(status_code=400, detail="Invalid or expired reset token")
+
+    if user.reset_token_expires and user.reset_token_expires < datetime.now(timezone.utc):
+        # Clear expired token
+        user.reset_token = None
+        user.reset_token_expires = None
+        db.commit()
+        raise HTTPException(status_code=400, detail="Reset token has expired. Please request a new one.")
+
+    user.password_hash = hash_password(body.new_password)
+    user.reset_token = None
+    user.reset_token_expires = None
+    db.commit()
+
+    return {"message": "Password reset successfully. You can now log in with your new password."}

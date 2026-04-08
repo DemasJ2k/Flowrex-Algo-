@@ -49,12 +49,12 @@ _DEFAULT_MAPPINGS: dict[str, dict[str, str]] = {
         "mt5": "NAS100",
     },
     "ES": {
-        "oanda": "SPX500_USD",
+        "oanda": "SPX500_USD",  # Same as SPX500 — both map to S&P 500 CFD on Oanda
         "ctrader": "US500",
         "mt5": "US500",
     },
     "SPX500": {
-        "oanda": "SPX500_USD",
+        "oanda": "SPX500_USD",  # Same as ES — both map to S&P 500 CFD on Oanda
         "ctrader": "US500",
         "mt5": "US500",
     },

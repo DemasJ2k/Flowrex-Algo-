@@ -9,6 +9,7 @@ from app.core.auth import get_current_user
 from app.models.user import User
 from app.models.agent import TradingAgent, AgentLog, AgentTrade
 from app.services.agent.engine import get_algo_engine
+from app.services.broker.symbol_registry import get_symbol_registry
 from app.schemas.agent import (
     AgentCreate, AgentUpdate, AgentResponse,
     LogResponse, TradeResponse, PnlSummaryItem,
@@ -270,6 +271,39 @@ def create_agent(
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
+    # Check for duplicate underlying instrument (e.g., ES and SPX500 both map to SPX500_USD on Oanda)
+    registry = get_symbol_registry()
+    broker = body.broker_name or "oanda"
+    new_broker_symbol = registry.to_broker(body.symbol, broker)
+
+    existing_agents = (
+        db.query(TradingAgent)
+        .filter(
+            TradingAgent.created_by == current_user.id,
+            TradingAgent.deleted_at.is_(None),
+            TradingAgent.status.in_(["running", "paused"]),
+        )
+        .all()
+    )
+
+    for existing in existing_agents:
+        existing_broker = existing.broker_name or "oanda"
+        existing_broker_symbol = registry.to_broker(existing.symbol, existing_broker)
+        if (
+            existing_broker_symbol == new_broker_symbol
+            and existing_broker == broker
+            and existing.symbol != body.symbol
+        ):
+            raise HTTPException(
+                status_code=409,
+                detail=(
+                    f"Warning: You already have a running agent '{existing.name}' "
+                    f"for {existing.symbol} which maps to the same broker instrument "
+                    f"({new_broker_symbol}) as {body.symbol}. "
+                    f"Stop the existing agent first or use the same symbol."
+                ),
+            )
+
     agent = TradingAgent(
         created_by=current_user.id,
         name=body.name,
