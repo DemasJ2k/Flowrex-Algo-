@@ -70,6 +70,7 @@ function CalendarSection() {
       if (filter === "us") params.country = "US";
       const res = await api.get("/api/news/calendar", { params });
       setEvents(res.data.events || []);
+      window.dispatchEvent(new Event("news-refreshed"));
     } catch (err: any) {
       setError(err?.response?.data?.detail || "Failed to load calendar");
     } finally {
@@ -196,6 +197,7 @@ function HeadlinesSection() {
     try {
       const res = await api.get("/api/news/headlines");
       setArticles(res.data.articles || []);
+      window.dispatchEvent(new Event("news-refreshed"));
     } catch (err: any) {
       setError(err?.response?.data?.detail || "Failed to load headlines");
     } finally {

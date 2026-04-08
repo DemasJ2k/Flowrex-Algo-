@@ -434,6 +434,9 @@ export default function BacktestPage() {
       {/* Results */}
       {result && !result.error && (
         <>
+          <p className="text-xs flex items-center gap-1" style={{ color: "var(--muted)" }}>
+            Results are temporary -- run again after page refresh.
+          </p>
           {/* Model badge */}
           <Card>
             <div className="flex items-center gap-3">

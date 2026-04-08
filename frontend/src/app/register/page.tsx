@@ -17,7 +17,19 @@ export default function RegisterPage() {
   const [loading, setLoading] = useState(false);
   const router = useRouter();
 
-  const passwordStrength = password.length === 0 ? 0 : password.length < 8 ? 1 : password.length < 12 ? 2 : 3;
+  const getPasswordStrength = (pw: string): number => {
+    if (pw.length === 0) return 0;
+    let score = 0;
+    if (/[a-z]/.test(pw)) score++;
+    if (/[A-Z]/.test(pw)) score++;
+    if (/[0-9]/.test(pw)) score++;
+    if (/[^a-zA-Z0-9]/.test(pw)) score++;
+    if (pw.length < 8) return 1; // Always weak if under 8 chars
+    if (score <= 1) return 1;
+    if (score <= 3) return 2;
+    return 3;
+  };
+  const passwordStrength = getPasswordStrength(password);
   const strengthLabels = ["", "Weak", "Good", "Strong"];
   const strengthColors = ["", "bg-red-500", "bg-amber-500", "bg-emerald-500"];
 

@@ -111,23 +111,21 @@ export default function AgentConfigEditor({
           </div>
         </div>
 
-        {(
-          <div className="space-y-2 pt-2 border-t" style={{ borderColor: "var(--border)" }}>
-            <p className="text-xs font-medium" style={{ color: "var(--muted)" }}>Agent Filters</p>
-            <label className="flex items-center gap-2 text-sm cursor-pointer">
-              <input type="checkbox" checked={sessionFilter} onChange={(e) => setSessionFilter(e.target.checked)} className="rounded" />
-              Session filter
-            </label>
-            <label className="flex items-center gap-2 text-sm cursor-pointer">
-              <input type="checkbox" checked={regimeFilter} onChange={(e) => setRegimeFilter(e.target.checked)} className="rounded" />
-              Regime filter
-            </label>
-            <label className="flex items-center gap-2 text-sm cursor-pointer">
-              <input type="checkbox" checked={newsFilter} onChange={(e) => setNewsFilter(e.target.checked)} className="rounded" />
-              News filter
-            </label>
-          </div>
-        )
+        <div className="space-y-2 pt-2 border-t" style={{ borderColor: "var(--border)" }}>
+          <p className="text-xs font-medium" style={{ color: "var(--muted)" }}>Agent Filters</p>
+          <label className="flex items-center gap-2 text-sm cursor-pointer">
+            <input type="checkbox" checked={sessionFilter} onChange={(e) => setSessionFilter(e.target.checked)} className="rounded" />
+            Session filter
+          </label>
+          <label className="flex items-center gap-2 text-sm cursor-pointer">
+            <input type="checkbox" checked={regimeFilter} onChange={(e) => setRegimeFilter(e.target.checked)} className="rounded" />
+            Regime filter
+          </label>
+          <label className="flex items-center gap-2 text-sm cursor-pointer">
+            <input type="checkbox" checked={newsFilter} onChange={(e) => setNewsFilter(e.target.checked)} className="rounded" />
+            News filter
+          </label>
+        </div>
 
         <div className="flex justify-end gap-2 pt-2">
           <button onClick={onClose} className="px-4 py-2 text-sm rounded-lg border hover:bg-white/5" style={{ borderColor: "var(--border)" }}>Cancel</button>
