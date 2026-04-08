@@ -74,14 +74,14 @@ export default function ModelsPage() {
   const [schedule, setSchedule] = useState<RetrainSchedule | null>(null);
 
   const fetchModels = () => {
-    api.get("/api/ml/models").then((r) => setModels(r.data)).catch(() => {}).finally(() => setLoading(false));
+    api.get("/api/ml/models").then((r) => setModels(r.data)).catch((e) => console.warn("fetch failed:", e?.message)).finally(() => setLoading(false));
   };
   const fetchPotentialModels = () => {
-    api.get("/api/ml/potential-models").then((r) => setPotentialModels(r.data)).catch(() => {});
+    api.get("/api/ml/potential-models").then((r) => setPotentialModels(r.data)).catch((e) => console.warn("fetch failed:", e?.message));
   };
   const fetchRetrainData = () => {
-    api.get("/api/ml/retrain/history?limit=10").then((r) => setRetrainHistory(r.data)).catch(() => {});
-    api.get("/api/ml/retrain/schedule").then((r) => setSchedule(r.data)).catch(() => {});
+    api.get("/api/ml/retrain/history?limit=10").then((r) => setRetrainHistory(r.data)).catch((e) => console.warn("fetch failed:", e?.message));
+    api.get("/api/ml/retrain/schedule").then((r) => setSchedule(r.data)).catch((e) => console.warn("fetch failed:", e?.message));
   };
   useEffect(() => { fetchModels(); fetchPotentialModels(); fetchRetrainData(); }, []);
 

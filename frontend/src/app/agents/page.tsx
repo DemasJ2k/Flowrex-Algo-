@@ -32,8 +32,8 @@ export default function AgentsPage() {
 
   const fetchData = () => {
     Promise.all([
-      api.get("/api/agents/").then((r) => setAgents(r.data)).catch(() => {}),
-      api.get("/api/agents/pnl-summary").then((r) => setPnl(r.data)).catch(() => {}),
+      api.get("/api/agents/").then((r) => setAgents(r.data)).catch((e) => console.warn("fetch failed:", e?.message)),
+      api.get("/api/agents/pnl-summary").then((r) => setPnl(r.data)).catch((e) => console.warn("fetch failed:", e?.message)),
     ]).finally(() => setLoading(false));
   };
 

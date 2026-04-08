@@ -99,11 +99,17 @@ function DashboardView() {
     const closed = trades
       .filter((t) => t.status === "closed" && t.exit_time)
       .sort((a, b) => new Date(a.exit_time!).getTime() - new Date(b.exit_time!).getTime());
+    if (closed.length === 0) return [];
+    // Start from zero baseline so the curve shows growth/decline relative to start
+    const points: { time: number; value: number }[] = [
+      { time: Math.floor(new Date(closed[0].exit_time!).getTime() / 1000) - 1, value: 0 },
+    ];
     let cum = 0;
-    return closed.map((t) => {
+    for (const t of closed) {
       cum += t.broker_pnl ?? t.pnl ?? 0;
-      return { time: Math.floor(new Date(t.exit_time!).getTime() / 1000), value: Math.round(cum * 100) / 100 };
-    });
+      points.push({ time: Math.floor(new Date(t.exit_time!).getTime() / 1000), value: Math.round(cum * 100) / 100 });
+    }
+    return points;
   }, [trades]);
 
   const activeAgents = agents.filter((a) => a.status === "running").length;
@@ -310,8 +316,8 @@ function DashboardView() {
 
       {/* Broker Modal */}
       <BrokerModal open={brokerModal} onClose={() => setBrokerModal(false)} onConnected={() => {
-        api.get("/api/broker/status").then((r) => setBroker(r.data)).catch(() => {});
-        api.get("/api/broker/account").then((r) => setAccount(r.data)).catch(() => {});
+        api.get("/api/broker/status").then((r) => setBroker(r.data)).catch((e) => console.warn("fetch failed:", e?.message));
+        api.get("/api/broker/account").then((r) => setAccount(r.data)).catch((e) => console.warn("fetch failed:", e?.message));
       }} />
     </div>
   );
