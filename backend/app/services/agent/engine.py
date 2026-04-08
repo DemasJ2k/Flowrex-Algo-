@@ -317,52 +317,72 @@ class AgentRunner:
                     for p in broker_positions
                 )
                 if not has_position:
-                    # Trade was closed by broker (TP/SL hit or manual close)
                     now = datetime.now(timezone.utc)
-                    # Determine exit reason based on last price vs SL/TP
+
+                    # Verify this trade actually existed on the broker
+                    # by checking if broker_ticket is a valid transaction ID
+                    if not trade.broker_ticket:
+                        # No ticket = order was never confirmed. Delete ghost trade.
+                        self._log_to_db(db, "warn",
+                            f"GHOST TRADE removed: {trade.direction} {trade.symbol} — no broker ticket")
+                        db.delete(trade)
+                        continue
+
+                    # Try to get actual P&L from Oanda closed trade history
+                    actual_pnl = None
+                    actual_exit = None
                     exit_reason = "closed"
-                    if trade.stop_loss and trade.take_profit:
-                        # Use last bar close as approximate exit price
-                        last_close = self._bar_buffer[-1]["close"] if self._bar_buffer else 0
-                        if trade.direction == "BUY":
-                            if last_close <= trade.stop_loss:
-                                exit_reason = "SL_HIT"
-                            elif last_close >= trade.take_profit:
-                                exit_reason = "TP_HIT"
-                        else:  # SELL
-                            if last_close >= trade.stop_loss:
-                                exit_reason = "SL_HIT"
-                            elif last_close <= trade.take_profit:
-                                exit_reason = "TP_HIT"
+                    try:
+                        # Check Oanda for the actual trade details
+                        data = await adapter._request(
+                            "GET",
+                            f"/v3/accounts/{adapter._account_id}/trades/{trade.broker_ticket}"
+                        )
+                        oanda_trade = data.get("trade", {})
+                        state = oanda_trade.get("state", "")
+
+                        if state == "OPEN":
+                            # Trade is actually still open on Oanda — don't close it
+                            continue
+                        elif state == "CLOSED":
+                            actual_pnl = float(oanda_trade.get("realizedPL", 0))
+                            actual_exit = float(oanda_trade.get("averageClosePrice", 0))
+                            # Determine exit reason
+                            close_time = oanda_trade.get("closeTime", "")
+                            if trade.take_profit and actual_exit:
+                                if (trade.direction == "BUY" and actual_exit >= trade.take_profit) or \
+                                   (trade.direction == "SELL" and actual_exit <= trade.take_profit):
+                                    exit_reason = "TP_HIT"
+                            if trade.stop_loss and actual_exit:
+                                if (trade.direction == "BUY" and actual_exit <= trade.stop_loss) or \
+                                   (trade.direction == "SELL" and actual_exit >= trade.stop_loss):
+                                    exit_reason = "SL_HIT"
+                        else:
+                            # Unknown state — mark as cancelled
+                            exit_reason = "CANCELLED"
+                            actual_pnl = 0
+                    except Exception:
+                        # Can't verify with Oanda — mark as unknown, don't fabricate P&L
+                        exit_reason = "UNKNOWN"
+                        actual_pnl = 0
 
                     trade.status = "closed"
                     trade.exit_time = now
                     trade.exit_reason = exit_reason
-                    # Approximate exit price from last bar
-                    if self._bar_buffer:
-                        trade.exit_price = self._bar_buffer[-1]["close"]
+                    trade.exit_price = actual_exit or 0
+                    trade.pnl = actual_pnl if actual_pnl is not None else 0
+                    trade.broker_pnl = actual_pnl
 
-                    # Calculate P&L from entry/exit prices
-                    if trade.exit_price and trade.entry_price:
-                        price_diff = trade.exit_price - trade.entry_price
-                        if trade.direction == "SELL":
-                            price_diff = -price_diff
-                        trade.pnl = round(price_diff * trade.lot_size, 2)
-
-                    pnl_str = f"P&L:{trade.broker_pnl or trade.pnl or '?'}"
+                    pnl_str = f"P&L:{trade.pnl}"
                     self._log_to_db(db, "trade",
                         f"CLOSED {trade.direction} {trade.symbol} | {exit_reason} | "
                         f"Entry:{trade.entry_price} Exit:{trade.exit_price} | {pnl_str} | "
                         f"Ticket:{trade.broker_ticket}",
                     )
 
-                    # Update daily P&L
                     if trade.broker_pnl is not None:
                         self._daily_pnl += trade.broker_pnl
-                    elif trade.pnl is not None:
-                        self._daily_pnl += trade.pnl
 
-                    # Reset active direction if this was our tracked position
                     if self._active_direction == trade.direction:
                         self._active_direction = None
 
