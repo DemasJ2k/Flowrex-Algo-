@@ -155,7 +155,7 @@ class AgentRunner:
             if not agent_record or agent_record.status != "running":
                 return
 
-            # Get broker adapter
+            # Get broker adapter (always needed for trade execution)
             manager = get_broker_manager()
             adapter = manager.get_adapter(agent_record.created_by, agent_record.broker_name)
             if not adapter:
@@ -163,13 +163,48 @@ class AgentRunner:
                 db.commit()
                 return
 
-            # Fetch M5 candles (500 bars = ~1.7 days of context)
-            candles = await adapter.get_candles(agent_record.symbol, "M5", 500)
+            # Fetch M5 candles — prefer Databento for supported symbols
+            candles = None
+            data_source = "broker"
+
+            # Check if user has Databento configured and symbol is supported
+            from app.services.data.databento_adapter import SYMBOL_MAP as DB_SYMBOLS
+            if agent_record.symbol in DB_SYMBOLS:
+                try:
+                    from app.models.market_data import MarketDataProvider
+                    from app.core.encryption import get_fernet
+                    provider = db.query(MarketDataProvider).filter(
+                        MarketDataProvider.user_id == agent_record.created_by,
+                        MarketDataProvider.provider_name == "databento",
+                        MarketDataProvider.is_active == True,
+                    ).first()
+                    if provider:
+                        from app.services.data.databento_adapter import DatabentoAdapter
+                        api_key = get_fernet().decrypt(provider.api_key_encrypted.encode()).decode()
+                        db_adapter = DatabentoAdapter(api_key)
+                        db_candles = await db_adapter.get_candles(agent_record.symbol, "M5", 500)
+                        await db_adapter.close()
+                        if db_candles and len(db_candles) >= 100:
+                            candles = db_candles
+                            data_source = "databento"
+                except Exception as e:
+                    # Databento failed — fall back to broker silently
+                    pass
+
+            # Fall back to broker candles if Databento didn't work
+            if candles is None:
+                candles = await adapter.get_candles(agent_record.symbol, "M5", 500)
+                data_source = "broker"
+
             if not candles:
                 return
 
             # Convert to dicts
-            bars = [{"time": c.time, "open": c.open, "high": c.high, "low": c.low, "close": c.close, "volume": c.volume} for c in candles]
+            if data_source == "databento":
+                from dataclasses import asdict
+                bars = [{"time": c.time, "open": c.open, "high": c.high, "low": c.low, "close": c.close, "volume": c.volume} for c in candles]
+            else:
+                bars = [{"time": c.time, "open": c.open, "high": c.high, "low": c.low, "close": c.close, "volume": c.volume} for c in candles]
 
             # Detect new closed bar
             last_time = bars[-1]["time"] if bars else 0
@@ -178,6 +213,11 @@ class AgentRunner:
 
             self._last_bar_time = last_time
             self._bar_buffer = bars
+
+            # Log data source on first bar (once)
+            if not self._warmup_done:
+                self._log_to_db(db, "info",
+                    f"Data source: {data_source.upper()} | {len(bars)} bars loaded for {agent_record.symbol}/M5")
 
             # Warm-up: first fetch loads the bar buffer but does NOT evaluate.
             # This ensures we wait for the NEXT new bar close before trading.
