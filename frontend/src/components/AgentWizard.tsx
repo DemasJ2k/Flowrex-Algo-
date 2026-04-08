@@ -211,15 +211,15 @@ export default function AgentWizard({
                 ))}
               </div>
               <div className="flex items-center gap-3">
-                <input type="range" min="0.05" max="3" step="0.05"
+                <input type="range" min="0.01" max="3" step="0.01"
                   value={riskPerTrade * 100}
                   onChange={(e) => setRiskPerTrade(parseFloat(e.target.value) / 100)}
                   className="flex-1 h-1.5 rounded-full appearance-none cursor-pointer"
                   style={{ background: `linear-gradient(to right, #8b5cf6 ${(riskPerTrade * 100 / 3) * 100}%, var(--border) ${(riskPerTrade * 100 / 3) * 100}%)` }} />
                 <div className="flex items-center gap-1">
-                  <input type="number" min="0.05" max="3" step="0.05"
+                  <input type="number" min="0.01" max="3" step="0.01"
                     value={(riskPerTrade * 100).toFixed(2)}
-                    onChange={(e) => { const v = parseFloat(e.target.value); if (!isNaN(v) && v >= 0.05 && v <= 3) setRiskPerTrade(v / 100); }}
+                    onChange={(e) => { const v = parseFloat(e.target.value); if (!isNaN(v) && v >= 0.01 && v <= 3) setRiskPerTrade(v / 100); }}
                     className="w-16 px-2 py-1 text-sm text-center rounded-lg border bg-transparent outline-none focus:border-blue-500"
                     style={{ borderColor: "var(--border)" }} />
                   <span className="text-xs" style={{ color: "var(--muted)" }}>%</span>
