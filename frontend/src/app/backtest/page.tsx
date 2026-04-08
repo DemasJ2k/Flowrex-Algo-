@@ -67,6 +67,7 @@ interface BacktestResult {
 
 export default function BacktestPage() {
   const [symbol, setSymbol] = useState<string>("US30");
+  const [dataSource, setDataSource] = useState<"history" | "broker">("broker");
   const [datePreset, setDatePreset] = useState<DatePreset>("6m");
   const [customStart, setCustomStart] = useState("");
   const [customEnd, setCustomEnd] = useState("");
@@ -109,6 +110,7 @@ export default function BacktestPage() {
         balance,
         max_lot: maxLot,
         risk_pct: riskPct / 100,
+        data_source: dataSource,
         ...dates,
       });
       toast.success("Backtest started for " + symbol);
@@ -267,6 +269,25 @@ export default function BacktestPage() {
                 </div>
               </button>
             ))}
+          </div>
+        </div>
+
+        {/* Data Source */}
+        <div className="mb-4">
+          <label className="block text-xs font-medium mb-2" style={{ color: "var(--muted)" }}>Data Source</label>
+          <div className="grid grid-cols-2 gap-2">
+            <button onClick={() => setDataSource("broker")}
+              className={`p-2.5 text-center rounded-lg border transition-colors ${dataSource === "broker" ? "border-blue-500 bg-blue-500/10" : "hover:bg-white/5"}`}
+              style={{ borderColor: dataSource === "broker" ? undefined : "var(--border)" }}>
+              <p className="font-medium text-sm">Broker (Live)</p>
+              <p className="text-xs" style={{ color: "var(--muted)" }}>Latest 5000 bars from Oanda</p>
+            </button>
+            <button onClick={() => setDataSource("history")}
+              className={`p-2.5 text-center rounded-lg border transition-colors ${dataSource === "history" ? "border-blue-500 bg-blue-500/10" : "hover:bg-white/5"}`}
+              style={{ borderColor: dataSource === "history" ? undefined : "var(--border)" }}>
+              <p className="font-medium text-sm">Historical</p>
+              <p className="text-xs" style={{ color: "var(--muted)" }}>Full history from CSV/Databento</p>
+            </button>
           </div>
         </div>
 

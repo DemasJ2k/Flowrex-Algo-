@@ -149,6 +149,7 @@ class PotentialBacktestRequest(BaseModel):
     balance: float = 10000.0
     max_lot: float = 0.10
     risk_pct: float = 0.01
+    data_source: str = "history"  # "history" = CSV files, "broker" = live Oanda data
 
 
 # Execution cost defaults per symbol (Oanda paper)
@@ -190,22 +191,62 @@ def _run_potential_backtest(body: PotentialBacktestRequest):
         symbol = body.symbol
         _potential_status["progress"] = "loading data"
 
-        m5 = _load_tf(symbol, "M5")
-        h1 = _load_tf(symbol, "H1")
-        h4 = _load_tf(symbol, "H4")
-        d1 = _load_tf(symbol, "D1")
-        if m5 is None:
-            _potential_results[symbol] = {"error": f"No M5 data for {symbol}"}
-            return
+        # Data source: broker (live from Oanda) or history (CSV files)
+        if body.data_source == "broker":
+            _potential_status["progress"] = "fetching from broker (up to 5000 bars)"
+            try:
+                import asyncio
+                from app.services.broker.manager import get_broker_manager
+                manager = get_broker_manager()
+                # Find the user's active adapter
+                adapter = None
+                for key, adp in manager._adapters.items():
+                    adapter = adp
+                    break
+                if adapter is None:
+                    _potential_results[symbol] = {"error": "No broker connected. Connect Oanda in Settings first."}
+                    return
 
-        # Cap rows for memory
-        cap = 500_000
-        if len(m5) > cap:
-            m5 = m5.iloc[-cap:].reset_index(drop=True)
-            start_ts = m5["time"].iloc[0]
-            if h1 is not None: h1 = h1[h1["time"] >= start_ts].reset_index(drop=True)
-            if h4 is not None: h4 = h4[h4["time"] >= start_ts].reset_index(drop=True)
-            if d1 is not None: d1 = d1[d1["time"] >= start_ts].reset_index(drop=True)
+                # Fetch M5 candles (max 5000 from Oanda)
+                loop = asyncio.new_event_loop()
+                asyncio.set_event_loop(loop)
+                candles_m5 = loop.run_until_complete(adapter.get_candles(symbol, "M5", 5000))
+                candles_h1 = loop.run_until_complete(adapter.get_candles(symbol, "H1", 500))
+                candles_h4 = loop.run_until_complete(adapter.get_candles(symbol, "H4", 200))
+                candles_d1 = loop.run_until_complete(adapter.get_candles(symbol, "D1", 100))
+                loop.close()
+
+                from dataclasses import asdict
+                m5 = pd.DataFrame([asdict(c) for c in candles_m5])
+                h1 = pd.DataFrame([asdict(c) for c in candles_h1]) if candles_h1 else None
+                h4 = pd.DataFrame([asdict(c) for c in candles_h4]) if candles_h4 else None
+                d1 = pd.DataFrame([asdict(c) for c in candles_d1]) if candles_d1 else None
+
+                if m5.empty or len(m5) < 300:
+                    _potential_results[symbol] = {"error": f"Broker returned only {len(m5)} M5 bars (need 300+)"}
+                    return
+
+            except Exception as e:
+                _potential_results[symbol] = {"error": f"Broker data fetch failed: {e}"}
+                return
+        else:
+            # History data from CSV files
+            m5 = _load_tf(symbol, "M5")
+            h1 = _load_tf(symbol, "H1")
+            h4 = _load_tf(symbol, "H4")
+            d1 = _load_tf(symbol, "D1")
+            if m5 is None:
+                _potential_results[symbol] = {"error": f"No M5 data for {symbol}"}
+                return
+
+            # Cap rows for memory
+            cap = 500_000
+            if len(m5) > cap:
+                m5 = m5.iloc[-cap:].reset_index(drop=True)
+                start_ts = m5["time"].iloc[0]
+                if h1 is not None: h1 = h1[h1["time"] >= start_ts].reset_index(drop=True)
+                if h4 is not None: h4 = h4[h4["time"] >= start_ts].reset_index(drop=True)
+                if d1 is not None: d1 = d1[d1["time"] >= start_ts].reset_index(drop=True)
 
         timestamps = m5["time"].values.astype(np.int64)
         closes = m5["close"].values.astype(float)
