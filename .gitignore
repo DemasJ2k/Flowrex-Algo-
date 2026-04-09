@@ -1,5 +1,6 @@
 # Python
 __pycache__/
+catboost_info/
 *.py[cod]
 *.egg-info/
 dist/
