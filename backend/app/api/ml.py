@@ -177,6 +177,75 @@ def list_potential_models(
     return results
 
 
+@router.get("/flowrex-models")
+def list_flowrex_models(
+    current_user: User = Depends(get_current_user),
+):
+    """Scan flowrex_*.joblib model files and return metadata."""
+    import joblib
+
+    model_dir = os.path.abspath(_MODEL_DIR)
+    pattern = os.path.join(model_dir, "flowrex_*_M5_*.joblib")
+    files = glob_mod.glob(pattern)
+
+    symbol_files: dict[str, list[str]] = {}
+    for f in files:
+        basename = os.path.basename(f)
+        parts = basename.replace(".joblib", "").split("_")
+        if len(parts) >= 4:
+            sym = parts[1]
+            symbol_files.setdefault(sym, []).append(f)
+
+    results = []
+    for sym, sym_files in symbol_files.items():
+        best_file = sym_files[0]
+        for f in sym_files:
+            if "xgboost" in os.path.basename(f).lower():
+                best_file = f
+                break
+
+        try:
+            data = joblib.load(best_file)
+        except Exception:
+            continue
+
+        oos = data.get("oos_metrics", {})
+        feature_names = data.get("feature_names", [])
+        model_obj = data.get("model")
+        top_features = _extract_feature_importance(model_obj, feature_names) if model_obj else []
+        model_type = "XGBoost"
+        if "lightgbm" in os.path.basename(best_file):
+            model_type = "LightGBM"
+        elif "catboost" in os.path.basename(best_file):
+            model_type = "CatBoost"
+
+        results.append({
+            "symbol": sym,
+            "asset_class": _ASSET_CLASS.get(sym, "Unknown"),
+            "model_type": model_type,
+            "grade": data.get("grade", "?"),
+            "sharpe": round(oos.get("sharpe", 0), 2),
+            "win_rate": round(oos.get("win_rate", 0), 1),
+            "max_drawdown": round(oos.get("max_drawdown", 0), 2),
+            "total_return": round(oos.get("total_return", 0), 2),
+            "profit_factor": round(oos.get("profit_factor", 0), 2),
+            "total_trades": oos.get("total_trades", 0),
+            "accuracy": round(oos.get("accuracy", 0), 4),
+            "pipeline_version": data.get("pipeline_version", "unknown"),
+            "trained_at": data.get("trained_at", ""),
+            "feature_count": len(feature_names),
+            "data_source": _DATA_SOURCE.get(sym, "Unknown"),
+            "top_features": top_features,
+            "oos_start": data.get("oos_start", ""),
+            "file_path": os.path.basename(best_file),
+            "ensemble_models": len(sym_files),
+        })
+
+    priority = {"US30": 0, "BTCUSD": 1, "XAUUSD": 2, "ES": 3, "NAS100": 4}
+    results.sort(key=lambda x: priority.get(x["symbol"], 99))
+    return results
+
+
 @router.post("/train")
 def trigger_training(
     body: TrainRequest,

@@ -4,6 +4,34 @@ _Chronological record of all changes. Read this before starting any task._
 
 ---
 
+## 2026-04-09 — Flowrex Agent v2 + Claude AI Supervisor + Tradovate
+
+### Flowrex Agent v2 (Phase 18)
+- **features_flowrex.py**: 120 curated features (30 Potential + 20 ICT + 15 Williams + 15 Quant + 20 HTF alignment + 10 session/time + 10 microstructure), all prefixed `fx_`
+- **train_flowrex.py**: 3-model ensemble training (XGBoost + LightGBM + CatBoost), walk-forward 4-fold, Optuna, SHAP pruning
+- **flowrex_agent_v2.py**: 4-layer MTF filter (D1 bias -> H4 momentum -> H1 setup -> M5 entry), majority vote (2/3 agreement), +5% all-agree bonus, 0.55 confidence threshold
+- Wired into engine.py as `flowrex_v2` agent type
+- AgentWizard updated: Flowrex v2 is default, Tradovate broker option added
+- Models page: Flowrex v2 section with `/api/ml/flowrex-models` endpoint
+
+### Claude AI Supervisor (Phase 19)
+- **supervisor.py**: Event-driven LLM monitoring (trade open/close, errors, hourly health check, user chat)
+- **telegram.py**: Telegram notifications via raw httpx (trade opened/closed, alerts, daily summary)
+- **llm API routes**: `/api/llm/config`, `/api/llm/chat`, `/api/llm/status`, `/api/llm/telegram/test`
+- LLM config stored in UserSettings.settings_json (encrypted API key via Fernet)
+- Autonomous actions: PAUSE_AGENT, ADJUST_RISK, SEND_ALERT, LOG_RECOMMENDATION
+- **AI Chat page**: `/ai` route with config panel + chat interface
+- Sidebar: AI Chat nav item added
+- Settings: AI Supervisor tab linking to /ai page
+
+### Tradovate Broker Adapter (Phase 20)
+- **tradovate.py**: Full BrokerAdapter implementation (OAuth2 auth, futures contracts)
+- Registered in broker manager as `tradovate`
+- Symbol registry: ESZ6, NQZ6, YMZ6, GCZ6, SIZ6 mappings added
+- Fuzzy patterns updated for futures month codes
+
+---
+
 ## 2026-04-08 — Full 11-Page Audit Complete
 
 ### Audit Scope

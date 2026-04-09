@@ -9,12 +9,14 @@ from app.services.broker.base import BrokerAdapter, BrokerError
 from app.services.broker.oanda import OandaAdapter
 from app.services.broker.ctrader import CTraderAdapter
 from app.services.broker.mt5 import MT5Adapter
+from app.services.broker.tradovate import TradovateAdapter
 
 
 _ADAPTER_CLASSES = {
     "oanda": OandaAdapter,
     "ctrader": CTraderAdapter,
     "mt5": MT5Adapter,
+    "tradovate": TradovateAdapter,
 }
 
 

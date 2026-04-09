@@ -880,6 +880,20 @@ export default function SettingsPage() {
             </div>
           ),
         },
+        {
+          label: "AI Supervisor",
+          content: (
+            <div className="space-y-4">
+              <Card>
+                <p className="text-sm" style={{ color: "var(--muted)" }}>
+                  Configure your AI Supervisor on the dedicated{" "}
+                  <a href="/ai" className="text-violet-400 hover:underline font-medium">AI Chat page</a>.
+                  The supervisor monitors your agents, analyzes trades, and can send Telegram alerts.
+                </p>
+              </Card>
+            </div>
+          ),
+        },
       ]} />
 
       <BrokerModal open={brokerModal} onClose={() => setBrokerModal(false)} onConnected={fetchData} />

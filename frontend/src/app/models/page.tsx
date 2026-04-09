@@ -59,6 +59,7 @@ function GradeBadge({ grade }: { grade: string }) {
 export default function ModelsPage() {
   const [models, setModels] = useState<MLModel[]>([]);
   const [potentialModels, setPotentialModels] = useState<PotentialModel[]>([]);
+  const [flowrexModels, setFlowrexModels] = useState<PotentialModel[]>([]);
   const [loading, setLoading] = useState(true);
   const [training, setTraining] = useState(false);
   const [trainingStatus, setTrainingStatus] = useState("");
@@ -78,6 +79,7 @@ export default function ModelsPage() {
   };
   const fetchPotentialModels = () => {
     api.get("/api/ml/potential-models").then((r) => setPotentialModels(r.data)).catch((e) => console.warn("fetch failed:", e?.message));
+    api.get("/api/ml/flowrex-models").then((r) => setFlowrexModels(r.data)).catch((e) => console.warn("fetch failed:", e?.message));
   };
   const fetchRetrainData = () => {
     api.get("/api/ml/retrain/history?limit=10").then((r) => setRetrainHistory(r.data)).catch((e) => console.warn("fetch failed:", e?.message));
@@ -311,6 +313,49 @@ export default function ModelsPage() {
                       )}
                     </div>
                   )}
+                </Card>
+              );
+            })}
+          </div>
+        </>
+      )}
+
+      {/* ── Flowrex v2 Models ──────────────────────────────────────────────── */}
+      {flowrexModels.length > 0 && (
+        <>
+          <div className="flex items-center gap-2 mt-2">
+            <Zap size={16} className="text-amber-400" />
+            <h2 className="text-sm font-semibold" style={{ color: "var(--foreground)" }}>Flowrex v2 Models</h2>
+            <span className="text-xs px-2 py-0.5 rounded-full bg-amber-500/10 text-amber-400 border border-amber-500/30">flowrex_v2</span>
+          </div>
+          <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
+            {flowrexModels.map((pm) => {
+              const gc = GRADE_COLORS[pm.grade] || GRADE_COLORS.F;
+              return (
+                <Card key={pm.symbol} className={`${gc.border} border ${gc.glow}`}>
+                  <div className="flex items-center justify-between mb-3">
+                    <div className="flex items-center gap-2">
+                      <span className={`text-2xl font-bold ${gc.text}`}>{pm.grade}</span>
+                      <div>
+                        <span className="font-semibold text-sm">{pm.symbol}</span>
+                        <p className="text-[10px]" style={{ color: "var(--muted)" }}>{pm.model_type} | {pm.feature_count} features | 3-model ensemble</p>
+                      </div>
+                    </div>
+                  </div>
+                  <div className="grid grid-cols-3 gap-2 text-center">
+                    <div className="rounded-lg p-2" style={{ background: "var(--bg)" }}>
+                      <p className="text-xs" style={{ color: "var(--muted)" }}>Sharpe</p>
+                      <p className="text-sm font-mono font-semibold">{pm.sharpe}</p>
+                    </div>
+                    <div className="rounded-lg p-2" style={{ background: "var(--bg)" }}>
+                      <p className="text-xs" style={{ color: "var(--muted)" }}>Win Rate</p>
+                      <p className="text-sm font-mono font-semibold">{pm.win_rate}%</p>
+                    </div>
+                    <div className="rounded-lg p-2" style={{ background: "var(--bg)" }}>
+                      <p className="text-xs" style={{ color: "var(--muted)" }}>Max DD</p>
+                      <p className="text-sm font-mono font-semibold">{pm.max_drawdown}%</p>
+                    </div>
+                  </div>
                 </Card>
               );
             })}

@@ -10,6 +10,7 @@ import { getErrorMessage } from "@/lib/errors";
 const STEPS = ["Setup", "Risk & Mode", "Review"];
 
 const AGENT_TYPES = [
+  { value: "flowrex_v2", label: "Flowrex v2", desc: "120 features, 3-model ensemble (XGB+LGB+CatBoost), 4-layer MTF.", badge: "NEW", color: "#f59e0b" },
   { value: "potential", label: "Potential Agent", desc: "Institutional strategies (VWAP, ADX, ORB, EMA). Grade A model.", badge: "A", color: "#22c55e" },
   { value: "scalping", label: "Scalping Agent", desc: "Quick entries with single-model conviction. ICT/SMC features.", badge: "B", color: "#3b82f6" },
   { value: "flowrex", label: "Flowrex Agent", desc: "Unified ensemble — loads all available models with smart voting.", badge: "", color: "#8b5cf6" },
@@ -45,7 +46,7 @@ export default function AgentWizard({
   const [maxLotSize, setMaxLotSize] = useState(5);
   const [maxDailyLoss, setMaxDailyLoss] = useState(FALLBACK_LOSS);
   const [cooldownBars, setCooldownBars] = useState(FALLBACK_COOLDOWN);
-  const [agentType, setAgentType] = useState("potential");
+  const [agentType, setAgentType] = useState("flowrex_v2");
   const [mode, setMode] = useState("paper");
   const [sessionFilter, setSessionFilter] = useState(true);
   const [regimeFilter, setRegimeFilter] = useState(true);
@@ -160,6 +161,7 @@ export default function AgentWizard({
               <select value={broker} onChange={(e) => setBroker(e.target.value)}
                 className="w-full px-3 py-2 text-sm rounded-lg border bg-transparent" style={{ borderColor: "var(--border)", background: "var(--card)" }}>
                 <option value="oanda">Oanda</option>
+                <option value="tradovate">Tradovate</option>
                 <option value="ctrader">cTrader</option>
                 <option value="mt5">MT5</option>
               </select>

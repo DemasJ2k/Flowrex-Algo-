@@ -22,41 +22,49 @@ _DEFAULT_MAPPINGS: dict[str, dict[str, str]] = {
         "oanda": "XAU_USD",
         "ctrader": "XAUUSD",
         "mt5": "XAUUSD",
+        "tradovate": "GCZ6",
     },
     "XAGUSD": {
         "oanda": "XAG_USD",
         "ctrader": "XAGUSD",
         "mt5": "XAGUSD",
+        "tradovate": "SIZ6",
     },
     "BTCUSD": {
         "oanda": "BTC_USD",
         "ctrader": "BTCUSD",
         "mt5": "BTCUSD",
+        "tradovate": "BTCZ6",
     },
     "ETHUSD": {
         "oanda": "ETH_USD",
         "ctrader": "ETHUSD",
         "mt5": "ETHUSD",
+        "tradovate": "ETHZ6",
     },
     "US30": {
         "oanda": "US30_USD",
         "ctrader": "US30",
         "mt5": "US30",
+        "tradovate": "YMZ6",
     },
     "NAS100": {
         "oanda": "NAS100_USD",
         "ctrader": "NAS100",
         "mt5": "NAS100",
+        "tradovate": "NQZ6",
     },
     "ES": {
         "oanda": "SPX500_USD",  # Same as SPX500 — both map to S&P 500 CFD on Oanda
         "ctrader": "US500",
         "mt5": "US500",
+        "tradovate": "ESZ6",
     },
     "SPX500": {
         "oanda": "SPX500_USD",  # Same as ES — both map to S&P 500 CFD on Oanda
         "ctrader": "US500",
         "mt5": "US500",
+        "tradovate": "ESZ6",
     },
     "EURUSD": {
         "oanda": "EUR_USD",
@@ -118,9 +126,9 @@ _FUZZY_PATTERNS: dict[str, re.Pattern] = {
     "XAGUSD": re.compile(r"^(XAG[_/]?USD|SILVER)\.?.*$", re.IGNORECASE),
     "BTCUSD": re.compile(r"^(BTC[_/]?USD|BITCOIN)\.?.*$", re.IGNORECASE),
     "ETHUSD": re.compile(r"^(ETH[_/]?USD|ETHEREUM)\.?.*$", re.IGNORECASE),
-    "US30":   re.compile(r"^(US30|DJ30|DJI|USTEC30|US30[_.]?(USD|cash))\.?.*$", re.IGNORECASE),
-    "NAS100": re.compile(r"^(NAS100|USTEC|NDX|NASDAQ|NAS100[_.]?(USD|cash))\.?.*$", re.IGNORECASE),
-    "SPX500": re.compile(r"^(SPX500|US500|SP500|SPX|SPX500[_.]?(USD|cash))\.?.*$", re.IGNORECASE),
+    "US30":   re.compile(r"^(US30|DJ30|DJI|USTEC30|US30[_.]?(USD|cash)|YM[FGHJKMNQUVXZ]\d)\.?.*$", re.IGNORECASE),
+    "NAS100": re.compile(r"^(NAS100|USTEC|NDX|NASDAQ|NAS100[_.]?(USD|cash)|NQ[FGHJKMNQUVXZ]\d)\.?.*$", re.IGNORECASE),
+    "SPX500": re.compile(r"^(SPX500|US500|SP500|SPX|SPX500[_.]?(USD|cash)|ES[FGHJKMNQUVXZ]\d)\.?.*$", re.IGNORECASE),
     "EURUSD": re.compile(r"^EUR[_/]?USD\.?.*$", re.IGNORECASE),
     "GBPUSD": re.compile(r"^GBP[_/]?USD\.?.*$", re.IGNORECASE),
     "USDJPY": re.compile(r"^USD[_/]?JPY\.?.*$", re.IGNORECASE),

@@ -59,6 +59,9 @@ class AgentRunner:
                 if agent_type == "potential":
                     from app.services.agent.potential_agent import PotentialAgent
                     self._agent = PotentialAgent(*agent_args)
+                elif agent_type == "flowrex_v2":
+                    from app.services.agent.flowrex_agent_v2 import FlowrexAgentV2
+                    self._agent = FlowrexAgentV2(*agent_args)
                 elif agent_type == "scalping":
                     from app.services.agent.scalping_agent import ScalpingAgent
                     self._agent = ScalpingAgent(*agent_args)

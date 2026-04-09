@@ -13,6 +13,7 @@ import {
   Newspaper,
   Settings,
   ShieldCheck,
+  MessageSquare,
   Menu,
   X,
 } from "lucide-react";
@@ -24,6 +25,7 @@ const navItems = [
   { label: "Models", href: "/models", icon: BrainCircuit },
   { label: "Backtest", href: "/backtest", icon: FlaskConical },
   { label: "News", href: "/news", icon: Newspaper },
+  { label: "AI Chat", href: "/ai", icon: MessageSquare },
   { label: "Settings", href: "/settings", icon: Settings },
   { label: "Admin", href: "/admin", icon: ShieldCheck, adminOnly: true },
 ] as const;
