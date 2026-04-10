@@ -336,7 +336,7 @@ export default function SettingsPage() {
                     <label className="block text-xs mb-1" style={{ color: "var(--muted)" }}>Default Broker</label>
                     <select value={settings.default_broker || ""} onChange={(e) => setSettings({ ...settings, default_broker: e.target.value || null })}
                       className="w-full px-3 py-2 text-sm rounded-lg border bg-transparent" style={{ borderColor: "var(--border)", background: "var(--card)" }}>
-                      <option value="">None</option><option value="oanda">Oanda</option><option value="ctrader">cTrader</option><option value="mt5">MT5</option>
+                      <option value="">None</option><option value="oanda">Oanda</option><option value="tradovate">Tradovate</option><option value="ctrader">cTrader</option><option value="mt5">MT5</option>
                     </select>
                   </div>
                   {/* 2-col grid for numeric defaults */}

@@ -47,7 +47,7 @@ async def list_connections(
         brokers[acct.broker_name] = {"broker_name": acct.broker_name, "stored": True, "is_active": acct.is_active}
 
     # Add known brokers even if no stored credentials
-    for name in ["oanda", "ctrader", "mt5"]:
+    for name in ["oanda", "tradovate", "ctrader", "mt5"]:
         if name not in brokers:
             brokers[name] = {"broker_name": name, "stored": False, "is_active": False}
 

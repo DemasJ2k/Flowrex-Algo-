@@ -23,6 +23,14 @@ const BROKER_FIELDS: Record<string, { label: string; key: string; type?: string 
     { label: "Password", key: "password" },
     { label: "Server", key: "server" },
   ],
+  tradovate: [
+    { label: "Username", key: "username" },
+    { label: "Password", key: "password" },
+    { label: "App ID", key: "app_id" },
+    { label: "CID", key: "cid" },
+    { label: "Secret", key: "sec" },
+    { label: "Demo Account", key: "demo", type: "toggle" },
+  ],
 };
 
 export default function BrokerModal({
@@ -62,10 +70,10 @@ export default function BrokerModal({
     <Modal open={open} onClose={onClose} title="Connect Broker">
       {/* Broker Selection */}
       <div className="flex gap-2 mb-4">
-        {["oanda", "ctrader", "mt5"].map((b) => (
+        {["oanda", "tradovate", "ctrader", "mt5"].map((b) => (
           <button
             key={b}
-            onClick={() => { setBroker(b); setCreds(b === "oanda" ? { practice: true } : {}); }}
+            onClick={() => { setBroker(b); setCreds(b === "oanda" ? { practice: true } : b === "tradovate" ? { demo: true } : {}); }}
             className={`px-4 py-2 text-sm font-medium rounded-lg border transition-colors ${
               broker === b ? "border-blue-500 bg-blue-500/10 text-blue-400" : "hover:bg-white/5"
             }`}
