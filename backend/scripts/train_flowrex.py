@@ -167,15 +167,17 @@ def _lgb_objective(trial, Xtr, ytr, Xval, yval):
 def _cat_objective(trial, Xtr, ytr, Xval, yval):
     from catboost import CatBoostClassifier
     params = {
-        "depth": trial.suggest_int("depth", 4, 8),
+        "depth": trial.suggest_int("depth", 4, 6),
         "learning_rate": trial.suggest_float("learning_rate", 0.01, 0.2, log=True),
-        "iterations": trial.suggest_int("iterations", 200, 800),
+        "iterations": trial.suggest_int("iterations", 200, 400),
         "l2_leaf_reg": trial.suggest_float("l2_leaf_reg", 1.0, 10.0),
         "bagging_temperature": trial.suggest_float("bagging_temperature", 0.0, 1.0),
         "random_strength": trial.suggest_float("random_strength", 0.0, 2.0),
         "loss_function": "MultiClass", "classes_count": 3,
         "verbose": 0, "random_seed": 42,
         "early_stopping_rounds": 20,
+        "thread_count": 2,
+        "allow_writing_files": False,
     }
     m = CatBoostClassifier(**params)
     m.fit(Xtr, ytr, eval_set=(Xval, yval), verbose=0)
@@ -214,7 +216,8 @@ def train_model(model_type, Xtr, ytr, Xval, yval, n_trials):
     else:  # catboost
         from catboost import CatBoostClassifier
         best.update({"loss_function": "MultiClass", "classes_count": 3,
-                     "verbose": 0, "random_seed": 42, "early_stopping_rounds": 20})
+                     "verbose": 0, "random_seed": 42, "early_stopping_rounds": 20,
+                     "thread_count": 2, "allow_writing_files": False})
         model = CatBoostClassifier(**best)
         model.fit(Xtr, ytr, eval_set=(Xval, yval), verbose=0)
 
