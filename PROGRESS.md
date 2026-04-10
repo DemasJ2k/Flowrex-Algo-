@@ -689,3 +689,68 @@ _Updated at the end of each phase. Read this to understand what has been built._
 - 2FA verification page
 - Forgot password flow
 - Backtest results persistence to DB
+
+---
+
+## Phase 18: Flowrex Agent v2 (2026-04-09)
+**Status:** Complete — 120 features, 3-model ensemble, 4-layer MTF
+
+### Files Created
+- `backend/app/services/ml/features_flowrex.py` — 120 curated features (fx_ prefix)
+  - 30 from Potential (VWAP, VP, ADX, ORB, EMA, RSI, MACD, Volatility)
+  - 20 from ICT/SMC (BOS/CHOCH, sweeps, OB, FVG, PD, OTE, displacement)
+  - 15 from Williams (stretch, %R, smash day, value line)
+  - 15 from Quant (Donchian, z-scores, momentum, Hurst)
+  - 20 NEW HTF alignment (D1/H4/H1 EMA200/trend/RSI/MACD/momentum + composites)
+  - 10 NEW session/time (cyclic hour/DOW, session flags, overlap)
+  - 10 NEW microstructure (spread proxy, volume ratios, absorption, CVD, delta divergence)
+- `backend/scripts/train_flowrex.py` — 3-model ensemble training (XGBoost + LightGBM + CatBoost), walk-forward, Optuna, SHAP
+- `backend/app/services/agent/flowrex_agent_v2.py` — 4-layer MTF agent (D1 bias → H4 momentum → H1 setup → M5 entry), majority vote (2/3), +5% all-agree bonus, 0.55 threshold
+- `backend/scripts/fetch_dukascopy_node.js` — Fast Node.js Dukascopy data fetcher
+
+### Files Modified
+- `backend/app/services/agent/engine.py` — added `flowrex_v2` agent type routing
+- `backend/app/api/ml.py` — added `/api/ml/flowrex-models` endpoint
+- `frontend/src/components/AgentWizard.tsx` — Flowrex v2 as default agent type
+- `frontend/src/app/models/page.tsx` — Flowrex v2 model cards section
+
+### Bug Fixes
+- **Lot size bug**: `max_lot_size` was capping all trades even in `risk_pct` mode. Fixed: cap only applies in `max_lots` mode.
+- **CatBoost OOM**: `model.predict()` returns 2D array for multi-class, causing 70GB allocation in np.where. Fixed: flatten to 1D.
+
+---
+
+## Phase 19: Claude AI Supervisor (2026-04-09)
+**Status:** Complete — event-driven LLM monitoring + Telegram + chat
+
+### Files Created
+- `backend/app/services/llm/__init__.py`
+- `backend/app/services/llm/supervisor.py` — event-driven AI supervisor (trade open/close, errors, hourly health, chat)
+- `backend/app/services/llm/telegram.py` — Telegram notifications via httpx
+- `backend/app/api/llm.py` — config, chat, status, telegram test endpoints
+- `frontend/src/app/ai/page.tsx` — AI Chat page with config + chat panels
+- `frontend/src/components/LLMChatPanel.tsx` — slide-out chat panel component
+
+### Files Modified
+- `backend/main.py` — registered llm_router
+- `frontend/src/components/Sidebar.tsx` — added AI Chat nav item
+- `frontend/src/app/settings/page.tsx` — added AI Supervisor tab
+
+### Architecture
+- API key stored encrypted in UserSettings.settings_json (Fernet)
+- Models: Haiku (cheap), Sonnet (balanced), Opus (best)
+- Autonomous actions: PAUSE_AGENT, ADJUST_RISK, SEND_ALERT, LOG_RECOMMENDATION
+- Telegram: trade opened/closed, alerts, daily summary
+
+---
+
+## Phase 20: Tradovate Broker Adapter (2026-04-09)
+**Status:** Complete — full BrokerAdapter for futures
+
+### Files Created
+- `backend/app/services/broker/tradovate.py` — OAuth2 auth, all 14 BrokerAdapter methods
+
+### Files Modified
+- `backend/app/services/broker/manager.py` — registered `tradovate` adapter
+- `backend/app/services/broker/symbol_registry.py` — added Tradovate mappings (ESZ6, NQZ6, YMZ6, GCZ6, SIZ6) + fuzzy patterns
+- `frontend/src/components/AgentWizard.tsx` — added Tradovate broker option

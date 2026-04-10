@@ -113,9 +113,9 @@ us30_primary_session: 13:30-15:30 UTC (cash open)
 | 15 | UI Polish + News + Cleanup + Audit | done |
 | 16 | Beta Testers + Iteration | in progress |
 | 17 | Full Page Audit + Bug Fixes | done |
-| 18 | Flowrex Agent v2 (120 features, 3-model ensemble, 4-layer MTF) | in progress |
-| 19 | Claude AI Supervisor (autonomous, chat, Telegram) | pending |
-| 20 | Tradovate Broker Adapter | pending |
+| 18 | Flowrex Agent v2 (120 features, 3-model ensemble, 4-layer MTF) | done |
+| 19 | Claude AI Supervisor (autonomous, chat, Telegram) | done |
+| 20 | Tradovate Broker Adapter | done |
 
 ## Rules (ALWAYS follow these)
 1. **ALWAYS** read `ARCHITECTURE.md` (in `VPrompt/`) before starting any phase.
@@ -165,3 +165,11 @@ us30_primary_session: 13:30-15:30 UTC (cash open)
 - `scripts/deploy.sh` — Pull + build + restart + health check
 - `scripts/backup-db.sh` — PostgreSQL backup (6-hourly, 7-day retention)
 - `History Data/data/` — 15-year CSV history (M1/M5/M15/H1/H4 per symbol)
+- `backend/app/services/ml/features_flowrex.py` — 120 curated Flowrex v2 features (fx_ prefix)
+- `backend/scripts/train_flowrex.py` — Flowrex v2 training (3-model ensemble, walk-forward, Optuna)
+- `backend/app/services/agent/flowrex_agent_v2.py` — 4-layer MTF agent + 3-model majority vote
+- `backend/app/services/llm/supervisor.py` — Claude AI Supervisor (event-driven monitoring)
+- `backend/app/services/llm/telegram.py` — Telegram notifications (trade alerts, daily summary)
+- `backend/app/api/llm.py` — LLM config, chat, status API routes
+- `backend/app/services/broker/tradovate.py` — Tradovate futures broker adapter (OAuth2)
+- `backend/scripts/fetch_dukascopy_node.js` — Fast Node.js Dukascopy data fetcher
