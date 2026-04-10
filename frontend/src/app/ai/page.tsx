@@ -207,7 +207,7 @@ export default function AIPage() {
         </Card>
 
         {/* Chat Card */}
-        <Card className="flex flex-col" style={{ minHeight: "500px" }}>
+        <Card className="flex flex-col min-h-[500px]">
           <div className="flex items-center justify-between mb-3">
             <div className="flex items-center gap-2">
               <MessageSquare size={16} className="text-violet-400" />
