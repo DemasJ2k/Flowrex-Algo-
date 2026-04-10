@@ -148,6 +148,8 @@ def compute_backtest_metrics(
     from sklearn.metrics import accuracy_score
 
     preds    = model.predict(X_test)
+    # CatBoost multi-class returns 2D array — flatten to 1D class labels
+    preds = np.asarray(preds).ravel().astype(np.int64)
     accuracy = accuracy_score(y_test, preds)
 
     # ── Trend filter: execution-time overlay (not label manipulation) ─────

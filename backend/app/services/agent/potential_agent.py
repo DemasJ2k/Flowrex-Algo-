@@ -251,28 +251,30 @@ class PotentialAgent:
         take_profit = round(take_profit, price_digits)
         entry_price = round(entry_price, price_digits)
 
-        # 8. Position sizing — two modes
-        sizing_mode = self.config.get("sizing_mode", "risk_pct")  # "risk_pct" or "max_lots"
-        max_lot_size = self.config.get("max_lot_size", 10)
+        # 8. Position sizing — strictly % of balance
+        sizing_mode = self.config.get("sizing_mode", "risk_pct")
+        max_lot_size = self.config.get("max_lot_size", None)
 
-        if sizing_mode == "max_lots":
+        if sizing_mode == "max_lots" and max_lot_size:
             # Mode 2: Max Lot Size — scale by confidence within user's cap
-            # Confidence range: 0.52 (threshold) to ~1.0
-            # Map to 20% → 100% of max lot size
             conf = signal.confidence
             conf_pct = min(1.0, max(0.2, (conf - 0.52) / (0.95 - 0.52)))
             lot_size = max(1, int(round(max_lot_size * conf_pct)))
         else:
-            # Mode 1: Risk % of Balance
-            risk_amount = balance * self.risk_config.get("risk_per_trade_pct", 0.01)
+            # Mode 1: Risk % of Balance (DEFAULT)
+            risk_pct = self.risk_config.get("risk_per_trade_pct", 0.01)
+            risk_amount = balance * risk_pct
             lot_size = calc_lot_size(self.symbol, risk_amount, sl_distance, self.broker_name)
+            self._log("info",
+                f"Sizing: balance={balance:.0f} x risk={risk_pct*100:.2f}% = ${risk_amount:.2f}, "
+                f"SL_dist={sl_distance:.2f}, units={lot_size:.1f}")
 
         # Oanda uses integer units
         if self.broker_name == "oanda":
             lot_size = max(1, int(round(lot_size)))
 
-        # Hard cap from user config
-        if max_lot_size and lot_size > max_lot_size:
+        # Hard cap ONLY in max_lots mode
+        if sizing_mode == "max_lots" and max_lot_size and lot_size > max_lot_size:
             lot_size = int(max_lot_size)
 
         # Safety cap: never risk more than 5% of balance
