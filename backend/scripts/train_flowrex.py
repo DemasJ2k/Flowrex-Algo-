@@ -54,7 +54,7 @@ RISK_CONFIG = {
     "max_trades_per_day": 5,
 }
 
-MODEL_TYPES = ["xgboost", "lightgbm", "catboost"]
+MODEL_TYPES = ["xgboost", "lightgbm"]  # CatBoost disabled due to silent crashes; re-enable when investigated
 
 
 # ── Data loading ─────────────────────────────────────────────────────────

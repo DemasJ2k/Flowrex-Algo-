@@ -28,7 +28,7 @@ from dataclasses import dataclass, field
 
 MODEL_DIR = os.path.join(os.path.dirname(__file__), "..", "..", "..", "data", "ml_models")
 
-MODEL_TYPES = ["xgboost", "lightgbm", "catboost"]
+MODEL_TYPES = ["xgboost", "lightgbm", "catboost"]  # catboost optional
 MODEL_WEIGHTS = {"xgboost": 1.0, "lightgbm": 1.0, "catboost": 1.0}
 
 
