@@ -13,11 +13,11 @@ const path = require("path");
 const HIST_DIR = path.resolve(__dirname, "..", "..", "History Data", "data");
 
 const SYMBOL_MAP = {
-  US30: "us30idxusd",
+  US30: "usa30idxusd",
   BTCUSD: "btcusd",
   XAUUSD: "xauusd",
-  ES: "us500idxusd",
-  NAS100: "ustechidxusd",
+  ES: "usa500idxusd",
+  NAS100: "usatechidxusd",
 };
 
 const TIMEFRAMES = ["m5", "h1", "h4", "d1"];
