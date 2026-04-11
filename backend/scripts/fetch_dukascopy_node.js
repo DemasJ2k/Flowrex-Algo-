@@ -85,16 +85,51 @@ function saveCSV(symbol, tf, rows) {
     return `${time},${r.open},${r.high},${r.low},${r.close},${r.volume}`;
   });
 
-  // Read existing file and merge
+  // Read existing file and merge — only keep rows with valid Unix int timestamps
   let existingMap = new Map();
   if (fs.existsSync(outPath)) {
     const existing = fs.readFileSync(outPath, "utf-8").trim().split("\n");
     const header = existing[0];
+    const headerCols = header.split(",");
+    const timeIdx = headerCols.indexOf("time");
+    const tsEventIdx = headerCols.indexOf("ts_event");
+
     for (let i = 1; i < existing.length; i++) {
       const parts = existing[i].split(",");
-      existingMap.set(parts[0], existing[i]);
+      let timeVal;
+
+      if (timeIdx >= 0) {
+        // Parse time column — could be Unix int or date string
+        const raw = parts[timeIdx];
+        const asInt = parseInt(raw);
+        if (!isNaN(asInt) && asInt > 1e9) {
+          timeVal = asInt;
+        } else {
+          // String date — parse to Unix seconds
+          const parsed = new Date(raw).getTime();
+          if (!isNaN(parsed)) timeVal = Math.floor(parsed / 1000);
+        }
+      } else if (tsEventIdx >= 0) {
+        // Old format: ts_event column
+        const parsed = new Date(parts[tsEventIdx]).getTime();
+        if (!isNaN(parsed)) timeVal = Math.floor(parsed / 1000);
+      }
+
+      if (timeVal && timeVal > 0) {
+        // Reconstruct row in canonical order: time,open,high,low,close,volume
+        const openIdx = headerCols.indexOf("open");
+        const highIdx = headerCols.indexOf("high");
+        const lowIdx = headerCols.indexOf("low");
+        const closeIdx = headerCols.indexOf("close");
+        const volIdx = headerCols.indexOf("volume");
+        if (openIdx >= 0 && highIdx >= 0 && lowIdx >= 0 && closeIdx >= 0) {
+          const vol = volIdx >= 0 ? parts[volIdx] : "0";
+          const normalized = `${timeVal},${parts[openIdx]},${parts[highIdx]},${parts[lowIdx]},${parts[closeIdx]},${vol}`;
+          existingMap.set(String(timeVal), normalized);
+        }
+      }
     }
-    console.log(`  Existing: ${existingMap.size.toLocaleString()} rows`);
+    console.log(`  Existing: ${existingMap.size.toLocaleString()} rows (normalized)`);
   }
 
   // Add new rows (overwrite on conflict)

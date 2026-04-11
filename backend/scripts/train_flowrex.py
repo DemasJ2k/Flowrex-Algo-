@@ -66,8 +66,22 @@ def _normalize_ohlcv(df):
             pd.to_datetime(df["ts_event"]).values.astype("datetime64[s]").astype(np.int64)
         )
         df = df.drop(columns=["ts_event"])
+
+    # Handle mixed time column (from Dukascopy merge with old History Data):
+    # some rows have Unix int timestamps, others have string datetimes
+    if "time" in df.columns:
+        numeric = pd.to_numeric(df["time"], errors="coerce")
+        if numeric.isna().any():
+            # Parse string dates for the NaN rows
+            str_rows = numeric.isna()
+            parsed = pd.to_datetime(df.loc[str_rows, "time"], errors="coerce", utc=True)
+            numeric.loc[str_rows] = parsed.astype("int64") // 10**9
+        df["time"] = numeric.fillna(0).astype("int64")
+        # Drop any rows where time failed to parse
+        df = df[df["time"] > 0]
+
     keep = [c for c in ["time", "open", "high", "low", "close", "volume"] if c in df.columns]
-    return df[keep].sort_values("time").reset_index(drop=True)
+    return df[keep].sort_values("time").drop_duplicates(subset="time").reset_index(drop=True)
 
 
 def _load_tf(symbol, tf):
