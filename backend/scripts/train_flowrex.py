@@ -54,7 +54,7 @@ RISK_CONFIG = {
     "max_trades_per_day": 5,
 }
 
-MODEL_TYPES = ["xgboost", "lightgbm"]  # CatBoost disabled due to silent crashes; re-enable when investigated
+MODEL_TYPES = ["xgboost", "lightgbm", "catboost"]
 
 
 # ── Data loading ─────────────────────────────────────────────────────────
@@ -165,6 +165,7 @@ def _lgb_objective(trial, Xtr, ytr, Xval, yval):
 
 
 def _cat_objective(trial, Xtr, ytr, Xval, yval):
+    import gc
     from catboost import CatBoostClassifier
     params = {
         "depth": trial.suggest_int("depth", 4, 6),
@@ -176,12 +177,16 @@ def _cat_objective(trial, Xtr, ytr, Xval, yval):
         "loss_function": "MultiClass", "classes_count": 3,
         "verbose": 0, "random_seed": 42,
         "early_stopping_rounds": 20,
-        "thread_count": 2,
+        "thread_count": 1,
         "allow_writing_files": False,
+        "boosting_type": "Plain",
     }
     m = CatBoostClassifier(**params)
     m.fit(Xtr, ytr, eval_set=(Xval, yval), verbose=0)
-    return m.score(Xval, yval)
+    score = m.score(Xval, yval)
+    del m
+    gc.collect()
+    return score
 
 
 def train_model(model_type, Xtr, ytr, Xval, yval, n_trials):
