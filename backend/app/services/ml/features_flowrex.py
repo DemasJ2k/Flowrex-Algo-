@@ -15,8 +15,17 @@ All features prefixed with 'fx_'.
 Entry: compute_flowrex_features(m5_bars, h1_bars, h4_bars, d1_bars, symbol)
 Returns: (feature_names, X_matrix) — shape (n_bars, 120), float32, no NaN/Inf.
 """
+import os
+import time as _time
 import numpy as np
 import pandas as pd
+
+_VERBOSE = os.environ.get("FLOWREX_VERBOSE", "1") == "1"
+
+
+def _log(msg):
+    if _VERBOSE:
+        print(f"    [features] {msg}", flush=True)
 
 from app.services.backtest.indicators import (
     ema, sma, rsi, atr, macd, bollinger_bands, adx,
@@ -71,11 +80,14 @@ def compute_flowrex_features(
     times, opens, highs, lows, closes, volumes = _to_arrays(m5_bars)
     n = len(closes)
     features: dict[str, np.ndarray] = {}
+    _t0 = _time.time()
+    _log(f"starting ({n:,} bars)")
 
     # ── Base indicators ──────────────────────────────────────────────────
     atr_14 = atr(highs, lows, closes, 14)
     atr_safe = np.where((atr_14 > 0) & ~np.isnan(atr_14), atr_14, 1.0)
     hl_range = highs - lows
+    _log(f"base indicators done ({_time.time() - _t0:.1f}s)")
 
     # ==================================================================
     # GROUP 1: VWAP (6)
@@ -91,6 +103,7 @@ def compute_flowrex_features(
     features["fx_vwap_weekly_dist_atr"] = (closes - vwap_week) / atr_safe
     features["fx_vwap_monthly_dist_atr"] = (closes - vwap_month) / atr_safe
     features["fx_vwap_cross"] = _crossover(closes, vwap_sess)
+    _log(f"VWAP done ({_time.time() - _t0:.1f}s)")
 
     # ==================================================================
     # GROUP 2: Volume Profile (5)
@@ -102,6 +115,7 @@ def compute_flowrex_features(
     va_range = vah - val
     features["fx_value_area_pos"] = np.where(va_range > 0, (closes - val) / va_range, 0.5)
     features["fx_value_area_width_atr"] = va_range / atr_safe
+    _log(f"Volume Profile done ({_time.time() - _t0:.1f}s)")
 
     # ==================================================================
     # GROUP 3: ADX (4)
@@ -165,6 +179,7 @@ def compute_flowrex_features(
     if h4_bars is not None:
         _, _, h4_h, h4_l, h4_c, _ = _to_arrays(h4_bars)
 
+    _log(f"computing ICT features (slowest group)...")
     ict_all = compute_ict_features(
         opens, highs, lows, closes, volumes,
         h4_highs=h4_h, h4_lows=h4_l, h4_closes=h4_c,
@@ -173,6 +188,7 @@ def compute_flowrex_features(
     for key in _ICT_PICKS:
         if key in ict_all:
             features[f"fx_{key}"] = ict_all[key]
+    _log(f"ICT done ({_time.time() - _t0:.1f}s)")
 
     # ==================================================================
     # GROUP 9: Williams — cherry-pick 15 (15)
@@ -181,6 +197,7 @@ def compute_flowrex_features(
     for key in _LW_PICKS:
         if key in lw_all:
             features[f"fx_{key}"] = lw_all[key]
+    _log(f"Williams done ({_time.time() - _t0:.1f}s)")
 
     # ==================================================================
     # GROUP 10: Quant — all 15 (15)
@@ -192,6 +209,7 @@ def compute_flowrex_features(
     for key in _QUANT_PICKS:
         if key in quant_all:
             features[f"fx_{key}"] = quant_all[key]
+    _log(f"Quant done ({_time.time() - _t0:.1f}s)")
 
     # ==================================================================
     # GROUP 11: 4-Layer HTF Alignment (20)
@@ -316,4 +334,5 @@ def compute_flowrex_features(
     cols = [np.asarray(features[k], dtype=np.float64).copy() for k in names]
     X = np.column_stack(cols).astype(np.float32)
     np.nan_to_num(X, nan=0.0, posinf=0.0, neginf=0.0, copy=False)
+    _log(f"TOTAL: {_time.time() - _t0:.1f}s for {n:,} bars → {len(names)} features")
     return names, X

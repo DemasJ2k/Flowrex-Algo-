@@ -44,7 +44,7 @@ HIST_DATA_DIR = os.path.normpath(
 )
 OOS_START = "2026-01-01"
 WARMUP = 500
-MAX_M5_BARS = 500_000
+MAX_M5_BARS = 300_000  # ~3 years of M5 data — balance between history depth and feature compute time
 ALL_SYMBOLS = ["US30", "BTCUSD", "XAUUSD", "ES", "NAS100"]
 
 RISK_CONFIG = {
