@@ -307,15 +307,26 @@ def compute_flowrex_features(
         np.where(vol_sma20 > 0, volumes / vol_sma20, 1.0) * (1 - body_ratio)
     )
 
+    # CVD (cumulative volume delta) — use ROLLING window sum, not unbounded cumsum.
+    # Old impl used np.cumsum over 300k bars which grew unbounded and had
+    # symbol-dependent magnitudes that caused fx_delta_divergence to overfit on US30.
     cvd_delta = volumes * np.sign(closes - opens)
-    cvd = np.cumsum(cvd_delta)
-    features["fx_cvd_slope"] = _slope(cvd, 10)
+    cvd_rolling_100 = pd.Series(cvd_delta).rolling(100, min_periods=20).sum().fillna(0).values
+    features["fx_cvd_slope"] = _slope(cvd_rolling_100, 10)
 
-    price_10_max = pd.Series(closes).rolling(10, min_periods=1).max().values
-    cvd_10_max = pd.Series(cvd).rolling(10, min_periods=1).max().values
-    price_at_high = (closes >= price_10_max * 0.999).astype(float)
-    cvd_at_high = (cvd >= cvd_10_max * 0.999).astype(float)
-    features["fx_delta_divergence"] = price_at_high - cvd_at_high
+    # Delta divergence — compare 20-bar price change direction vs 20-bar CVD direction.
+    # Normalized, bounded, symbol-independent.
+    price_change_20 = np.zeros(n)
+    price_change_20[20:] = (closes[20:] - closes[:-20]) / np.where(closes[:-20] > 0, closes[:-20], 1)
+    cvd_sign_20 = np.sign(cvd_rolling_100)
+    price_sign_20 = np.sign(price_change_20)
+    # +1 = bullish divergence (price down, volume up)
+    # -1 = bearish divergence (price up, volume down)
+    #  0 = agreement
+    features["fx_delta_divergence"] = np.where(
+        (price_sign_20 > 0) & (cvd_sign_20 < 0), -1.0,
+        np.where((price_sign_20 < 0) & (cvd_sign_20 > 0), 1.0, 0.0),
+    )
 
     rel_vol = np.ones(n, dtype=float)
     vol_ser = pd.Series(volumes)
