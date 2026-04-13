@@ -165,24 +165,53 @@ def _analyze_symbol(symbol):
 
     # Recommendation
     print(f"\n  Recommendation:")
-    oos_grade = first_model.get("grade", "F")
     avg_sharpe = np.mean([d.get("oos_metrics", {}).get("sharpe", 0) for d in models.values()])
     total_trades = np.mean([d.get("oos_metrics", {}).get("total_trades", 0) for d in models.values()])
     wr = np.mean([d.get("oos_metrics", {}).get("win_rate", 0) for d in models.values()])
 
-    if avg_sharpe > 2.0 and total_trades > 500 and wr > 55:
-        rec = "✅ DEPLOY — large sample, solid edge, ready for paper trading"
+    # Walk-forward health checks — a model with catastrophic WF folds cannot be deployed
+    # regardless of how the short OOS window looks.
+    wf_sharpes_by_model = {}
+    wf_worst_sharpe = 0.0
+    wf_worst_dd = 0.0
+    wf_avg_degradation = 0.0
+    for mt, data in models.items():
+        wf = sorted(data.get("wf_results", []), key=lambda x: x.get("fold", 0))
+        if wf:
+            sharpes = [r.get("sharpe", 0) for r in wf]
+            dds = [r.get("max_drawdown", 0) for r in wf]
+            wf_sharpes_by_model[mt] = sharpes
+            wf_worst_sharpe = min(wf_worst_sharpe, min(sharpes))
+            wf_worst_dd = max(wf_worst_dd, max(dds))
+            if len(sharpes) >= 2:
+                wf_avg_degradation += (sharpes[-1] - sharpes[0])
+    if wf_sharpes_by_model:
+        wf_avg_degradation /= len(wf_sharpes_by_model)
+
+    # Rule tree (walk-forward is MORE important than OOS — OOS can be a coincidence,
+    # walk-forward reveals robustness across regimes)
+    if wf_worst_sharpe < -2.0 or wf_worst_dd > 50:
+        rec = f"❌ REJECT — walk-forward catastrophic (worst Sharpe={wf_worst_sharpe:.2f}, worst DD={wf_worst_dd:.1f}%)"
+    elif wf_avg_degradation < -3.0:
+        rec = f"❌ REJECT — severe Sharpe degradation across folds ({wf_avg_degradation:+.2f})"
+    elif avg_sharpe < 0:
+        rec = "❌ REJECT — losing money on OOS; needs feature/label investigation"
+    elif wf_worst_sharpe < 0 and avg_sharpe < 1.0:
+        rec = "🟠 INVESTIGATE — walk-forward has losing folds and OOS is weak"
+    elif avg_sharpe > 2.0 and total_trades > 500 and wr > 55 and wf_worst_sharpe > 0:
+        rec = "✅ DEPLOY — large sample, solid edge, ALL walk-forward folds positive"
+    elif avg_sharpe > 2.0 and total_trades > 200 and wr > 55 and wf_worst_sharpe > 0:
+        rec = "🟢 DEPLOY (small sample) — positive across all folds but validate in paper first"
     elif avg_sharpe > 2.0 and total_trades < 200:
         rec = "⚠️ VALIDATE — Sharpe is high but trade count too low (statistical noise)"
     elif avg_sharpe > 1.0 and total_trades > 300:
         rec = "🟡 WATCH — moderate edge, usable on paper with close monitoring"
-    elif avg_sharpe < 0:
-        rec = "❌ REJECT — losing money on OOS; needs feature/label investigation"
     else:
         rec = "🟠 INVESTIGATE — borderline metrics, needs diagnostic"
 
     print(f"    {rec}")
-    print(f"    Avg Sharpe: {avg_sharpe:.2f}  |  Avg Trades: {total_trades:.0f}  |  Avg WR: {wr:.1f}%")
+    print(f"    OOS:  Sharpe={avg_sharpe:.2f}  |  Trades={total_trades:.0f}  |  WR={wr:.1f}%")
+    print(f"    WF:   worst Sharpe={wf_worst_sharpe:.2f}  |  worst DD={wf_worst_dd:.1f}%  |  degradation={wf_avg_degradation:+.2f}")
 
 
 def _compare_with_potential():
