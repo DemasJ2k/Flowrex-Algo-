@@ -522,6 +522,55 @@ class AlgoEngine:
         for agent_id in list(self._runners.keys()):
             await self.stop_agent(agent_id)
 
+    def reload_agent_config(self, agent_id: int) -> bool:
+        """
+        Reload a running agent's config from the DB.
+        Called after Edit Config saves changes so the live agent picks up
+        new risk_per_trade, max_daily_loss_pct, cooldown_bars, etc.
+        """
+        runner = self._runners.get(agent_id)
+        if not runner or not runner._agent:
+            return False
+
+        db = SessionLocal()
+        try:
+            record = db.query(TradingAgent).filter(TradingAgent.id == agent_id).first()
+            if not record:
+                return False
+
+            new_config = {
+                **(record.risk_config or {}),
+                "timeframe": record.timeframe or "M5",
+            }
+            agent = runner._agent
+            agent.config = new_config
+
+            # Rebuild risk_config dict from the new config
+            agent.risk_config = {
+                "max_drawdown_pct": new_config.get("max_drawdown_pct", 0.10),
+                "daily_loss_limit_pct": new_config.get("max_daily_loss_pct", 0.03),
+                "risk_per_trade_pct": new_config.get("risk_per_trade", 0.01),
+                "max_trades_per_day": new_config.get("max_trades_per_day", 10),
+            }
+            agent.cooldown_bars = new_config.get("cooldown_bars", 3)
+            agent.session_filter = new_config.get("session_filter", False)
+            agent.news_filter = new_config.get("news_filter_enabled", False)
+
+            # Log the reload for audit trail
+            if hasattr(agent, "_log_fn") and agent._log_fn:
+                agent._log_fn(
+                    "info",
+                    f"Config reloaded: risk={agent.risk_config['risk_per_trade_pct']*100:.2f}%, "
+                    f"daily_loss={agent.risk_config['daily_loss_limit_pct']*100:.1f}%, "
+                    f"cooldown={agent.cooldown_bars}",
+                )
+            return True
+        except Exception as e:
+            print(f"[engine] Failed to reload config for agent {agent_id}: {e}")
+            return False
+        finally:
+            db.close()
+
     def reload_models_for_symbol(self, symbol: str):
         """Hot-reload models for all running agents trading a specific symbol."""
         reloaded = 0

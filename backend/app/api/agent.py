@@ -345,6 +345,18 @@ def update_agent(
         setattr(agent, key, value)
     db.commit()
     db.refresh(agent)
+
+    # Hot-reload the running agent's config so Edit Config changes
+    # (risk %, daily loss, cooldown) take effect immediately without
+    # requiring a stop/start cycle.
+    try:
+        from app.services.agent.engine import get_algo_engine
+        engine = get_algo_engine()
+        if engine.is_running(agent_id):
+            engine.reload_agent_config(agent_id)
+    except Exception:
+        pass  # Non-fatal — DB is updated, agent will pick up on next restart
+
     return AgentResponse(**_enrich_agent(agent, db))
 
 
