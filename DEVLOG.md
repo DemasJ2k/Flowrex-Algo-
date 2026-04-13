@@ -4,6 +4,49 @@ _Chronological record of all changes. Read this before starting any task._
 
 ---
 
+## 2026-04-13 — Training diagnostics + data audit
+
+### Critical bugs found and fixed
+1. **Config hot-reload bug** — Edit Config was saving to DB but live agents held stale config in memory. Users setting risk=0.10% had agents still using risk=1.00% from creation time. This caused ~$13k loss on paper XAUUSD account (123-247 unit trades instead of ~12-25). Fixed: `engine.reload_agent_config()` called on update_agent PUT.
+
+2. **fx_delta_divergence overfitting** — Feature used unbounded `np.cumsum(volume * sign)` over 300k bars, producing symbol-dependent magnitudes. SHAP showed 26.79% importance on US30 vs 1.97% on BTCUSD — classic unnormalized feature. Rewrote with bounded rolling 100-bar CVD and 20-bar direction comparison (-1/0/+1).
+
+3. **catboost missing from Docker** — Was installed on host but not in container. Added to requirements.txt so Flowrex v2 agents load all 3 models.
+
+### Dukascopy data audit (Apr 13)
+Ran full data audit — discovered silent M5 fetch failures:
+- **US30**: ✅ Fresh 1.4M rows, 2021-2026
+- **BTCUSD**: ✅ Fresh 1M rows, 2021-2026
+- **XAUUSD**: ❌ M5 stale (128k rows from Apr 7), H1/H4/D1 fresh
+- **ES**: ❌ Complete fallback — no Dukascopy data saved, training used `backend/data/ES_*.csv` (stale Apr 7, 100k rows)
+- **NAS100**: ❌ M5 stale (88k rows, Dec 2024 only), HTF fresh
+
+### Flowrex v2 training results (with walk-forward diagnostic)
+| Symbol | Grade | Sharpe | WF Worst | Verdict |
+|--------|-------|--------|----------|---------|
+| US30 | F (OOS) | -0.84 | -3.90 (Fold 4) | Regime sensitivity |
+| BTCUSD | A (OOS) | 2.70 | **-10.92 (Fold 2 = FTX)** | Regime sensitivity |
+| XAUUSD | A (OOS) | 40.82 | +1.49 all positive | **Only reliable symbol** |
+| ES | F (OOS) | -4.12 | -5.97 (Fold 4) | Stale fallback data |
+| NAS100 | A (OOS) | 5.75 | +0.15 all ≥0 | Trained on only 15mo M5 |
+
+### Potential Agent v2 vs Flowrex v2 comparison
+| Symbol | Potential | Flowrex v2 | Winner |
+|--------|-----------|------------|--------|
+| US30 | **A / 4.96 / 253** | F / -0.84 / 298 | Potential |
+| BTCUSD | **A / 3.92 / 714** | A / 2.70 / 1510 | Potential (slightly) |
+| XAUUSD | B / 11.38 / 73 | **A / 40.82 / 85** | Flowrex (small sample) |
+| ES | **A / 4.33 / 245** | F / -4.12 / 263 | Potential |
+| NAS100 | **A / 6.39 / 242** | A / 5.75 / 245 | Roughly equal |
+
+**Key insight**: The 120-feature Flowrex v2 set adds noise, not signal, on 4/5 symbols. Potential Agent's simpler 85 features work better for indices.
+
+### diagnose_flowrex.py script added
+- Prints per-fold metrics, Sharpe degradation, top 20 features, feature group breakdown, Potential vs Flowrex comparison, deploy recommendation
+- Recommendation logic weighs walk-forward health equal to OOS (initially only used OOS which recommended BTCUSD deploy despite -10.92 WF Sharpe)
+
+---
+
 ## 2026-04-09 — Flowrex Agent v2 + Claude AI Supervisor + Tradovate
 
 ### Flowrex Agent v2 (Phase 18)
