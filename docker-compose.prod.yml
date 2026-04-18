@@ -1,5 +1,3 @@
-version: "3.8"
-
 services:
   postgres:
     image: postgres:16-alpine
@@ -35,6 +33,10 @@ services:
       ENCRYPTION_KEY: ${ENCRYPTION_KEY}
       DEBUG: "false"
       ALLOWED_ORIGINS: ${ALLOWED_ORIGINS}
+      TELEGRAM_BOT_TOKEN: ${TELEGRAM_BOT_TOKEN:-}
+      TELEGRAM_BOT_USERNAME: ${TELEGRAM_BOT_USERNAME:-FlowrexAlgoBot}
+      TELEGRAM_WEBHOOK_SECRET: ${TELEGRAM_WEBHOOK_SECRET:-}
+      APP_BASE_URL: ${APP_BASE_URL:-https://flowrexalgo.com}
     depends_on:
       postgres:
         condition: service_healthy
@@ -45,7 +47,11 @@ services:
     deploy:
       resources:
         limits:
-          memory: 768M
+          # 4 agents × 3 ensemble models × ~50MB ≈ 600MB just for models, plus
+          # FastAPI, SQLAlchemy, feature computation. 768M was tight enough to
+          # cause OOM during training+inference overlap. Bumped to 2G now that
+          # the droplet has 8GB available.
+          memory: 2G
     logging:
       driver: "json-file"
       options:

@@ -1,5 +1,3 @@
-version: "3.8"
-
 services:
   postgres:
     image: postgres:16-alpine
@@ -9,7 +7,8 @@ services:
       POSTGRES_PASSWORD: flowrex
       POSTGRES_DB: flowrex_algo
     ports:
-      - "5432:5432"
+      # Bind to localhost only — never expose dev postgres to the public network.
+      - "127.0.0.1:5432:5432"
     volumes:
       - pgdata:/var/lib/postgresql/data
     healthcheck:

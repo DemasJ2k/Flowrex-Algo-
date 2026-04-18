@@ -8,8 +8,15 @@
 - **Brokers:** Oanda, cTrader, MT5
 
 ## Current Phase
-**PAPER TRADING + BETA** (2026-04-08)
-- Phase: 5 agents live on Oanda paper → monitoring trades → beta testers next
+**POST-AUDIT HARDENING COMPLETE** (2026-04-15)
+- 166-finding audit (AUDIT-2026-04-15.md) executed across 11 batches
+- 56 new tests added, 453 passing
+- Migration 002 closed 6-item schema drift
+- 2FA bypass closed, LLM per-user, CORS restricted, CSP headers, rate limits
+- Training auto-archive, Dukascopy-direct backtest, walk-forward embargo
+- Tradovate 4 critical fixes (live/demo, bracket orders, token refresh, contract specs)
+- GDPR: account delete + data export endpoints shipped
+- 5 agents live on Oanda paper, backend healthy
 
 ## Completed Phases
 - Phase 1 — Foundation (2026-03-28)

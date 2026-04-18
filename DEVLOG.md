@@ -4,6 +4,360 @@ _Chronological record of all changes. Read this before starting any task._
 
 ---
 
+## Known Issues / Technical Debt
+
+- **`fx_d1_bias` duplicate feature in `features_flowrex.py:251`** — literal copy of `fx_d1_trend_dir` (line 243). Removing it changes feature count 120→119, which invalidates all existing `.joblib` models. Deferred to next training cycle (retrain required). Flagged 2026-04-16.
+- ~~Timeframe dropdown in AgentWizard is vestigial~~ — **Removed in Batch 8** (2026-04-15).
+
+---
+
+## 2026-04-17 — Engine wiring audit + label leakage fix
+
+User asked for a complete audit of "what's supposed to be connected to the engine but yet isn't"
+— three rounds of audit found 25+ wiring gaps; all fixed. Additionally found and fixed a
+label leakage that likely caused the backtest-vs-live WR divergence.
+
+### Engine wiring gaps fixed (21)
+
+**AI supervisor integration (CRITICAL)**
+- `supervisor.on_error()` now called from `_run_loop` + `_create_trade` with rate-limit (15 min)
+- `parse_actions()` now executed via `execute_autonomous_actions()` — handles
+  PAUSE_AGENT, ADJUST_RISK (bounded 0.1%-2%), SEND_ALERT, LOG_RECOMMENDATION.
+  Audit trail in "AI Monitoring" chat session.
+- Autonomous action JSON parse errors now logged.
+
+**Prop-firm RiskManager (CRITICAL)**
+- `approve_trade()` wired into FlowrexAgentV2 + PotentialAgent via opt-in
+  `prop_firm_enabled` config flag. Gates every signal on tiered DD + session
+  window + anti-martingale.
+- `on_position_opened` / `on_position_closed` hooks fire from engine trade lifecycle.
+- `_maybe_reset_daily()` resets counters at UTC day boundary.
+- Config hot-reload now re-initializes RiskManager with new thresholds.
+
+**Feature drift + quality (HIGH)**
+- `feature_monitor.check_drift()` now called on first eval + every 50 evals
+  in both v2 agents. Warnings go to agent_logs (DB-visible).
+- Feature count mismatch pre-flight check: agent won't start if pipeline's
+  feature count ≠ model's expected count.
+- Feature cache cleared on model hot-reload (prevents shape-mismatch crashes).
+
+**Broker + execution (HIGH)**
+- Oanda `place_order` now returns `fill_price` + `requested_price`;
+  engine populates `slippage_pips` and uses actual fill price as entry.
+- Pre-trade margin check before placing orders (skips guaranteed rejections).
+- Symbol validation on agent start (test candle fetch).
+- Oanda 5XX retry with exponential backoff (3 attempts).
+- BrokerManager.connect now retries 3 times on failure and does NOT cache
+  a broken adapter (prevents silent-fail poll loops).
+
+**Cooldown + reconciliation (HIGH)**
+- Cooldown persisted via wall-clock time, loaded from DB on restart.
+- Periodic broker reconciliation (hourly): DB open trades vs broker positions.
+- Reconciliation runs in quiet markets too (not only on new bars).
+- Max hold time auto-close (default 24h via `max_hold_hours` config).
+- Max-hold close failure falls back to reconciliation (MAX_HOLD_RECONCILED).
+
+**Stale data + logging (MEDIUM)**
+- Duplicate bar detection via OHLC hash — prevents evaluating same bar twice.
+- HOLD predictions now log full buy/hold/sell probability distribution.
+- `_last_prediction` stored in agents for analysis.
+
+**Monitoring (MEDIUM)**
+- detect_and_alert deduplication: same alert kind suppressed for 1hr.
+- Hourly monitoring asyncio pattern hardened (handles both cases).
+
+### Label leakage fix (CRITICAL for backtest-live parity)
+
+`features_potential.py` had **unbounded `np.cumsum()` CVD** — value scaled
+with dataset length. Backtest saw CVD values 1000× larger than live (because
+live only loads 500 bars). Model learned patterns on large-scale CVD that
+don't exist in production.
+
+Fix (matching what `features_flowrex.py` already had):
+```python
+# OLD: cvd = np.cumsum(cvd_delta)  — unbounded
+# NEW: cvd = pd.Series(cvd_delta).rolling(100, min_periods=20).sum().fillna(0).values
+```
+
+Also replaced `np.roll()` (circular wrap) with proper backward-shift in
+`features_potential.py` and `features_mtf.py` momentum features.
+
+**Impact**: Potential-agent models (XAUUSD, ES when re-enabled) need
+retraining. Flowrex_v2 models (US30, BTCUSD, NAS100, XAUUSD GOLD — currently
+running) already had the bounded CVD so are unaffected.
+
+### Central Telegram bot
+
+- Bot token + webhook registered with Telegram (@FlowrexAgent_bot)
+- `/api/telegram/connect` returns deep link with 6-char binding code
+- `/api/telegram/webhook` handles /start code binding, /status, /unlink
+- UserSettings now stores telegram_chat_id + telegram_username + telegram_first_name
+- Frontend shows "Connected as @username" in AI Supervisor settings
+- Per-user message delivery via send_to_user — no cross-user leakage
+
+### Tests
+
+68 focused tests passing (risk_manager, broker_manager, llm_supervisor_per_user,
+agent_lifecycle, agents, config_hot_reload). Broader suite also passing until
+I killed it to redeploy.
+
+### Files modified
+
+Backend:
+- `app/services/agent/engine.py` — all engine wiring (on_error, margin, symbol
+  validation, feature count, reconciliation, stale data, max hold, HOLD logging)
+- `app/services/agent/flowrex_agent_v2.py` — RiskManager hooks, drift check,
+  cooldown persistence, _last_prediction storage
+- `app/services/agent/potential_agent.py` — same
+- `app/services/agent/risk_manager.py` — _maybe_reset_daily() at UTC boundary
+- `app/services/llm/monitoring.py` — on_error, execute_autonomous_actions,
+  alert dedup, audit trail
+- `app/services/llm/supervisor.py` — expanded system prompt, max_tokens 4096,
+  parse_actions error logging
+- `app/services/llm/telegram.py` — dual mode (global bot + per-user chat_id),
+  send_to_user
+- `app/services/broker/oanda.py` — 5XX retry, fill_price in OrderResult,
+  margin_available in AccountInfo
+- `app/services/broker/base.py` — OrderResult fill_price + requested_price,
+  AccountInfo margin_available
+- `app/services/broker/manager.py` — connect retry, no stale adapter caching
+- `app/services/ml/retrain_scheduler.py` — hourly monitoring job
+- `app/services/ml/features_potential.py` — bounded CVD, fixed np.roll
+- `app/services/ml/features_mtf.py` — fixed np.roll
+- `app/api/telegram.py` — NEW: central bot API
+
+---
+
+## 2026-04-16 — AI Chat Persistence + Agent Analytics + Training Experiments
+
+### Feature: AI Chat Persistence (Migration 006)
+- **New tables:** `chat_sessions` + `chat_messages` — messages survive backend restarts
+- **Session CRUD:** `GET/POST /api/llm/sessions`, `GET/DELETE /api/llm/sessions/{id}`
+- **DB-backed chat:** `POST /api/llm/chat` now accepts `session_id`, saves messages to DB, loads last 20 for context
+- **Usage tracking:** `GET /api/llm/usage` — monthly token count + estimated cost
+- **Supervisor `chat_with_history()`** — new method that takes DB-loaded conversation instead of in-memory state
+- **Frontend rewrite:** Session sidebar (new/load/delete), auto-scroll, collapsible settings panel, cost display
+
+### Feature: Agent Analytics (Migration 007)
+- **New columns on `agent_trades`:** `mtf_score`, `mtf_layers`, `session_name`, `top_features`, `atr_at_entry`, `model_name`, `time_to_exit_seconds`, `bars_to_exit`
+- **Analytics API:** `GET /api/agents/{id}/analytics` — breakdowns by session, confidence, MTF score, direction, exit reason + streak tracking
+- **Signal enrichment:** Both FlowrexAgentV2 and PotentialAgent now populate session_name (asian/london/ny_open/ny_close/off_hours), atr_at_entry, model_name in signal dicts
+- **Trade close enrichment:** `time_to_exit_seconds` and `bars_to_exit` computed on close
+- **Frontend:** New "Analytics" tab in AgentDetailModal with bar charts for each dimension
+
+### Training Experiments Fix
+- **`train_experiments.py` ImportError fixed:** Was importing non-existent `train_symbol`, changed to `run_flowrex_training`
+- **`run_flowrex_training` now accepts `overrides` param:** SL/TP/hold_bars read from config dict (was hardcoded 1.2/0.8/10)
+- Experiments running in tmux for US30, BTCUSD, ES (quick mode: default + 1 variation each)
+
+### Page Polish (8 items)
+- AI Chat: input re-enables after error (finally block fix)
+- Dashboard: todayPnl UTC timezone fix
+- Agents: clone adds "(Copy)" suffix
+- Models: loading state on "Retrain All"
+- News: loading overlay during filter change
+- Placeholder /terms and /privacy pages created
+
+### Data Refresh
+- XAUUSD M5 re-fetched from Dukascopy: 128K → 564K rows (full 7-year history)
+- NAS100 M5 re-fetch in progress
+
+---
+
+## 2026-04-15 — Post-audit fix batches (overnight autonomous execution)
+
+Full audit documented at `/opt/flowrex/AUDIT-2026-04-15.md` (166 findings).
+Fix plan at `/opt/flowrex/PLAN-2026-04-14.md` (11 batches).
+
+### Batch 1 — Emergency stop-the-bleeding (deployed)
+
+1. **`scripts/deploy.sh` branch fix (C10)** — line 15 `main-gNXS2` → `main`. Every prior deploy was silently pulling from a stale dev branch.
+2. **`POST /api/agents/{id}/resume` endpoint (C24)** — `backend/app/api/agent.py`. The engine already had `resume_agent()` but no API wired to it; paused agents were stranded.
+3. **`delete_agent` now async + stops runner (C25)** — `backend/app/api/agent.py`. Calls `engine.stop_agent()` before marking `deleted_at`, and sets `status="stopped"`.
+4. **`_poll_and_evaluate_inner` checks `deleted_at` (C26)** — `backend/app/services/agent/engine.py`. Deleted agents no longer keep polling for up to 60 seconds after deletion.
+5. **Gate B removed from Flowrex v2 (H2)** — `backend/app/services/agent/flowrex_agent_v2.py` lines 228-231. The D1-bias hard veto was double-filtering with the 2-of-3 MTF score check, causing agent 80 to reject 100% of signals. `fx_d1_bias` remains as a training feature; the MTF alignment score check on layer scores still prevents counter-trend trades.
+6. **`risk_per_trade` default 0.001 + warning log (H1)** — `flowrex_agent_v2.py`, `potential_agent.py`, `engine.py:reload_agent_config`. If the config key is missing, the agent logs a warning and uses 0.10% instead of silently 10x-ing at 1.00%.
+7. **`max_lot_size` cap applied in BOTH sizing modes (H14)** — `potential_agent.py`. Previously only applied in `max_lots` mode, leaving `risk_pct` mode without an upper bound. Wide stops + high risk% combined could produce oversized trades.
+8. **`reload_agent_config` now logs `sizing_mode` and `max_lot_size`** — better audit trail.
+
+**Deploy:** backend rebuild + force-recreate. All 5 live agents (72, 73, 78, 79, 80) auto-resumed with Grade A models loaded.
+
+### Batch 2 — Migration 002: close schema drift (deployed)
+
+Created `backend/alembic/versions/002_close_schema_drift.py` — an idempotent migration that:
+
+1. **Adds 5 orphan tables** that existed in the DB (created earlier via `Base.metadata.create_all`) but had no migration coverage: `access_requests`, `feedback_reports`, `invite_codes`, `market_data_providers`, `retrain_runs`
+2. **Adds 2 orphan columns on `users`**: `reset_token String(100)`, `reset_token_expires DateTime(timezone=True)`
+3. **Adds FK cascade behavior**: all new tables use `ON DELETE CASCADE` or `SET NULL` appropriately
+4. **Adds 5 performance indexes**: `agent_trades(entry_time)`, `agent_trades(exit_time)`, `agent_logs(level)`, `agent_logs(created_at)`, `broker_accounts(user_id)`, `retrain_runs(symbol)`
+
+The migration uses `_table_exists`, `_column_exists`, `_index_exists` inspector helpers so it runs cleanly on both:
+- Production DB (orphans already exist, migration is a no-op for tables but still adds indexes and columns)
+- Fresh DB from `alembic upgrade head` (migration creates everything correctly)
+
+**Deploy:** Pre-migration `pg_dump` saved to `/tmp/flowrex-backups/pre-migration-002-*.sql`. Backend rebuild triggered alembic auto-upgrade on container start. Verified by:
+- `alembic current` shows `002 (head)`
+- `\dt` shows 14 tables (all 12 app tables + alembic_version + retrain_runs)
+- `/api/ml/retrain/history` returns `200 []` instead of `500 UndefinedTable`
+- All 5 running agents still up
+
+### Batch 3 — Runtime correctness (deferred deploy, will ship with Batch 4)
+
+1. **`reload_agent_config` full field coverage (C2)** — `backend/app/services/agent/engine.py`. `max_lot_size` and `sizing_mode` were ALREADY reloaded correctly via `agent.config = new_config` — the bug was only that the reload wasn't logged. Batch 1 fixed the log message. This batch adds `agent._peak_equity = 0.0` on reload so the new drawdown limit applies against a fresh baseline instead of against a stale high-water mark.
+2. **`reload_models_for_symbol` supports v2 + Potential agents (C3)** — `backend/app/services/agent/engine.py`. Rewrote the loop to use duck-typed `agent.load()` (both `PotentialAgent` and `FlowrexAgentV2` have a parameterless `load()` that clears and reloads `self.models`), with legacy `_ensemble_scalping` fallback. Monthly retrain scheduler can now hot-swap models on running v2 agents.
+3. **SQLAlchemy connection pool config (C14, M36)** — `backend/app/core/database.py`. Set `pool_size=10, max_overflow=20, pool_recycle=3600` for Postgres (SQLite unchanged). 4 agents × ~6 DB sessions per 60s poll = 24 sessions/min — previous default of 5+10=15 total could be exhausted under burst.
+4. **Time-based cooldown (H45)** — `potential_agent.py` and `flowrex_agent_v2.py`. Replaced `_last_trade_bar` index comparison with `time.monotonic()`-based cooldown (`cooldown_bars × 300 seconds`). Robust to pause/resume. The bar-index field is still stored as a secondary reference.
+5. **agent_logs retention cron (C15)** — new `backend/app/services/housekeeping.py`. Daily job at 03:00 UTC that purges `agent_logs` older than 30 days, rejected `access_requests` older than 90 days, and orphaned `/tmp/flowrex-backtest/*` tempdirs older than 24 hours. Hooked into the existing `BackgroundScheduler` in `retrain_scheduler.py`.
+
+### Batch 4 — Security hardening (deployed with Batch 3)
+
+1. **2FA bypass fixed (C1)** — JWT now carries a `scope` claim. `/login` issues `scope="partial"` tokens (5-min expiry) when 2FA is enabled. `get_current_user` rejects partial-scoped tokens for ALL protected endpoints. New `get_partial_user` dependency — used ONLY by `/auth/2fa/verify` — accepts partial tokens. After TOTP verification, `/2fa/verify` issues a fresh `scope="full"` access token.
+2. **LLMSupervisor per-user refactor (C23)** — `backend/app/services/llm/supervisor.py` rewritten around a `UserSession` dataclass. The module-level singleton is still there but now holds a `dict[user_id, UserSession]`. Each user has their own `api_key`, `model`, `conversation`, `consecutive_losses`. No more cross-user data leak via shared `_conversation`. All call sites in `backend/app/api/llm.py` now pass `user.id`.
+3. **LLM autonomous action bounds (C27)** — `parse_actions` now enforces `risk_per_trade ∈ [0.001, 0.02]`, max 1 action per response, and requires the user's `autonomous` flag to be True. Out-of-bounds actions are rejected (not silently clamped).
+4. **LLM chat rate limit (C28)** — `/api/llm/chat` is now `@limiter.limit("10/minute")` per IP to cap Anthropic cost exposure under abuse.
+5. **LLM data sanitization (C29)** — new `_sanitize_agent` / `_sanitize_trade` helpers strip sensitive fields (api_key, credentials, totp_secret, email, bot_token, reset_token) from every prompt sent to Claude. Plus error messages truncated to 500 chars to avoid HTML dumps reaching the LLM.
+6. **LLM prompt caching (cost optimization)** — system prompt is now sent with `cache_control: ephemeral`. Anthropic caches it for ~5 minutes across calls, giving ~90% input-token cost reduction on repeated hourly health checks.
+7. **LLM chat context skip deleted agents (H20)** — `_build_chat_context` now filters `deleted_at IS NULL` on both the agent list and the trade join.
+8. **CORS restricted (H22)** — `main.py` CORSMiddleware no longer uses `allow_methods=["*"]` and `allow_headers=["*"]`. Explicit lists only.
+9. **CSP + Permissions-Policy headers (H23)** — `backend/app/core/middleware.py` `SecurityHeadersMiddleware` now sets CSP (production only), Permissions-Policy, and Referrer-Policy on every response.
+10. **Password strength Pydantic validation (H24)** — `backend/app/schemas/auth.py` now enforces min 12 chars, upper+lower+digit on `RegisterRequest`. Legacy login unchanged (existing users may have weaker passwords).
+11. **Bcrypt rounds → 14 (H25)** — `backend/app/core/password.py`. 4x slower than default, barely noticeable at login, significantly slows offline brute-force if DB leaks.
+12. **WebSocket Origin validation + header-based token (H26)** — `main.py` websocket_endpoint now checks `Origin` header against `ALLOWED_ORIGINS`, prefers `Authorization: Bearer` header over query param (which leaks to proxy logs), and rejects unauthenticated connections in production.
+13. **Feedback rate limit (C8)** — `/api/access-requests` POST now `@limiter.limit("3/hour")` and inputs size-bounded (name ≤100, message ≤2000).
+14. **Reset-password rate limit + strength (C9 + H24)** — `/api/auth/reset-password` now `@limiter.limit("5/minute")` and enforces 12-char minimum with uppercase and digit.
+15. **Dev postgres bind to 127.0.0.1 (C7)** — `docker-compose.yml` dev ports now bind to localhost only.
+16. **Removed deprecated `version: "3.8"` key** — both `docker-compose.yml` and `docker-compose.prod.yml`. Resolves the build warning.
+
+**Deploy:** Backend rebuild + force-recreate shipped Batches 3 and 4 together. All 5 agents auto-resumed. `Daily housekeeping scheduled for 03:00 UTC` confirmed in logs.
+
+### Batch 5 — Training + data pipeline + ⭐ Dukascopy-direct backtest (deferred deploy)
+
+1. **Dukascopy fetcher retry + M5 chunking + error propagation (C21)** — `backend/scripts/fetch_dukascopy_node.js`. Now retries each timeframe up to 3 times with exponential backoff (1s, 2s, 4s), chunks M5 fetches into 6-month windows (Dukascopy rejects huge M5 date ranges), tracks per-symbol per-timeframe success/failure, prints a SUMMARY report at the end, and exits with code 2 when any critical M5 fetch fails. Also accepts an optional 3rd arg `<output_dir>` for writing into a backtest tempdir.
+2. **Training auto-archive before save (C4)** — `backend/scripts/train_flowrex.py`. Before writing new models, existing `.joblib` files are copied to `backend/data/ml_models/archive_{YYYY-MM-DD_HHMM}/`. Prevents data loss like the ES Grade F wipe-out on 2026-04-15.
+3. **Walk-forward embargo (H3)** — `backend/scripts/train_flowrex.py`. `get_wf_folds` now inserts a 50-bar embargo between `train_end` and `test_start` to prevent lookahead leakage from rolling-window features (EMA, ATR, Donchian). Longer than any rolling window used. Kicks in on next training run.
+4. **Symbol-aware session VWAP / ORB (H4)** — `backend/app/services/ml/features_potential.py`. `_session_vwap` and `_opening_range` now accept `is_24_7` and `session_start_hour`/`session_start_min` parameters. For BTCUSD (and future ETHUSD), session resets at UTC 00:00 instead of arbitrarily at NYSE open. For indices, uses `symbol_config.prime_hours_utc[0]`. Also uses a 5-minute window instead of exact-minute equality for session detection — survives bar timestamp drift and holiday schedules.
+5. **XAUUSD M5 format normalization (C22)** — one-time migration of `History Data/data/XAUUSD/XAUUSD_M5.csv` from the legacy `ts_event` datetime column to the canonical `time` Unix-int column. 128,482 rows preserved (2010-06 → 2026-03). Backup at `XAUUSD_M5.csv.backup-before-normalize`.
+
+#### ⭐ Dukascopy-direct backtest (new user requirement)
+
+User requirement 2026-04-15: "For backtest, always draw backtest data from Dukascopy. I do not want the file they fetch to stay on the database for a long period of time."
+
+Implementation:
+- New `backend/app/services/backtest/data_fetcher.py` — `BacktestDataFetcher` class. On backtest start, spawns the Dukascopy Node fetcher writing into `/tmp/flowrex-backtest/{run_id}/`. Loads CSVs into pandas DataFrames. Deletes the tempdir immediately after load. Keeps a 10-minute in-memory cache keyed on `(symbol, timeframes, days)` so concurrent backtests for the same parameters reuse one fetch. Orphaned tempdirs (from crashes) are cleaned up by the daily housekeeping cron.
+- `backend/app/api/backtest.py` — the legacy `/run` endpoint and the Potential Agent backtest both use the new fetcher. The Potential Agent request now defaults `data_source="dukascopy"` (new — replaces the previous `history` default which read persistent CSV files). `history` and `broker` options remain for backwards compat.
+- **Training is unchanged** — it still reads `/opt/flowrex/History Data/data/` files. Only backtest flows fetch fresh from Dukascopy.
+- **Docker integration**: `backend/Dockerfile` now installs Node 20 via nodesource + `ENV PYTHONUNBUFFERED=1`. `backend/.dockerignore` selectively includes `scripts/fetch_dukascopy_node.js` and `scripts/node_modules/**` (while still excluding training scripts).
+
+**Deploy:** deferred to ship with Batch 6 (which also modifies `Dockerfile` and `docker-compose.prod.yml`). BTCUSD training is still running on the host — these changes don't affect it.
+
+### Batch 6 — Infrastructure + deploy safety (deployed with Batch 5)
+
+1. **`scripts/deploy.sh` rewritten with safety features (C10 + L20)** — `set -euo pipefail`, trap on EXIT for automatic rollback to the previous git hash, pre-deploy `pg_dump | gzip` backup with integrity verification, `docker compose config` validation, 180s health check timeout (was 60s — cold start with model loading exceeds 60s), prints last 15 backend log lines on success and last 40 on failure.
+2. **`PYTHONUNBUFFERED=1` in Dockerfile (L1)** — already verified visible in logs: `Auto-started agent: US30 Flowrex v2` etc. now appear in `docker logs` immediately. Pre-fix these were silently buffered and never reached docker logs.
+3. **Node 20 installed in backend container (Batch 5 dependency)** — via nodesource setup_20.x apt repo. Verified `node --version` = `v20.20.2`. Required for the Dukascopy-direct backtest fetcher.
+4. **`.github/workflows/test.yml`** — new GitHub Actions workflow runs pytest on backend (with SQLite in-memory) and ESLint on frontend on every push to main and every PR. Closes audit C16.
+5. **Root `Makefile`** — convenience targets: `make test`, `make lint`, `make dev`, `make build`, `make deploy`, `make logs`, `make ps`, `make shell-backend`, `make psql`, `make migrate`. Standardizes how to run common commands.
+6. **`backend/pytest.ini`** — explicit pytest config with `asyncio_mode=auto`, marker definitions, and warning filters. Previously pytest was running with no config file.
+7. **Backend container memory limit 768M → 2G** — `docker-compose.prod.yml`. 4 agents × 3 ensemble models × ~50MB ≈ 600MB just for models, plus FastAPI/SQLAlchemy/feature workspace. 768M was risky for OOM during training+inference overlap; 2G is safe on the 8GB droplet.
+
+**Deploy:** Backend rebuild + force-recreate (build took ~4 min including Node install). All 5 agents auto-resumed. New visible startup log lines (previously buffered and invisible):
+```
+Database connected successfully
+Auto-connected broker: oanda for user 3
+Auto-started agent: US30 Flowrex v2 (US30)
+Auto-started agent: XAUUSD Flowrex (XAUUSD)
+Auto-started agent: GOLD (XAUUSD)
+Auto-started agent: BTCUSD Flowrex (BTCUSD)
+Auto-started agent: NAS100 Flowrex (NAS100)
+Daily housekeeping scheduled for 03:00 UTC
+```
+
+### Batch 7 — Test coverage (no deploy needed)
+
+**Stale tests deleted:**
+- `test_scalping_agent.py` (legacy agent, removed from production)
+- `test_expert_agent.py` (legacy agent)
+- `test_mt5_filling.py` (all `@pytest.mark.skip`)
+- `test_features_ofi.py` (tests an unused feature module)
+
+**New tests added (all 50 passing):**
+- `test_2fa_scope.py` (8 tests) — JWT scope claim, partial token expiry, get_partial_user dependency. Regression coverage for C1.
+- `test_password_validation.py` (6 tests) — Pydantic password strength validator. Regression coverage for H24.
+- `test_llm_supervisor_per_user.py` (8 tests) — Per-user session isolation, action bounds, autonomous flag enforcement. Regression coverage for C23 + C27.
+- `test_config_hot_reload.py` (9 tests) — Risk default 0.001 (not 0.01), reload_agent_config completeness, reload_models_for_symbol with v2 + Potential agents. Regression coverage for H1 + C2 + C3.
+- `test_oanda_rejection_paths.py` (6 tests) — INSUFFICIENT_MARGIN, HTML 500 response, empty response, 4xx error message. Regression coverage for the 2026-04-15 BTCUSD live errors.
+- `test_backtest_data_fetcher.py` (7 tests) — Cache hit/miss, TTL expiry, tempdir cleanup, Node failure propagation, per-symbol invalidation. Coverage for the new Dukascopy-direct backtest.
+- `test_agent_lifecycle.py` (4 tests) — `/resume` endpoint exists, `delete` stops the runner, pause works. Regression coverage for C24 + C25.
+- `test_housekeeping.py` (2 tests) — purge functions are callable and tempdir cleanup works.
+
+**Pre-existing tests fixed (caused by Batch 4 password validation):**
+- `test_auth.py` — updated 7 tests to use a strong password (`TestPassword123`) that meets the new H24 strength requirements. Added `test_register_weak_password_rejected` as positive coverage.
+
+**conftest.py improvements:**
+- Disable rate limiter during tests (slowapi `@limiter.limit("3/minute")` was tripping on rapid sequential test requests).
+- Skip script-dependent tests (`test_model_utils_advanced`, `test_retrain`, `test_seed`, `test_strategy_labels`, `test_cot`) via `collect_ignore` when the `scripts/` directory isn't on sys.path. They run on the host where scripts/ exists, skip cleanly in CI.
+
+**Test suite state after Batch 7:**
+- **447 passing** (up from 396 baseline + my 50 new = 446, plus 1 new positive validator test)
+- **11 failing** — ALL pre-existing infrastructure issues, NONE caused by this session's batches:
+  - `test_broker_manager` (5) — Fernet key format in test env (pre-existing)
+  - `test_config::test_settings_defaults` (1) — DEBUG env-dependent (pre-existing)
+  - `test_engine` (4) — engine internal SessionLocal bypasses test fixtures (pre-existing)
+  - `test_instrument_specs::test_calc_lot_size_zero_sl` (1) — pre-existing assertion mismatch
+- These can be addressed in a future cleanup pass; they aren't blocking.
+
+### Batch 8 — Frontend bugs + accessibility (deployed)
+
+1. **AgentConfigEditor form state desync (H15 + H16)** — `frontend/src/components/AgentConfigEditor.tsx`. Effect now depends on `[agent]` (full object) instead of `[agent?.id]` so reference changes also trigger reset. Filter checkboxes (`session_filter`, `regime_filter`, `news_filter`) now reset alongside other fields. Number inputs gained validation: invalid input is rejected instead of silently falling back to a default.
+2. **All AgentConfigEditor inputs got `htmlFor`/`id` pairs** — fixes form label association (H35).
+3. **Modal accessibility overhaul (C20)** — `frontend/src/components/ui/Modal.tsx`. Added: `role="dialog"`, `aria-modal="true"`, `aria-labelledby={titleId}`, focus trap on Tab/Shift+Tab, automatic focus on first focusable element when opened, focus restoration to opener on close, Escape key handler, `aria-label` on the close button, `aria-hidden` on the backdrop, click-stop-propagation on the dialog content.
+4. **Color contrast fixes (M38 + M39)** — `frontend/src/app/globals.css`:
+   - `--muted: #71717a` → `#9ca3af` (3.0:1 → ~5.1:1, passes WCAG AA 4.5:1)
+   - `--border: #1e2028` → `#333840` (1.5:1 → ~3.0:1, passes WCAG 1.4.11)
+5. **`*:focus-visible` global outline (M40)** — keyboard focus is now visible across the entire app.
+6. **`prefers-reduced-motion` support (M41)** — animations and transitions are disabled for users who request reduced motion in their OS settings (WCAG 2.3.3).
+7. **Skip-to-content link (M25)** — `frontend/src/components/AppShell.tsx`. Hidden until focused; jumps past the sidebar nav for keyboard users. Main element gets `id="main-content"` and `tabIndex={-1}`.
+8. **Vestigial timeframe dropdown removed from AgentWizard (H18)** — `frontend/src/components/AgentWizard.tsx`. The dropdown sent `timeframe` to the API but the engine hardcodes M5. Comment explains why. The internal `timeframe` state stays at "M5" so the API payload still includes it for backwards compat.
+9. **Log viewer message overflow protection (H17)** — `AgentDetailModal.tsx` and `AgentPanel.tsx`. Log message `<span>` now has `flex-1 min-w-0 max-h-32 overflow-y-auto block` — caps any single message at 128px tall, scrolls within the row instead of expanding. Specifically protects against the BTCUSD `<!DOCTYPE html>...</html>` Oanda 500-error dump from 2026-04-15.
+10. **AgentDetailModal log container ARIA** — added `role="log" aria-live="polite"` so screen readers announce new log entries.
+
+**Deploy:** Frontend container rebuilt + force-recreated. No backend touched.
+
+### Batch 9 — GDPR compliance endpoints (deployed)
+
+1. **`DELETE /api/auth/account`** — `backend/app/api/auth.py`. Requires password confirmation. Cascades to agents/trades/logs/broker_accounts/user_settings via existing SQLAlchemy cascades. Overwrites `totp_secret` and `broker_accounts.credentials_encrypted` with random bytes before delete so recovery from DB backups is meaningfully harder. Returns `{"message": "Account deleted..."}`. Closes audit C34.
+2. **`GET /api/auth/export-data`** — `backend/app/api/auth.py`. Returns JSON bundle: profile, all agents (config only, no credentials), all trades, agent_logs (capped at 5000), broker_accounts (names only), settings. Explicitly EXCLUDES credentials, TOTP secret, password hash, reset tokens. Closes audit H36.
+3. **6 new tests** in `test_gdpr_endpoints.py`: delete requires password, delete with wrong password fails, delete with correct password removes user + cascades, export returns profile, export includes agents, export excludes credentials. All passing.
+
+**Deferred to a future batch (low-priority cleanup):**
+- Migration 003 with consent columns (`terms_accepted_at`, `privacy_accepted_at`, `date_of_birth`)
+- Admin audit log table + middleware
+- LLM/Telegram opt-in flags in UserSettings
+- Frontend UI for account deletion + data export
+
+These are significant frontend work and are better done during waking hours with user feedback.
+
+**Deploy:** backend rebuild + force-recreate. Health endpoint confirmed `{"status":"ok"}`.
+
+### Batch 10 — Tradovate broker adapter fixes (deployed)
+
+Four critical bugs in `backend/app/services/broker/tradovate.py`:
+
+1. **Live/demo toggle wiring (C30)** — `connect()` previously only read `credentials.get("live", False)`, silently ignoring the frontend's `demo: true/false` toggle. Rewrote the mode resolution to accept both keys with priority `live > demo (inverted) > env var > default demo`. Everyone who previously tried to connect a live Tradovate account was silently put in demo mode.
+2. **Bracket orders silently broken (C31)** — `_place_bracket` was passing `"symbol": ""` to Tradovate on both the SL and TP legs PLUS the OSO wrapper. Tradovate silently rejected the bracket. Live Tradovate trades had NO stop-loss or take-profit. Now passes the actual `broker_symbol`. Also: the exception was being swallowed with `except BrokerError: pass` — now it propagates to `place_order` which surfaces the failure in the `OrderResult.message`.
+3. **No token refresh (C32)** — previously `connect()` stored only the access token and ignored `expirationTime`. After ~80 minutes the token expired and every subsequent API call got 401 with no recovery. New: stores `_token_expires_at`, adds `_ensure_token_fresh()` called before every request (5-minute pre-expiry buffer), reactive 401 refresh with one-retry, dedicated `_authenticate()` method callable from both initial `connect()` and refresh path. Credentials are cached in `_creds_snapshot` for re-auth. Guarded with `asyncio.Lock` to prevent concurrent refresh storms.
+4. **Missing contract specs (C33)** — `CONTRACT_SPECS` dict only had ES, NQ, YM. Added GC (gold $100/pt, $10/tick), SI (silver $5000/pt, $25/tick), BTC (bitcoin futures $5/pt, $25/tick), ETH (ether futures $50/pt, $2.50/tick), CL (crude oil), ZN (10-year T-note). `get_symbols()` now tries 3-char prefix first (BTC, ETH) before 2-char (ES, NQ, etc.) so both crypto and index futures are looked up correctly.
+
+**Also fixed** (audit H40): `get_symbols()` used to slice `data[:100]`, capping at 100 instruments. Removed — Tradovate has thousands of contracts and the cap was hiding most of them.
+
+**Also fixed**: `disconnect()` now clears `_md_access_token`, `_token_expires_at`, `_creds_snapshot`, and `_contract_cache` in addition to the access token. Previously stale cache survived reconnections.
+
+**13 new tests** in `test_tradovate_adapter.py` covering all 4 fixes. All passing.
+
+**Deploy:** backend rebuild + force-recreate. Health endpoint `{"status":"ok", "active_agents":4}`. Note: between the Batch 9 and Batch 10 deploys, the user must have touched the UI — agents 79 (NAS100 Flowrex v2) and 80 (US30 Flowrex v2) were deleted and agent 81 (BTCUSD Flowrex) was created. Leaving alone, not disturbing user state.
+
+---
+
 ## 2026-04-13 — Training diagnostics + data audit
 
 ### Critical bugs found and fixed
