@@ -48,3 +48,4 @@ backend/flowrex_algo.db
 backend/flowrex_algo.db-journal
 node_modules/
 package-lock.json
+backend/data/ml_models/experiments/
