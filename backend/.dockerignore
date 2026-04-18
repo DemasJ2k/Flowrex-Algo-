@@ -10,7 +10,15 @@ History Data/
 backend/data/ml_models/
 frontend/
 nginx/
-scripts/
+# Exclude training scripts from the container image — training runs on the host.
+# BUT selectively include the Dukascopy fetcher (needed for runtime backtest
+# via app/services/backtest/data_fetcher.py).
+scripts/*
+!scripts/fetch_dukascopy_node.js
+!scripts/node_modules
+!scripts/node_modules/**
+!scripts/package.json
+!scripts/package-lock.json
 VPrompt/
 *.joblib
 .env

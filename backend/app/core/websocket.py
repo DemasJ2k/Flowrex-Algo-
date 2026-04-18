@@ -19,10 +19,17 @@ class WSConnection:
     last_pong: float = field(default_factory=time.time)
 
 
+MAX_CONNECTIONS_PER_USER = 5
+
+
 class ConnectionManager:
     """
     Manages WebSocket connections with channel-based pub/sub.
     Singleton — one manager for the entire app.
+
+    Batch E fixes (multi-user readiness):
+    - Connection limit per user (MAX_CONNECTIONS_PER_USER) — prevents reconnection storms
+    - Broadcast uses asyncio.gather for non-blocking fan-out
     """
 
     def __init__(self):
@@ -34,6 +41,19 @@ class ConnectionManager:
 
     async def connect(self, websocket: WebSocket, user_id: int):
         """Accept and track a new WebSocket connection."""
+        # Connection limit per user — close oldest if at capacity
+        user_conns = self._user_connections.get(user_id, set())
+        if len(user_conns) >= MAX_CONNECTIONS_PER_USER:
+            oldest = min(
+                user_conns,
+                key=lambda ws: self._connections.get(ws, WSConnection(websocket=ws, user_id=0)).connected_at,
+            )
+            try:
+                await oldest.close(code=1008, reason="Connection limit exceeded")
+            except Exception:
+                pass
+            self.disconnect(oldest)
+
         await websocket.accept()
         conn = WSConnection(websocket=websocket, user_id=user_id)
         self._connections[websocket] = conn
@@ -86,7 +106,11 @@ class ConnectionManager:
                 del self._channel_subs[channel]
 
     async def broadcast(self, channel: str, data: dict):
-        """Send data to all subscribers of a channel (with rate limiting)."""
+        """
+        Send data to all subscribers of a channel (with rate limiting).
+
+        Uses asyncio.gather so a slow client doesn't block all others.
+        """
         now = time.time()
         last = self._last_broadcast.get(channel, 0)
         if now - last < self._min_broadcast_interval:
@@ -98,16 +122,22 @@ class ConnectionManager:
             return
 
         message = json.dumps({"channel": channel, "data": data})
-        stale = []
-        for ws in subs:
+        # Copy to list to avoid modifying the set during iteration
+        ws_list = list(subs)
+
+        async def _send(ws: WebSocket):
             try:
                 await ws.send_text(message)
+                return None
             except Exception:
-                stale.append(ws)
+                return ws
 
-        # Clean up broken connections
-        for ws in stale:
-            self.disconnect(ws)
+        results = await asyncio.gather(*[_send(ws) for ws in ws_list], return_exceptions=True)
+
+        # Clean up broken connections — _send returns the ws on failure, None on success
+        for r in results:
+            if r is not None and not isinstance(r, BaseException):
+                self.disconnect(r)
 
     async def send_personal(self, user_id: int, data: dict):
         """Send to all connections for a specific user."""

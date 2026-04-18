@@ -13,6 +13,24 @@ from app.core.config import settings
 logger = logging.getLogger("flowrex")
 
 
+_CSP_POLICY = (
+    "default-src 'self'; "
+    "script-src 'self' 'unsafe-inline' 'unsafe-eval'; "  # unsafe-inline for Next.js + Tailwind
+    "style-src 'self' 'unsafe-inline'; "
+    "img-src 'self' data: https:; "
+    "font-src 'self' data:; "
+    "connect-src 'self' https: wss:; "
+    "frame-ancestors 'none'; "
+    "base-uri 'self'; "
+    "form-action 'self';"
+)
+
+_PERMISSIONS_POLICY = (
+    "geolocation=(), microphone=(), camera=(), payment=(), usb=(), "
+    "accelerometer=(), gyroscope=(), magnetometer=(), interest-cohort=()"
+)
+
+
 class SecurityHeadersMiddleware(BaseHTTPMiddleware):
     """Add security headers to all responses."""
 
@@ -21,8 +39,11 @@ class SecurityHeadersMiddleware(BaseHTTPMiddleware):
         response.headers["X-Content-Type-Options"] = "nosniff"
         response.headers["X-Frame-Options"] = "DENY"
         response.headers["X-XSS-Protection"] = "1; mode=block"
+        response.headers["Referrer-Policy"] = "strict-origin-when-cross-origin"
+        response.headers["Permissions-Policy"] = _PERMISSIONS_POLICY
         if not settings.DEBUG:
             response.headers["Strict-Transport-Security"] = "max-age=31536000; includeSubDomains"
+            response.headers["Content-Security-Policy"] = _CSP_POLICY
         return response
 
 
@@ -43,6 +64,7 @@ class RequestLoggingMiddleware(BaseHTTPMiddleware):
             )
 
         response.headers["X-Request-ID"] = request_id
+        response.headers["X-API-Version"] = "1.0"
         return response
 
 
@@ -66,14 +88,34 @@ def setup_global_error_handler(app: FastAPI):
             )
 
 
+class _JSONFormatter(logging.Formatter):
+    """JSON log format for production — machine-parseable, structured."""
+
+    def format(self, record):
+        import json as _json
+        entry = {
+            "ts": self.formatTime(record, "%Y-%m-%dT%H:%M:%S"),
+            "level": record.levelname,
+            "logger": record.name,
+            "msg": record.getMessage(),
+        }
+        if record.exc_info and record.exc_info[0]:
+            entry["exception"] = self.formatException(record.exc_info)
+        return _json.dumps(entry)
+
+
 def setup_logging():
-    """Configure structured logging."""
+    """Configure structured logging. JSON in production, plain text in debug."""
     level = logging.DEBUG if settings.DEBUG else logging.INFO
-    logging.basicConfig(
-        level=level,
-        format="%(asctime)s %(levelname)s [%(name)s] %(message)s",
-        datefmt="%Y-%m-%d %H:%M:%S",
-    )
+
+    if settings.DEBUG:
+        fmt = "%(asctime)s %(levelname)s [%(name)s] %(message)s"
+        logging.basicConfig(level=level, format=fmt, datefmt="%Y-%m-%d %H:%M:%S")
+    else:
+        handler = logging.StreamHandler()
+        handler.setFormatter(_JSONFormatter())
+        logging.basicConfig(level=level, handlers=[handler])
+
     # Quiet down noisy libraries
     logging.getLogger("httpx").setLevel(logging.WARNING)
     logging.getLogger("httpcore").setLevel(logging.WARNING)

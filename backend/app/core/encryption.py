@@ -28,6 +28,21 @@ def get_fernet() -> Fernet:
     return _fernet
 
 
+def validate_encryption_key():
+    """
+    Call at startup to fail fast if ENCRYPTION_KEY is invalid.
+    Without this, a bad key only surfaces on the first encrypt/decrypt call
+    (e.g., when a user connects a broker), which is too late to diagnose.
+    """
+    try:
+        f = get_fernet()
+        # Round-trip test: encrypt + decrypt a known value
+        test = f.decrypt(f.encrypt(b"flowrex-key-check"))
+        assert test == b"flowrex-key-check"
+    except Exception as e:
+        raise RuntimeError(f"ENCRYPTION_KEY validation failed: {e}. Check .env.") from e
+
+
 def encrypt(plaintext: str) -> str:
     return get_fernet().encrypt(plaintext.encode()).decode()
 

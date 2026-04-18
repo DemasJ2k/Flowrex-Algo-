@@ -1,30 +1,32 @@
 """Feedback & access request endpoints."""
 import secrets
 from datetime import datetime, timezone, timedelta
-from fastapi import APIRouter, Depends, HTTPException
-from pydantic import BaseModel, EmailStr
+from fastapi import APIRouter, Depends, HTTPException, Request
+from pydantic import BaseModel, EmailStr, Field
 from typing import Optional
 from sqlalchemy.orm import Session
 
 from app.core.database import get_db
 from app.core.auth import get_current_user, get_admin_user
+from app.core.rate_limit import limiter
 from app.models.feedback import AccessRequest, FeedbackReport
 from app.models.invite import InviteCode
 
 router = APIRouter(prefix="/api", tags=["feedback"])
 
 
-# ── Access Requests (public — no auth) ────────────────────────────────
+# ── Access Requests (public — no auth, rate limited to block spam) ────
 
 class AccessRequestCreate(BaseModel):
-    name: str
-    email: str
-    phone: Optional[str] = None
-    message: Optional[str] = None
+    name: str = Field(..., min_length=1, max_length=100)
+    email: EmailStr
+    phone: Optional[str] = Field(None, max_length=50)
+    message: Optional[str] = Field(None, max_length=2000)
 
 
 @router.post("/access-requests")
-def create_access_request(body: AccessRequestCreate, db: Session = Depends(get_db)):
+@limiter.limit("3/hour")
+def create_access_request(request: Request, body: AccessRequestCreate, db: Session = Depends(get_db)):
     req = AccessRequest(
         name=body.name,
         email=body.email,

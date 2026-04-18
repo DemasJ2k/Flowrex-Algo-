@@ -1,14 +1,14 @@
-"""Admin endpoints — protected by is_admin check."""
+"""Admin endpoints — protected by is_admin check, with audit logging."""
 import secrets
 from datetime import datetime, timezone, timedelta
 from typing import Optional
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
 from app.core.database import get_db
 from app.core.auth import get_admin_user
-from app.models.user import User
+from app.models.user import User, AdminAuditLog
 from app.models.agent import TradingAgent
 from app.models.invite import InviteCode
 from app.services.agent.engine import get_algo_engine
@@ -16,19 +16,38 @@ from app.services.agent.engine import get_algo_engine
 router = APIRouter(prefix="/api/admin", tags=["admin"])
 
 
+def _audit(db: Session, admin_id: int, action: str, resource_type: str = None,
+           resource_id: int = None, ip: str = None, details: str = None):
+    """Write an admin audit log entry. GDPR Art. 32 compliance."""
+    try:
+        log = AdminAuditLog(
+            admin_id=admin_id, action=action,
+            resource_type=resource_type, resource_id=resource_id,
+            ip_address=ip, details=details,
+        )
+        db.add(log)
+        db.flush()
+    except Exception:
+        pass  # Audit logging is best-effort, must not block the request
+
+
 # ── Users ──────────────────────────────────────────────────────────────
 
 @router.get("/users")
-def list_users(admin=Depends(get_admin_user), db: Session = Depends(get_db)):
+def list_users(request: Request, admin=Depends(get_admin_user), db: Session = Depends(get_db)):
+    _audit(db, admin.id, "list_users", ip=request.client.host if request.client else None)
     users = db.query(User).all()
+    db.commit()
     return [{"id": u.id, "email": u.email, "is_admin": u.is_admin, "created_at": str(u.created_at)} for u in users]
 
 
 # ── Agents ─────────────────────────────────────────────────────────────
 
 @router.get("/agents")
-def list_all_agents(admin=Depends(get_admin_user), db: Session = Depends(get_db)):
+def list_all_agents(request: Request, admin=Depends(get_admin_user), db: Session = Depends(get_db)):
+    _audit(db, admin.id, "list_agents", ip=request.client.host if request.client else None)
     agents = db.query(TradingAgent).filter(TradingAgent.deleted_at.is_(None)).all()
+    db.commit()
     return [{"id": a.id, "name": a.name, "symbol": a.symbol, "status": a.status, "created_by": a.created_by} for a in agents]
 
 

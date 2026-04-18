@@ -32,6 +32,15 @@ class Settings(BaseSettings):
     ALPHAVANTAGE_API_KEY: str = ""
     NEWSAPI_API_KEY: str = ""
 
+    # Monitoring
+    SENTRY_DSN: str = ""  # Sentry error tracking — set in .env for production
+
+    # Telegram — central bot for all users (users connect via /connect flow)
+    TELEGRAM_BOT_TOKEN: str = ""  # Global bot token (from BotFather)
+    TELEGRAM_BOT_USERNAME: str = "FlowrexAlgoBot"  # Without @ prefix
+    TELEGRAM_WEBHOOK_SECRET: str = ""  # Validates Telegram webhook authenticity
+    APP_BASE_URL: str = "https://flowrexalgo.com"  # Used for webhook URL
+
     model_config = {
         "env_file": ".env",
         "env_file_encoding": "utf-8",
