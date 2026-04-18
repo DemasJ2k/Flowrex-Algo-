@@ -45,7 +45,7 @@ HIST_DATA_DIR = os.path.normpath(
 OOS_START = "2026-01-01"
 WARMUP = 500
 MAX_M5_BARS = 500_000  # 8GB droplet — full dataset fits comfortably
-ALL_SYMBOLS = ["US30", "BTCUSD", "XAUUSD", "ES", "NAS100"]
+ALL_SYMBOLS = ["US30", "BTCUSD", "XAUUSD", "ES", "NAS100", "ETHUSD", "XAGUSD", "AUS200"]
 
 RISK_CONFIG = {
     "max_drawdown_pct": 0.10,
@@ -116,6 +116,13 @@ def load_ohlcv(symbol):
 
 # ── Walk-forward folds ───────────────────────────────────────────────────
 
+# Embargo: number of bars to skip between the end of training and the start of
+# testing in each walk-forward fold. Prevents features with rolling windows
+# (EMA, ATR, Donchian, etc.) from leaking information across the train/test
+# boundary. 50 M5 bars ≈ 4 hours, longer than any rolling window used.
+EMBARGO_BARS = 50
+
+
 def get_wf_folds(timestamps, oos_start, n_folds=4):
     oos_ts = int(pd.Timestamp(oos_start, tz="UTC").timestamp())
     oos_idx = int(np.argmax(timestamps >= oos_ts)) if (timestamps >= oos_ts).any() else len(timestamps)
@@ -126,10 +133,16 @@ def get_wf_folds(timestamps, oos_start, n_folds=4):
     folds = []
     for k in range(n_folds):
         train_end = WARMUP + (k + 1) * chunk
-        test_start = train_end
+        # Purge gap between train and test (embargo) to block lookahead leakage
+        # from rolling-window features. test_start jumps EMBARGO_BARS forward.
+        test_start = train_end + EMBARGO_BARS
         test_end = WARMUP + (k + 2) * chunk
+        if test_start >= test_end:
+            # If the embargo eats the entire fold, skip it rather than producing an empty test set
+            continue
         folds.append({"fold": k + 1, "train_end": train_end,
-                      "test_start": test_start, "test_end": test_end})
+                      "test_start": test_start, "test_end": test_end,
+                      "embargo": EMBARGO_BARS})
     return folds, oos_idx
 
 
@@ -269,14 +282,16 @@ def shap_importance_table(model, X, feature_names, top_n=20):
 
 # ── Main training ────────────────────────────────────────────────────────
 
-def run_flowrex_training(symbol="US30", n_trials=15, n_folds=4):
+def run_flowrex_training(symbol="US30", n_trials=15, n_folds=4, overrides=None):
     cfg = get_symbol_config(symbol)
+    if overrides:
+        cfg = {**cfg, **overrides}
     cost_bps = cfg.get("cost_bps", 5.0)
     slippage_bps = cfg.get("slippage_bps", 1.0)
-    tp_mult = 1.2
-    sl_mult = 0.8
+    tp_mult = cfg.get("tp_atr_mult", 1.2)
+    sl_mult = cfg.get("sl_atr_mult", 0.8)
     bpd = cfg.get("bars_per_day", 288)
-    hold_bars = 10
+    hold_bars = cfg.get("hold_bars", 10)
 
     print(f"\n{'=' * 65}")
     print(f"  FLOWREX AGENT v2: {symbol}  |  {n_folds} folds  |  {n_trials} trials/fold")
@@ -455,10 +470,26 @@ def run_flowrex_training(symbol="US30", n_trials=15, n_folds=4):
             bar = "#" * int(imp * 300)
             print(f"  {rank:2d}. {fname:<40}  {imp * 100:5.2f}%  {bar}")
 
-    # 8. Save models
+    # 8. Save models — with pre-save auto-archive so a bad retrain can't wipe out good models.
     print(f"\n  {'-' * 60}")
     print(f"  Saving Models")
     print(f"  {'-' * 60}")
+
+    # Auto-archive existing models before overwrite.
+    # ES Grade F on 2026-04-15 wiped out the previous Grade A/B models — never again.
+    import shutil
+    archive_stamp = datetime.now(timezone.utc).strftime("%Y-%m-%d_%H%M")
+    archive_dir = os.path.join(MODEL_DIR, f"archive_{archive_stamp}")
+    archived_any = False
+    for mt in MODEL_TYPES:
+        old_path = os.path.join(MODEL_DIR, f"flowrex_{symbol}_M5_{mt}.joblib")
+        if os.path.exists(old_path):
+            if not archived_any:
+                os.makedirs(archive_dir, exist_ok=True)
+                archived_any = True
+            shutil.copy2(old_path, os.path.join(archive_dir, os.path.basename(old_path)))
+    if archived_any:
+        print(f"  Archived previous {symbol} models to: {archive_dir}")
 
     for model_type, model in final_models.items():
         grade, oos_m = oos_results[model_type]
@@ -487,6 +518,13 @@ def run_flowrex_training(symbol="US30", n_trials=15, n_folds=4):
         }
         joblib.dump(save_dict, path)
         print(f"  Saved: {os.path.basename(path)}  (Grade={grade})")
+
+    # Save feature distribution stats for live drift detection (Batch I)
+    try:
+        from app.services.ml.feature_monitor import save_training_stats
+        save_training_stats(feature_names, X_all[WARMUP:], symbol, prefix="flowrex")
+    except Exception as e:
+        print(f"  [WARN] Could not save feature stats: {e}")
 
     gc.collect()
     return wf_results, oos_results

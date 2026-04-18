@@ -31,9 +31,15 @@ SYMBOL_COUNTRIES: dict[str, str] = {
     "EURUSD": "EU", "GBPUSD": "GB", "USDJPY": "JP",
 }
 
-# Cache
+# Cache — increased from 5 min to 30 min (Batch J, V4-C4). Economic calendar
+# data doesn't change within 30 min, and the old 5-min TTL was burning through
+# free-tier API quotas (100 calls/day on NewsAPI) within 2 hours.
 _cache: dict[str, tuple[float, dict]] = {}
-CACHE_TTL = 300  # 5 minutes
+CACHE_TTL = 1800  # 30 minutes
+
+# Per-API rate limiting (Batch J, V4-C4) — minimum seconds between calls
+_last_api_call: dict[str, float] = {}
+MIN_API_INTERVAL = 2.0  # 2 seconds between calls to the same API
 
 
 class NewsResult:
@@ -118,8 +124,16 @@ def _check_finnhub(symbol: str, window_minutes: int) -> NewsResult | None:
             if event_impact not in ("high", "3"):
                 continue
 
-            # Check country relevance
-            if event_country != country and event_country != "US":
+            # Check country relevance (Batch J fix — V4-H3).
+            # Previously missed EUR events because German "DE" != "EU".
+            # EU instruments should match DE, FR, IT, ES events + US (Fed always matters).
+            eu_countries = {"DE", "FR", "IT", "ES", "NL", "BE", "AT"}
+            relevant = {country, "US"}
+            if country == "EU":
+                relevant |= eu_countries
+            if country == "GB":
+                relevant.add("EU")  # BoE + ECB both affect GBPUSD
+            if event_country not in relevant:
                 continue
 
             # Check keyword match
@@ -142,7 +156,9 @@ def _check_finnhub(symbol: str, window_minutes: int) -> NewsResult | None:
 
         return NewsResult(should_trade=True, reason="No high-impact events (Finnhub)", source="finnhub")
 
-    except Exception:
+    except Exception as e:
+        import logging
+        logging.getLogger("flowrex.news").warning(f"Finnhub API failed: {e}")
         return None  # Trigger fallback
 
 

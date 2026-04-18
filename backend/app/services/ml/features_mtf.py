@@ -134,7 +134,7 @@ def compute_expert_features(
     features["stoch_cross"] = _crossover_signal(stoch_k, stoch_d)
     features["cci_extreme"] = np.where(cci(highs, lows, closes, 20) > 100, 1.0,
                               np.where(cci(highs, lows, closes, 20) < -100, -1.0, 0.0))
-    features["momentum_5"] = closes - np.roll(closes, 5)
+    features["momentum_5"] = np.concatenate([np.zeros(5), closes[5:] - closes[:-5]])
 
     # ── Volatility (10) ───────────────────────────────────────────
     features["atr_14"] = atr_14

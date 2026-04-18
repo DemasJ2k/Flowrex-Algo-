@@ -127,8 +127,12 @@ def _anchored_vwap(closes, highs, lows, volumes, times, reset_period="weekly"):
     return np.where(cum_vol > 0, cum_vp / cum_vol, closes)
 
 
-def _session_vwap(closes, highs, lows, volumes, times, session_start_hour=13, session_start_min=30):
-    """Session VWAP — resets at session_start_hour:session_start_min UTC each day."""
+def _session_vwap(closes, highs, lows, volumes, times, session_start_hour=13, session_start_min=30, is_24_7=False):
+    """Session VWAP.
+
+    - For session-based symbols (indices, XAUUSD): resets at session_start_hour:session_start_min UTC each day.
+    - For 24/7 symbols (BTCUSD, ETHUSD): resets at UTC 00:00 each day (pass is_24_7=True).
+    """
     n = len(closes)
     typical = (highs + lows + closes) / 3.0
     vp = typical * volumes
@@ -136,8 +140,13 @@ def _session_vwap(closes, highs, lows, volumes, times, session_start_hour=13, se
         return np.zeros(0, dtype=float)
     ts = np.array(times, dtype=np.int64)
     seconds_in_day = ts % 86400
-    reset_sec = session_start_hour * 3600 + session_start_min * 60
-    is_reset = seconds_in_day == reset_sec
+    if is_24_7:
+        # UTC midnight rollover — any bar with 0 <= seconds_in_day < 300 (5 min) is the new session
+        is_reset = seconds_in_day < 300
+    else:
+        reset_sec = session_start_hour * 3600 + session_start_min * 60
+        # Use >= and range rather than exact equality — survives bar-minute drift
+        is_reset = (seconds_in_day >= reset_sec) & (seconds_in_day < reset_sec + 300)
     session_id = np.cumsum(is_reset)
     df = pd.DataFrame({"sid": session_id, "vp": vp, "vol": volumes})
     cum_vp = df.groupby("sid")["vp"].cumsum().values
@@ -185,20 +194,28 @@ def _volume_profile(highs, lows, volumes, n_bins=30, window=288, step=12):
     return poc, vah, val
 
 
-def _opening_range(highs, lows, closes, times, session_hour=13, session_min=30, n_bars=6):
-    """ORB: high/low of first n_bars after session open."""
+def _opening_range(highs, lows, closes, times, session_hour=13, session_min=30, n_bars=6, is_24_7=False):
+    """ORB: high/low of first n_bars after session open.
+
+    For 24/7 symbols (BTCUSD, ETHUSD), use UTC 00:00 as the 'session open' since
+    there's no real cash-open. For session-based symbols, use the passed hour:min.
+
+    Fix over prior version: uses a 5-minute window to detect session open instead
+    of exact minute equality — survives bar-timestamp drift and holiday schedules.
+    """
     n = len(closes)
     orb_high = np.zeros(n, dtype=float)
     orb_low = np.zeros(n, dtype=float)
     cur_h, cur_l, bars_since = np.nan, np.nan, -1
+    reset_start_sec = 0 if is_24_7 else (session_hour * 3600 + session_min * 60)
     for i in range(n):
         ts = times[i]
-        if isinstance(ts, (np.integer, int, float)):
-            hour = int(ts % 86400) // 3600
-            minute = int(ts % 3600) // 60
-        else:
-            hour, minute = 0, 0
-        if hour == session_hour and minute == session_min:
+        try:
+            sec_in_day = int(ts) % 86400
+        except (TypeError, ValueError):
+            sec_in_day = 0
+        in_reset_window = (reset_start_sec <= sec_in_day < reset_start_sec + 300)
+        if in_reset_window:
             bars_since = 0; cur_h = highs[i]; cur_l = lows[i]
         if 0 <= bars_since < n_bars:
             cur_h = max(cur_h, highs[i]) if not np.isnan(cur_h) else highs[i]
@@ -219,12 +236,30 @@ def compute_potential_features(
     n = len(closes)
     features = {}
 
+    # Symbol-aware session windowing
+    try:
+        from app.services.ml.symbol_config import SYMBOL_CONFIGS
+        cfg = SYMBOL_CONFIGS.get(symbol, {})
+    except Exception:
+        cfg = {}
+    asset_class = cfg.get("asset_class", "index")
+    is_24_7 = asset_class in ("crypto",)  # BTCUSD, ETHUSD
+    # Session start — if prime_hours_utc is set, use its low; else default to 13:30 (NYSE open)
+    prime = cfg.get("prime_hours_utc", (13, 21))
+    session_start_hour = prime[0] if isinstance(prime, (tuple, list)) else 13
+    session_start_min = 30 if session_start_hour == 13 else 0
+
     atr_14 = atr(highs, lows, closes, 14)
     atr_safe = np.where((atr_14 > 0) & ~np.isnan(atr_14), atr_14, 1.0)  # for division
     hl_range = highs - lows
 
     # ── 1. VWAP features (9) — session + weekly + monthly anchored ────
-    vwap_sess = _session_vwap(closes, highs, lows, volumes, times)
+    vwap_sess = _session_vwap(
+        closes, highs, lows, volumes, times,
+        session_start_hour=session_start_hour,
+        session_start_min=session_start_min,
+        is_24_7=is_24_7,
+    )
     vwap_week = _anchored_vwap(closes, highs, lows, volumes, times, "weekly")
     vwap_month = _anchored_vwap(closes, highs, lows, volumes, times, "monthly")
 
@@ -280,7 +315,12 @@ def compute_potential_features(
     features["pot_ema_21_slope"] = _slope(ema21, 5)
 
     # ── 5. ORB features (5) — distances in ATR units ─────────────────
-    orb_high, orb_low = _opening_range(highs, lows, closes, times)
+    orb_high, orb_low = _opening_range(
+        highs, lows, closes, times,
+        session_hour=session_start_hour,
+        session_min=session_start_min,
+        is_24_7=is_24_7,
+    )
     orb_range = orb_high - orb_low
     features["pot_orb_break_up"] = (closes > orb_high).astype(float)
     features["pot_orb_break_down"] = (closes < orb_low).astype(float)
@@ -302,8 +342,11 @@ def compute_potential_features(
     features["pot_macd_hist_atr"] = macd_hist / atr_safe
     features["pot_macd_cross"] = _crossover(macd_line, macd_sig)
     features["pot_macd_slope"] = _slope(macd_hist, 3)
-    mom10 = closes - np.roll(closes, 10)
-    mom20 = closes - np.roll(closes, 20)
+    # Momentum = current close minus close N bars ago.
+    # np.roll is circular (bar 0 wraps to bar N-1), which created spurious values
+    # for the first N rows. Use a proper backward-looking diff with leading zeros.
+    mom10 = np.concatenate([np.zeros(10), closes[10:] - closes[:-10]])
+    mom20 = np.concatenate([np.zeros(20), closes[20:] - closes[:-20]])
     features["pot_momentum_10_atr"] = mom10 / atr_safe
     features["pot_momentum_20_atr"] = mom20 / atr_safe
 
@@ -317,8 +360,14 @@ def compute_potential_features(
     features["pot_atr_14_50_ratio"] = np.where(atr_50 > 0, atr_14 / atr_50, 1.0)
 
     # ── 9. CVD/Flow + Delta Divergence (7) ────────────────────────────
+    # CVD (cumulative volume delta): use ROLLING window sum, not unbounded cumsum.
+    # Old impl used np.cumsum(cvd_delta) which grew from bar 0 → bar N. In backtest
+    # this produced values on the scale of N*avg_volume; in live with only 500 loaded
+    # bars, values were 1000× smaller. Model learned patterns on large-scale CVD and
+    # produced wrong predictions in live. Rolling(100) keeps the scale consistent
+    # between backtest and live. (Identical fix as features_flowrex.py line 311.)
     cvd_delta = volumes * np.sign(closes - opens)
-    cvd = np.cumsum(cvd_delta)
+    cvd = pd.Series(cvd_delta).rolling(100, min_periods=20).sum().fillna(0).values
     features["pot_cvd_slope"] = _slope(cvd, 10)
     features["pot_vol_imbalance"] = np.sign(closes - opens)
     vol_sma20 = sma(volumes, 20)
@@ -327,7 +376,8 @@ def compute_potential_features(
     vol_ratio = np.where(vol_sma20 > 0, volumes / vol_sma20, 1.0)
     features["pot_absorption"] = vol_ratio * (1 - body_ratio)
     features["pot_obv_slope"] = _slope(obv(closes, volumes), 10)
-    # Delta divergence: price making new high but CVD not confirming
+    # Delta divergence: price making new high but CVD not confirming.
+    # Using bounded CVD (above) so divergence signal is comparable live vs backtest.
     price_10_max = pd.Series(closes).rolling(10, min_periods=1).max().values
     cvd_10_max = pd.Series(cvd).rolling(10, min_periods=1).max().values
     price_at_high = (closes >= price_10_max * 0.999).astype(float)

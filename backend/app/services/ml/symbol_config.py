@@ -20,17 +20,20 @@ SYMBOL_CONFIGS: dict[str, dict] = {
     },
     "BTCUSD": {
         "asset_class": "crypto",
-        "label_atr_mult": 2.0,  # Require 2×ATR move for labeling (fewer, higher-quality trades)
+        "label_atr_mult": 2.0,
         "label_forward_bars": 10,
-        "hold_bars": 12,        # Allow extra bars for 2×ATR target to develop
+        "hold_bars": 12,
         "prime_hours_utc": (0, 24),
         "spread_pips": 50.0,
-        "cost_bps": 5.0,        # round-trip spread+commission (~0.05%)
-        "slippage_bps": 2.0,    # slippage (wider due to crypto volatility)
-        "tp_atr_mult": 2.0,     # TP matches label_atr_mult: risk 0.8 to make 2.0 (28.6% break-even)
-        "sl_atr_mult": 0.8,     # SL tighter than TP — good risk/reward
-        "bars_per_day": 288,    # 24h
-        "trend_filter": False,  # BTC reverses too fast for 20-day EMA; model features handle regime
+        "cost_bps": 5.0,
+        "slippage_bps": 2.0,
+        "tp_atr_mult": 2.0,
+        # SL widened from 0.8 to 1.2 (2026-04-16) — 20% WR on paper with 0.8 was too tight
+        # for BTC's current choppy regime. With 1.2, break-even WR drops to ~37.5% which is
+        # more achievable. SL distance increases from ~$100 to ~$180 at current ATR.
+        "sl_atr_mult": 1.2,
+        "bars_per_day": 288,
+        "trend_filter": False,
         "description": "Bitcoin — momentum-driven, 24/7, high volatility",
     },
     "US30": {
@@ -91,6 +94,47 @@ SYMBOL_CONFIGS: dict[str, dict] = {
         "prime_hours_utc": (8, 17),
         "spread_pips": 0.5,
         "description": "Pound/USD — London session dominant, BOE driven",
+    },
+    "ETHUSD": {
+        "asset_class": "crypto",
+        "label_atr_mult": 2.0,
+        "label_forward_bars": 10,
+        "hold_bars": 12,
+        "prime_hours_utc": (0, 24),
+        "spread_pips": 2.0,
+        "cost_bps": 5.0,
+        "slippage_bps": 2.0,
+        "tp_atr_mult": 2.0,
+        "sl_atr_mult": 1.2,
+        "bars_per_day": 288,
+        "trend_filter": False,
+        "description": "Ether — high beta crypto, correlated with BTC",
+    },
+    "XAGUSD": {
+        "asset_class": "commodity",
+        "label_atr_mult": 1.5,
+        "label_forward_bars": 8,
+        "prime_hours_utc": (8, 21),
+        "spread_pips": 3.0,
+        "cost_bps": 3.0,
+        "slippage_bps": 1.5,
+        "tp_atr_mult": 1.5,
+        "sl_atr_mult": 1.0,
+        "bars_per_day": 264,
+        "description": "Silver — industrial + safe haven, higher volatility than gold",
+    },
+    "AUS200": {
+        "asset_class": "index",
+        "label_atr_mult": 1.2,
+        "label_forward_bars": 10,
+        "prime_hours_utc": (0, 6),  # ASX: 00:00-06:00 UTC (10am-4pm AEST)
+        "spread_pips": 1.0,
+        "cost_bps": 1.0,
+        "slippage_bps": 0.5,
+        "tp_atr_mult": 1.2,
+        "sl_atr_mult": 0.8,
+        "bars_per_day": 102,
+        "description": "ASX 200 — Australian equities index",
     },
 }
 

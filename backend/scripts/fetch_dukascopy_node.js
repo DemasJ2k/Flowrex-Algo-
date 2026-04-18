@@ -1,10 +1,11 @@
 /**
  * Fast Dukascopy data fetcher using dukascopy-node.
- * Downloads M5/H1/H4/D1 OHLCV for all 5 symbols.
+ * Downloads M5/H1/H4/D1 OHLCV for all symbols.
  *
  * Usage:
  *   node fetch_dukascopy_node.js US30 2500
  *   node fetch_dukascopy_node.js all 2500
+ *   node fetch_dukascopy_node.js ETHUSD 2500
  */
 const { getHistoricalRates } = require("dukascopy-node");
 const fs = require("fs");
@@ -13,16 +14,46 @@ const path = require("path");
 const HIST_DIR = path.resolve(__dirname, "..", "..", "History Data", "data");
 
 const SYMBOL_MAP = {
-  US30: "usa30idxusd",
-  BTCUSD: "btcusd",
-  XAUUSD: "xauusd",
-  ES: "usa500idxusd",
-  NAS100: "usatechidxusd",
+  US30:    "usa30idxusd",
+  BTCUSD:  "btcusd",
+  XAUUSD:  "xauusd",
+  ES:      "usa500idxusd",
+  NAS100:  "usatechidxusd",
+  ETHUSD:  "ethusd",
+  XAGUSD:  "xagusd",
+  AUS200:  "ausidxaud",
 };
 
 const TIMEFRAMES = ["m5", "h1", "h4", "d1"];
 const TF_LABELS = { m5: "M5", h1: "H1", h4: "H4", d1: "D1" };
 const MAX_BARS = 500000;
+
+// Sleep helper for retry backoff
+const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+
+// M5 chunking: Dukascopy rejects huge M5 date ranges. Split into 6-month windows.
+const M5_CHUNK_DAYS = 180;
+
+async function fetchChunk(instrument, tf, from, to, attempt = 1) {
+  try {
+    const data = await getHistoricalRates({
+      instrument,
+      dates: { from: from.toISOString(), to: to.toISOString() },
+      timeframe: tf,
+      format: "json",
+      priceType: "bid",
+    });
+    return data || [];
+  } catch (err) {
+    if (attempt < 3) {
+      const backoff = 1000 * Math.pow(2, attempt - 1); // 1s, 2s, 4s
+      console.log(`  ⚠ attempt ${attempt} failed (${err.message}), retrying in ${backoff}ms...`);
+      await sleep(backoff);
+      return fetchChunk(instrument, tf, from, to, attempt + 1);
+    }
+    throw err;
+  }
+}
 
 async function fetchSymbol(symbol, tf, days) {
   const instrument = SYMBOL_MAP[symbol];
@@ -41,30 +72,48 @@ async function fetchSymbol(symbol, tf, days) {
   );
 
   try {
-    const data = await getHistoricalRates({
-      instrument,
-      dates: {
-        from: start.toISOString(),
-        to: end.toISOString(),
-      },
-      timeframe: tf,
-      format: "json",
-      priceType: "bid",
-    });
+    let allData = [];
 
-    if (!data || data.length === 0) {
+    // M5 fetches for long ranges are flaky — chunk into 6-month windows
+    if (tf === "m5" && days > M5_CHUNK_DAYS) {
+      let chunkStart = new Date(start);
+      let chunkNum = 0;
+      const totalChunks = Math.ceil(days / M5_CHUNK_DAYS);
+      while (chunkStart < end) {
+        chunkNum++;
+        const chunkEnd = new Date(chunkStart);
+        chunkEnd.setDate(chunkEnd.getDate() + M5_CHUNK_DAYS);
+        if (chunkEnd > end) chunkEnd.setTime(end.getTime());
+        process.stdout.write(`    chunk ${chunkNum}/${totalChunks} (${chunkStart.toISOString().slice(0, 10)} → ${chunkEnd.toISOString().slice(0, 10)})... `);
+        try {
+          const chunk = await fetchChunk(instrument, tf, chunkStart, chunkEnd);
+          process.stdout.write(`${chunk.length} bars\n`);
+          allData = allData.concat(chunk);
+        } catch (err) {
+          process.stdout.write(`FAILED (${err.message})\n`);
+          // Fatal for M5: propagate the failure so caller knows
+          console.log(`  ERROR: M5 chunk fetch failed after retries: ${err.message}`);
+          return null;
+        }
+        chunkStart = chunkEnd;
+      }
+    } else {
+      allData = await fetchChunk(instrument, tf, start, end);
+    }
+
+    if (!allData || allData.length === 0) {
       console.log(`  No data returned for ${symbol} ${label}`);
       return null;
     }
 
     // Cap bars
-    let rows = data;
+    let rows = allData;
     if (rows.length > MAX_BARS) {
       console.log(`  Capping from ${rows.length.toLocaleString()} to ${MAX_BARS.toLocaleString()} bars`);
       rows = rows.slice(-MAX_BARS);
     }
 
-    console.log(`  Got ${rows.length.toLocaleString()} bars`);
+    console.log(`  ✓ Got ${rows.length.toLocaleString()} bars`);
     return rows;
   } catch (err) {
     console.log(`  ERROR: ${err.message}`);
@@ -72,9 +121,13 @@ async function fetchSymbol(symbol, tf, days) {
   }
 }
 
-function saveCSV(symbol, tf, rows) {
+function saveCSV(symbol, tf, rows, outDirOverride = null) {
   const label = TF_LABELS[tf] || tf;
-  const outDir = path.join(HIST_DIR, symbol);
+  // If outDirOverride is set (e.g. backtest tempdir), write to it directly.
+  // Otherwise write to the persistent History Data layout.
+  const outDir = outDirOverride
+    ? outDirOverride
+    : path.join(HIST_DIR, symbol);
   fs.mkdirSync(outDir, { recursive: true });
 
   const outPath = path.join(outDir, `${symbol}_${label}.csv`);
@@ -152,6 +205,8 @@ async function main() {
   const args = process.argv.slice(2);
   const symbolArg = (args[0] || "US30").toUpperCase();
   const days = parseInt(args[1] || "2500");
+  // Optional: fetch to a specific directory (used by backtest data fetcher)
+  const outDirOverride = args[2] || null;
 
   const symbols =
     symbolArg === "ALL" ? Object.keys(SYMBOL_MAP) : [symbolArg];
@@ -160,21 +215,62 @@ async function main() {
   console.log("  Dukascopy Data Fetcher (Node.js — fast)");
   console.log(`  Symbols: ${symbols.join(", ")}`);
   console.log(`  Days: ${days}`);
+  if (outDirOverride) console.log(`  Output dir: ${outDirOverride}`);
   console.log("=".repeat(60));
+
+  // Per-symbol-timeframe result tracking
+  const report = {}; // { symbol: { m5: 'ok'|'fail'|'skip', h1: ..., ... } }
 
   for (const sym of symbols) {
     console.log(`\n--- ${sym} ---`);
+    report[sym] = {};
     for (const tf of TIMEFRAMES) {
-      const data = await fetchSymbol(sym, tf, days);
-      if (data && data.length > 0) {
-        saveCSV(sym, tf, data);
+      try {
+        const data = await fetchSymbol(sym, tf, days);
+        if (data && data.length > 0) {
+          saveCSV(sym, tf, data, outDirOverride);
+          report[sym][tf] = { status: "ok", rows: data.length };
+        } else {
+          report[sym][tf] = { status: "fail", rows: 0 };
+        }
+      } catch (err) {
+        console.log(`  EXCEPTION: ${err.message}`);
+        report[sym][tf] = { status: "fail", rows: 0, error: err.message };
       }
     }
   }
 
+  // ── Summary report ───────────────────────────────────────────────
   console.log("\n" + "=".repeat(60));
-  console.log("  Download complete!");
+  console.log("  FETCH SUMMARY");
   console.log("=".repeat(60));
+  let hasCriticalFailure = false;
+  for (const sym of symbols) {
+    const r = report[sym] || {};
+    const parts = TIMEFRAMES.map(function (tf) {
+      const entry = r[tf] || {};
+      const status = entry.status || "unknown";
+      const mark = status === "ok" ? "✓" : "✗";
+      return TF_LABELS[tf] + mark;
+    });
+    const line = "  " + sym.padEnd(10) + " " + parts.join("  ");
+    console.log(line);
+    // M5 is the critical timeframe for training — fail the whole run if any M5 fetch failed
+    const m5Entry = r.m5 || {};
+    if (m5Entry.status !== "ok") {
+      hasCriticalFailure = true;
+    }
+  }
+
+  if (hasCriticalFailure) {
+    console.log("\n❌ One or more M5 fetches failed. Training will be blocked until resolved.");
+    process.exit(2);
+  } else {
+    console.log("\n✓ All M5 fetches succeeded.");
+  }
 }
 
-main().catch(console.error);
+main().catch((err) => {
+  console.error("Fatal error:", err);
+  process.exit(1);
+});

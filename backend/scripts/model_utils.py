@@ -249,7 +249,15 @@ def compute_backtest_metrics(
             i += 1
             continue
 
-        atr = (atr_test[i] if (use_ohlc and atr_test[i] > 0) else entry * 0.001)
+        # ATR warmup guard (Batch H — V4-C5): don't trade when ATR is NaN or
+        # suspiciously small. The first ~14 bars have NaN ATR from the indicator;
+        # the old fallback of entry*0.001 produced artificially tight SL/TP that
+        # inflated Sharpe by +0.15-0.25. Now we just skip those bars.
+        raw_atr = atr_test[i] if use_ohlc else 0
+        if not use_ohlc or np.isnan(raw_atr) or raw_atr <= 0:
+            i += 1
+            continue
+        atr = raw_atr
         is_long = (sig == 2)
 
         tp_price = entry + atr * tp_atr_mult if is_long else entry - atr * tp_atr_mult
@@ -259,9 +267,21 @@ def compute_backtest_metrics(
         exit_bar  = i + hold_bars
 
         # ── Scan forward bars for TP/SL ───────────────────────────────────
+        # Gap detection (Batch H — V4-H6): if there's a time gap > 2× the
+        # expected bar interval, the price likely gapped. Apply pessimistic
+        # slippage on exits that land on gap bars.
+        expected_bar_interval = 300 if bars_per_day >= 200 else 86400 // max(bars_per_day, 1)
         if use_ohlc:
             for j in range(i + 1, min(i + hold_bars + 1, n)):
                 hi, lo = highs_test[j], lows_test[j]
+
+                # Detect time gap (weekend/overnight) — add slippage penalty
+                gap_slippage = 0.0
+                if times_test is not None and j > 0:
+                    dt = times_test[j] - times_test[j - 1]
+                    if dt > expected_bar_interval * 2:
+                        gap_slippage = atr * 0.1  # 10% of ATR pessimistic slippage
+
                 if is_long:
                     sl_hit = lo <= sl_price
                     tp_hit = hi >= tp_price
@@ -270,16 +290,15 @@ def compute_backtest_metrics(
                     tp_hit = lo <= tp_price
 
                 if sl_hit and tp_hit:
-                    # Both hit same bar — pessimistic: SL first
-                    exit_ret = -(atr * sl_atr_mult / entry) - total_cost
+                    exit_ret = -(atr * sl_atr_mult / entry) - total_cost - (gap_slippage / entry)
                     exit_bar = j
                     break
                 elif sl_hit:
-                    exit_ret = -(atr * sl_atr_mult / entry) - total_cost
+                    exit_ret = -(atr * sl_atr_mult / entry) - total_cost - (gap_slippage / entry)
                     exit_bar = j
                     break
                 elif tp_hit:
-                    exit_ret = (atr * tp_atr_mult / entry) - total_cost
+                    exit_ret = (atr * tp_atr_mult / entry) - total_cost - (gap_slippage / entry * 0.5)
                     exit_bar = j
                     break
 
@@ -309,10 +328,17 @@ def compute_backtest_metrics(
     losses = trade_returns[trade_returns < 0]
 
     # ── Sharpe on DAILY aggregated returns × sqrt(252) ───────────────────
-    n_days  = max(1, n // bars_per_day)
-    trimmed = equity_curve[: n_days * bars_per_day]
-    daily   = trimmed.reshape(n_days, bars_per_day).sum(axis=1)
-    sharpe  = float(daily.mean() / daily.std() * np.sqrt(252)) if (n_days > 1 and daily.std() > 0) else 0.0
+    # Batch H fix (V4-M6): include partial tail day instead of truncating.
+    # Previously, bars beyond n_days * bars_per_day were silently dropped,
+    # which could overstate Sharpe by ~5-10% if the tail had high variance.
+    n_days = max(1, n // bars_per_day)
+    full_days = equity_curve[: n_days * bars_per_day].reshape(n_days, bars_per_day).sum(axis=1)
+    remainder = equity_curve[n_days * bars_per_day:]
+    if len(remainder) > 0:
+        daily = np.append(full_days, remainder.sum())
+    else:
+        daily = full_days
+    sharpe = float(daily.mean() / daily.std() * np.sqrt(252)) if (len(daily) > 1 and daily.std() > 0) else 0.0
 
     # ── Equity curve drawdown ─────────────────────────────────────────────
     cum    = np.cumsum(equity_curve)

@@ -73,6 +73,9 @@ class TradeResponse(BaseModel):
     signal_data: Optional[dict] = None
     entry_time: Optional[datetime] = None
     exit_time: Optional[datetime] = None
+    # Added for trading page History tab — shows which agent placed the trade
+    agent_name: Optional[str] = None
+    agent_type: Optional[str] = None
 
 
 class PnlSummaryItem(BaseModel):

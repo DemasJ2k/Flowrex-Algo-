@@ -48,6 +48,58 @@ def init_scheduler():
     else:
         logger.info("Retrain scheduler initialized (disabled)")
 
+    # Always-on daily housekeeping: purge old logs, old access requests,
+    # orphaned backtest tempdirs. Runs at 03:00 UTC.
+    try:
+        from app.services.housekeeping import run_daily_housekeeping
+        _scheduler.add_job(
+            run_daily_housekeeping,
+            trigger=CronTrigger(hour=3, minute=0, timezone="UTC"),
+            id="daily_housekeeping",
+            replace_existing=True,
+        )
+        logger.info("Daily housekeeping scheduled for 03:00 UTC")
+    except Exception as e:
+        logger.warning(f"Could not schedule daily housekeeping: {e}")
+
+    # Hourly AI monitoring: sends Telegram summaries to users with LLM + Telegram enabled.
+    try:
+        _scheduler.add_job(
+            _run_hourly_monitoring,
+            trigger=CronTrigger(minute=0, timezone="UTC"),  # top of each hour
+            id="hourly_ai_monitoring",
+            replace_existing=True,
+            coalesce=True,  # drop missed runs if backend is down
+            max_instances=1,
+        )
+        logger.info("Hourly AI monitoring scheduled")
+    except Exception as e:
+        logger.warning(f"Could not schedule hourly monitoring: {e}")
+
+
+def _run_hourly_monitoring():
+    """
+    APScheduler-invoked wrapper. BackgroundScheduler uses a thread pool, so each
+    call runs in its own thread (no main event loop). asyncio.run() creates a
+    fresh loop, runs the coroutine, and cleans up — safe even across restarts.
+
+    If a loop is already running in this thread (shouldn't happen), fall back
+    to scheduling via the running loop.
+    """
+    import asyncio
+    from app.services.llm.monitoring import hourly_check_all_users
+    try:
+        try:
+            loop = asyncio.get_running_loop()
+        except RuntimeError:
+            loop = None
+        if loop and loop.is_running():
+            asyncio.run_coroutine_threadsafe(hourly_check_all_users(), loop)
+        else:
+            asyncio.run(hourly_check_all_users())
+    except Exception as e:
+        logger.error(f"Hourly monitoring error: {e}")
+
 
 def shutdown_scheduler():
     """Shutdown the scheduler on FastAPI shutdown."""
