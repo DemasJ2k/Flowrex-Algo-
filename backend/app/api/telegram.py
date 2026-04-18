@@ -236,9 +236,158 @@ async def webhook(request: Request, db: Session = Depends(get_db)):
             await _reply(chat_id, "ℹ️ You weren't connected.")
         return {"ok": True}
 
-    # Unknown message — respond politely
-    await _reply(chat_id, "Type /help for available commands.")
+    # Free-form chat — route to the user's AI supervisor if they're connected.
+    # Otherwise, politely prompt them to connect.
+    matched_user_id: Optional[int] = None
+    for s in db.query(UserSettings).all():
+        if (s.settings_json or {}).get("telegram_chat_id") == chat_id:
+            matched_user_id = s.user_id
+            break
+
+    if matched_user_id is None:
+        await _reply(chat_id,
+            "Not connected to FlowrexAlgo. Send <code>/start &lt;code&gt;</code> "
+            "using a code from Settings → AI Supervisor → Connect Telegram.")
+        return {"ok": True}
+
+    # Fire-and-forget AI chat — Telegram times out webhook responses at 60s.
+    # We ack immediately, then send the reply via a separate Telegram API call.
+    import asyncio
+    asyncio.create_task(_handle_free_chat(matched_user_id, chat_id, text))
     return {"ok": True}
+
+
+async def _handle_free_chat(user_id: int, chat_id: str, user_message: str):
+    """
+    Full chat routing: Telegram → AI supervisor → Telegram.
+
+    - Looks up user's Anthropic API key + LLM config
+    - Uses their default chat session (or creates "Telegram" session)
+    - Saves both user message + AI reply to the same DB session
+    - Sends reply back via Telegram
+    """
+    from app.core.database import SessionLocal as _SL
+    from app.core.encryption import get_fernet
+    from app.services.llm.supervisor import get_supervisor
+    from app.models.chat import ChatSession, ChatMessage
+    from datetime import datetime, timezone as _tz
+
+    _db = _SL()
+    try:
+        # Confirm user has LLM enabled
+        sr = _db.query(UserSettings).filter(UserSettings.user_id == user_id).first()
+        data = (sr.settings_json if sr else None) or {}
+        if not data.get("llm_enabled"):
+            await _reply(chat_id,
+                "🤖 AI Supervisor is not enabled on your account. Enable it in Settings → AI Supervisor.")
+            return
+
+        api_key = None
+        if "llm_api_key" in data:
+            try:
+                api_key = get_fernet().decrypt(data["llm_api_key"].encode()).decode()
+            except Exception:
+                pass
+        if not api_key:
+            await _reply(chat_id,
+                "🤖 No Anthropic API key set. Add one in Settings → AI Supervisor.")
+            return
+
+        supervisor = get_supervisor()
+        supervisor.configure(
+            user_id=user_id,
+            api_key=api_key,
+            model=data.get("llm_model", "haiku"),
+            enabled=True,
+            autonomous=data.get("llm_autonomous", False),
+        )
+
+        # Find or create a "Telegram" chat session for this user
+        TG_TITLE = "Telegram"
+        session = _db.query(ChatSession).filter(
+            ChatSession.user_id == user_id,
+            ChatSession.title == TG_TITLE,
+            ChatSession.is_active == True,
+        ).first()
+        if not session:
+            session = ChatSession(user_id=user_id, title=TG_TITLE)
+            _db.add(session)
+            _db.commit()
+            _db.refresh(session)
+
+        # Save user message
+        _db.add(ChatMessage(session_id=session.id, role="user", content=user_message))
+        _db.commit()
+
+        # Load last 20 messages for context
+        history = (
+            _db.query(ChatMessage)
+            .filter(ChatMessage.session_id == session.id)
+            .order_by(ChatMessage.created_at.desc())
+            .limit(20)
+            .all()
+        )
+        history.reverse()
+        conversation = [{"role": m.role, "content": m.content} for m in history]
+
+        # Build trading context (agents + trades + P&L)
+        from app.api.llm import _build_chat_context
+        context = await _build_chat_context(user_id, _db)
+
+        # Query Claude
+        reply, usage = await supervisor.chat_with_history(
+            user_id=user_id,
+            conversation=conversation,
+            context=context,
+        )
+
+        if not reply:
+            reply = "I couldn't generate a response. Please try again."
+
+        # Save AI reply
+        _db.add(ChatMessage(
+            session_id=session.id, role="assistant", content=reply,
+            model=supervisor.get_session(user_id).model,
+            input_tokens=(usage or {}).get("input_tokens") if usage else None,
+            output_tokens=(usage or {}).get("output_tokens") if usage else None,
+        ))
+        session.updated_at = datetime.now(_tz.utc)
+        _db.commit()
+
+        # Send back via Telegram (HTML; Telegram has 4096 char limit — handled by send_to_user)
+        from app.services.llm.telegram import get_telegram_notifier
+        notifier = get_telegram_notifier()
+        # Strip markdown for Telegram — it only supports HTML, not GFM
+        safe_reply = _markdown_to_telegram_html(reply)
+        await notifier.send_to_user(chat_id, safe_reply)
+    except Exception as e:
+        try:
+            await _reply(chat_id, f"⚠️ Chat error: {str(e)[:200]}")
+        except Exception:
+            pass
+    finally:
+        _db.close()
+
+
+def _markdown_to_telegram_html(md: str) -> str:
+    """
+    Minimal markdown → Telegram HTML conversion.
+    Telegram supports: <b>, <i>, <u>, <s>, <code>, <pre>, <a>
+    """
+    import re as _re
+    # Escape HTML special chars first
+    s = md.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
+    # Code blocks (```text```)
+    s = _re.sub(r"```(\w*)\n?(.*?)```", r"<pre>\2</pre>", s, flags=_re.DOTALL)
+    # Inline code `text`
+    s = _re.sub(r"`([^`]+)`", r"<code>\1</code>", s)
+    # Bold **text**
+    s = _re.sub(r"\*\*([^*]+)\*\*", r"<b>\1</b>", s)
+    # Italic *text* (careful not to conflict with bold — already handled)
+    s = _re.sub(r"(?<!\*)\*([^*]+)\*(?!\*)", r"<i>\1</i>", s)
+    # Headers → bold
+    s = _re.sub(r"^#+\s*(.+?)$", r"<b>\1</b>", s, flags=_re.MULTILINE)
+    return s
 
 
 async def _reply(chat_id: str, text: str):

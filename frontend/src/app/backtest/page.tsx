@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import Card, { StatCard } from "@/components/ui/Card";
+import Glass from "@/components/ui/Glass";
 import DataTable, { Column } from "@/components/ui/DataTable";
 import StatusBadge from "@/components/ui/StatusBadge";
 import EquityCurveChart from "@/components/EquityCurveChart";
@@ -248,7 +249,7 @@ export default function BacktestPage() {
       </h1>
 
       {/* Agent Selection + Config */}
-      <Card>
+      <Glass padding="md">
         {/* Agent Type Selector */}
         <div className="mb-4">
           <label className="block text-xs font-medium mb-2" style={{ color: "var(--muted)" }}>Agent / Model</label>
@@ -485,7 +486,7 @@ export default function BacktestPage() {
             </>
           )}
         </button>
-      </Card>
+      </Glass>
 
       {/* Results */}
       {result && !result.error && (
@@ -494,7 +495,7 @@ export default function BacktestPage() {
             Results are temporary -- run again after page refresh.
           </p>
           {/* Model badge */}
-          <Card>
+          <Glass padding="md">
             <div className="flex items-center gap-3">
               <div className="flex items-center gap-2">
                 <span className="text-xs font-medium px-2 py-0.5 rounded bg-emerald-500/10 text-emerald-400 border border-emerald-500/30">
@@ -508,7 +509,7 @@ export default function BacktestPage() {
                 {result.total_trades} trades | {result.symbol}
               </div>
             </div>
-          </Card>
+          </Glass>
 
           {/* Summary Stats */}
           <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-3">
@@ -560,18 +561,18 @@ export default function BacktestPage() {
                 background: result.total_pnl > 0 ? "linear-gradient(135deg, #8b5cf6, #3b82f6)" : "transparent",
               }}
             >
-              <Card className={result.total_pnl > 0 ? "!rounded-[10px]" : ""}>
+              <Glass padding="md" className={result.total_pnl > 0 ? "!rounded-[10px]" : ""}>
                 <h3 className="text-sm font-medium mb-2 flex items-center gap-2">
                   <TrendingUp size={14} style={{ color: "var(--muted)" }} /> Equity Curve
                 </h3>
                 <EquityCurveChart data={eqCurve} height={220} />
-              </Card>
+              </Glass>
             </div>
           )}
 
           {/* Monthly Breakdown Table */}
           {result.monthly_breakdown && result.monthly_breakdown.length > 0 && (
-            <Card>
+            <Glass padding="md">
               <h3 className="text-sm font-medium mb-2 flex items-center gap-2">
                 <BarChart3 size={14} style={{ color: "var(--muted)" }} /> Monthly Breakdown
               </h3>
@@ -582,12 +583,12 @@ export default function BacktestPage() {
                 pageSize={12}
                 emptyMessage="No monthly data"
               />
-            </Card>
+            </Glass>
           )}
 
           {/* Trade Table */}
           {result.trades && result.trades.length > 0 && (
-            <Card>
+            <Glass padding="md">
               <h3 className="text-sm font-medium mb-2">
                 Recent Trades ({result.trades.length})
               </h3>
@@ -598,15 +599,15 @@ export default function BacktestPage() {
                 pageSize={25}
                 emptyMessage="No trades"
               />
-            </Card>
+            </Glass>
           )}
         </>
       )}
 
       {result?.error && (
-        <Card>
+        <Glass padding="md">
           <p className="text-red-400 text-sm">{result.error}</p>
-        </Card>
+        </Glass>
       )}
     </div>
   );

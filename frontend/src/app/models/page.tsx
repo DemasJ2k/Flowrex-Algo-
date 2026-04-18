@@ -5,6 +5,7 @@ import { useEffect, useState, useMemo } from "react";
 import api from "@/lib/api";
 import type { MLModel } from "@/types";
 import Card from "@/components/ui/Card";
+import Glass from "@/components/ui/Glass";
 import StatusBadge from "@/components/ui/StatusBadge";
 import ModelDetailModal from "@/components/ModelDetailModal";
 import { BrainCircuit, Loader2, RefreshCw, Calendar, History, ArrowRight, ChevronDown, ChevronUp, Zap, BarChart3, Shield, Database } from "lucide-react";
@@ -172,8 +173,10 @@ export default function ModelsPage() {
     <div className="space-y-4">
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-2xl font-semibold bg-gradient-to-r from-violet-400 to-blue-400 bg-clip-text text-transparent">ML Models</h1>
-          <p className="text-xs mt-0.5" style={{ color: "var(--muted)" }}>{potentialModels.length} deployed models | Potential Agent v2 Pipeline</p>
+          <h1 className="text-2xl md:text-3xl font-semibold tracking-tight text-gradient">ML Models</h1>
+          <p className="text-xs mt-0.5 tabular" style={{ color: "var(--muted)" }}>
+            {potentialModels.length} deployed &middot; Potential Agent v2 Pipeline
+          </p>
         </div>
         <div className="flex gap-2">
           {(training || retraining) && (
@@ -199,7 +202,7 @@ export default function ModelsPage() {
               const gc = GRADE_COLORS[pm.grade] || GRADE_COLORS.F;
               const isRetrainingThis = retraining && (retrainSymbol === pm.symbol || retrainSymbol === "ALL");
               return (
-                <Card key={pm.symbol} className={`relative overflow-hidden ${gc.glow}`}>
+                <Glass padding="md" key={pm.symbol} className={`relative overflow-hidden ${gc.glow}`}>
                   {/* Gradient accent top bar */}
                   <div className={`absolute top-0 left-0 right-0 h-0.5 bg-gradient-to-r ${
                     pm.grade === "A" ? "from-emerald-500 to-emerald-300" :
@@ -314,7 +317,7 @@ export default function ModelsPage() {
                       )}
                     </div>
                   )}
-                </Card>
+                </Glass>
               );
             })}
           </div>
@@ -333,7 +336,7 @@ export default function ModelsPage() {
             {flowrexModels.map((pm) => {
               const gc = GRADE_COLORS[pm.grade] || GRADE_COLORS.F;
               return (
-                <Card key={pm.symbol} className={`${gc.border} border ${gc.glow}`}>
+                <Glass padding="md" key={pm.symbol} className={`${gc.border} border ${gc.glow}`}>
                   <div className="flex items-center justify-between mb-3">
                     <div className="flex items-center gap-2">
                       <span className={`text-2xl font-bold ${gc.text}`}>{pm.grade}</span>
@@ -357,7 +360,7 @@ export default function ModelsPage() {
                       <p className="text-sm font-mono font-semibold">{pm.max_drawdown}%</p>
                     </div>
                   </div>
-                </Card>
+                </Glass>
               );
             })}
           </div>
@@ -384,7 +387,7 @@ export default function ModelsPage() {
               const avgNum = graded.length > 0 ? graded.reduce((s, m) => s + (gradeMap[m.grade!] ?? 0), 0) / graded.length : -1;
               const avgGrade = avgNum >= 0 ? gradeReverse[Math.round(avgNum)] : null;
               return (
-                <Card key={sym}>
+                <Glass padding="md" key={sym}>
                   <div className="flex items-center justify-between mb-3">
                     <div className="flex items-center gap-2">
                       <BrainCircuit size={18} style={{ color: "var(--accent)" }} />
@@ -411,7 +414,7 @@ export default function ModelsPage() {
                       </div>
                     ))}
                   </div>
-                </Card>
+                </Glass>
               );
             })}
           </div>
@@ -419,7 +422,7 @@ export default function ModelsPage() {
       )}
 
       {/* Monthly Retrain Controls */}
-      <Card>
+      <Glass padding="md">
         <div className="flex items-center justify-between mb-3">
           <div className="flex items-center gap-2">
             <RefreshCw size={16} style={{ color: "var(--accent)" }} />
@@ -470,11 +473,11 @@ export default function ModelsPage() {
         <p className="text-xs mt-2" style={{ color: "var(--muted)" }}>
           Trains on last 12 months, validates on 2-week holdout. Only swaps if new model is better.
         </p>
-      </Card>
+      </Glass>
 
       {/* Retrain History */}
       {retrainHistory.length > 0 && (
-        <Card>
+        <Glass padding="md">
           <div className="flex items-center gap-2 mb-3">
             <History size={16} style={{ color: "var(--accent)" }} />
             <h3 className="text-sm font-semibold">Retrain History</h3>
@@ -521,7 +524,7 @@ export default function ModelsPage() {
               </tbody>
             </table>
           </div>
-        </Card>
+        </Glass>
       )}
 
       <div className="text-xs p-3 rounded-lg" style={{ background: "var(--sidebar-active)", color: "var(--muted)" }}>

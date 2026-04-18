@@ -6,7 +6,9 @@ import api from "@/lib/api";
 import type { Agent, PnlSummaryItem } from "@/types";
 import StatusBadge from "@/components/ui/StatusBadge";
 import Card from "@/components/ui/Card";
-import SparklineChart from "@/components/ui/SparklineChart";
+import Glass from "@/components/ui/Glass";
+import Sparkline from "@/components/ui/Sparkline";
+import AnimatedNumber from "@/components/ui/AnimatedNumber";
 import ConfirmDialog from "@/components/ui/ConfirmDialog";
 import AgentWizard from "@/components/AgentWizard";
 import AgentDetailModal from "@/components/AgentDetailModal";
@@ -123,10 +125,12 @@ export default function AgentsPage() {
   return (
     <div className="space-y-4">
       {/* Header */}
-      <div className="flex items-center justify-between">
+      <div className="flex items-start md:items-center justify-between gap-3 flex-wrap">
         <div>
-          <h1 className="text-2xl font-semibold bg-gradient-to-r from-violet-400 to-blue-400 bg-clip-text text-transparent">Agents</h1>
-          <p className="text-xs mt-0.5" style={{ color: "var(--muted)" }}>{agents.length} total, {runningCount} running</p>
+          <h1 className="text-2xl md:text-3xl font-semibold tracking-tight text-gradient">Agents</h1>
+          <p className="text-xs mt-0.5 tabular" style={{ color: "var(--muted)" }}>
+            {agents.length} total &middot; {runningCount} running
+          </p>
         </div>
         <div className="flex gap-2">
           {agents.length > 0 && (
@@ -135,8 +139,8 @@ export default function AgentsPage() {
               <button onClick={() => handleBatchAction("stop")} className="px-3 py-1.5 text-xs rounded-lg border hover:bg-white/5" style={{ borderColor: "var(--border)" }}>Stop All</button>
             </>
           )}
-          <button onClick={() => { setWizardDefaults(null); setWizardOpen(true); }} className="flex items-center gap-2 px-4 py-2 text-sm font-medium rounded-lg text-white transition-opacity hover:opacity-90" style={{ background: "linear-gradient(135deg, #8b5cf6, #3b82f6)" }}>
-            <Plus size={16} /> New Agent
+          <button onClick={() => { setWizardDefaults(null); setWizardOpen(true); }} className="flex items-center gap-2 px-3 md:px-4 py-2 text-sm font-medium rounded-lg btn-gradient text-white">
+            <Plus size={14} /> New Agent
           </button>
         </div>
       </div>
@@ -178,59 +182,60 @@ export default function AgentsPage() {
 
       {/* Agent Grid */}
       {displayed.length === 0 && agents.length === 0 ? (
-        <Card className="text-center py-12">
+        <Glass padding="lg" className="text-center py-10">
           <p className="text-sm mb-3" style={{ color: "var(--muted)" }}>No agents yet</p>
-          <button onClick={() => { setWizardDefaults(null); setWizardOpen(true); }} className="px-4 py-2 text-sm rounded-lg bg-blue-600 hover:bg-blue-500 text-white">Create Agent</button>
-        </Card>
+          <button onClick={() => { setWizardDefaults(null); setWizardOpen(true); }} className="px-4 py-2 text-sm rounded-lg btn-gradient text-white">Create your first agent</button>
+        </Glass>
       ) : displayed.length === 0 ? (
-        <Card className="text-center py-8">
+        <Glass padding="lg" className="text-center py-6">
           <p className="text-sm" style={{ color: "var(--muted)" }}>No agents match your filters</p>
-        </Card>
+        </Glass>
       ) : (
         <div className="grid gap-3">
           {displayed.map((a) => {
             const agentPnl = pnl.find((p) => p.agent_id === a.id);
             const wr = agentPnl && agentPnl.trade_count > 0 ? ((agentPnl.win_count / agentPnl.trade_count) * 100).toFixed(0) : "0";
             const pf = agentPnl && agentPnl.loss_count > 0 ? (agentPnl.win_count / agentPnl.loss_count).toFixed(1) : agentPnl && agentPnl.win_count > 0 ? "\u221E" : "\u2014";
+            const statusColor = a.status === "running" ? "var(--status-live)"
+              : a.status === "paused" ? "var(--status-paused)"
+              : a.status === "error" ? "var(--pnl-down)"
+              : "var(--status-stopped)";
 
             return (
-              <Card key={a.id} className={`hover:bg-white/[0.02] transition-colors border-l-2 ${a.status === "running" ? "!border-l-emerald-500 agent-running-pulse" : a.status === "paused" ? "!border-l-amber-500" : a.status === "error" ? "!border-l-red-500" : "!border-l-gray-600"}`}>
-                <div className="flex items-center gap-3">
+              <Glass key={a.id} padding="md" hoverable>
+                <div className="flex items-center gap-3 flex-wrap">
                   <div className="flex-1 min-w-0 cursor-pointer" onClick={() => setDetailAgent(a)}>
-                    {/* Row 1: Name + badges */}
-                    <div className="flex items-center gap-2 mb-1.5">
-                      <span className="font-medium text-sm hover:text-blue-400 truncate">{a.name}</span>
-                      <StatusBadge value={a.status} />
+                    {/* Row 1: status + name + badges */}
+                    <div className="flex items-center gap-2 mb-1.5 flex-wrap">
+                      <span className={a.status === "running" ? "pulse-dot" : ""}
+                            style={{ background: statusColor, width: 8, height: 8, borderRadius: "50%", display: "inline-block" }} />
+                      <span className="font-medium text-sm hover:text-violet-300 truncate">{a.name}</span>
+                      <span className="text-[10px] px-1.5 py-0.5 rounded font-medium" style={{ background: "var(--sidebar-active)", color: "var(--muted)" }}>{a.symbol}</span>
                       <StatusBadge value={a.agent_type} />
                       <StatusBadge value={a.mode} />
-                      <span className="text-xs px-1.5 py-0.5 rounded" style={{ background: "var(--sidebar-active)", color: "var(--muted)" }}>{a.symbol}</span>
                       {marketStatus[a.symbol] && (
-                        <span
-                          className={`text-[10px] px-1.5 py-0.5 rounded font-medium ${
-                            marketStatus[a.symbol].open
-                              ? "text-emerald-400 bg-emerald-500/10 border border-emerald-500/30"
-                              : "text-amber-400 bg-amber-500/10 border border-amber-500/30"
-                          }`}
-                          title={marketStatus[a.symbol].reason}
-                        >
-                          {marketStatus[a.symbol].open ? "MKT OPEN" : "MKT CLOSED"}
+                        <span className="text-[9px] uppercase tracking-wider font-medium"
+                              style={{ color: marketStatus[a.symbol].open ? "var(--status-live)" : "var(--muted)" }}
+                              title={marketStatus[a.symbol].reason}>
+                          {marketStatus[a.symbol].open ? "mkt open" : "mkt closed"}
                         </span>
                       )}
                     </div>
                     {/* Row 2: Metrics */}
-                    <div className="flex items-center gap-4 text-xs" style={{ color: "var(--muted)" }}>
-                      <span className={a.total_pnl >= 0 ? "text-emerald-400 font-medium" : "text-red-400 font-medium"}>
-                        {a.total_pnl >= 0 ? "+" : ""}{fmt(a.total_pnl)}
+                    <div className="flex items-center gap-4 text-xs tabular" style={{ color: "var(--muted)" }}>
+                      <span className={a.total_pnl >= 0 ? "text-emerald-400 font-semibold" : "text-red-400 font-semibold"}>
+                        {a.total_pnl >= 0 ? "+" : ""}
+                        <AnimatedNumber value={a.total_pnl} format={(v) => fmt(Math.abs(v))} />
                       </span>
                       <span>{wr}% win</span>
                       <span>{a.trade_count} trades</span>
-                      <span>PF: {pf}</span>
-                      <span>{a.broker_name}</span>
+                      <span>PF {pf}</span>
+                      <span className="hidden md:inline">{a.broker_name}</span>
                     </div>
                   </div>
 
                   {/* Actions */}
-                  <div className="flex items-center gap-1 flex-shrink-0">
+                  <div className="flex items-center gap-0.5 flex-shrink-0">
                     {a.status !== "running" && (
                       <button onClick={() => handleAction(a.id, "start")} className="p-2 rounded hover:bg-white/10" title="Start"><Play size={14} className="text-emerald-400" /></button>
                     )}
@@ -245,7 +250,7 @@ export default function AgentsPage() {
                     <button onClick={() => setDeleteAgent(a)} className="p-2 rounded hover:bg-white/10" title="Delete"><Trash2 size={14} style={{ color: "var(--muted)" }} /></button>
                   </div>
                 </div>
-              </Card>
+              </Glass>
             );
           })}
         </div>

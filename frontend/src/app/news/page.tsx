@@ -3,6 +3,7 @@
 import { useEffect, useState, useCallback } from "react";
 import api from "@/lib/api";
 import Card from "@/components/ui/Card";
+import Glass from "@/components/ui/Glass";
 import Tabs from "@/components/ui/Tabs";
 import { Newspaper, RefreshCw, ExternalLink, Clock, Filter } from "lucide-react";
 
@@ -125,15 +126,15 @@ function CalendarSection() {
       )}
 
       {error && (
-        <Card className="text-center py-8">
+        <Glass padding="md" className="text-center py-8">
           <p className="text-red-400 text-sm">{error}</p>
-        </Card>
+        </Glass>
       )}
 
       {!loading && !error && events.length === 0 && (
-        <Card className="text-center py-8">
+        <Glass padding="md" className="text-center py-8">
           <p className="text-sm" style={{ color: "var(--muted)" }}>No calendar events found for this filter.</p>
-        </Card>
+        </Glass>
       )}
 
       {!loading && !error && events.length > 0 && (
@@ -227,21 +228,21 @@ function HeadlinesSection() {
       )}
 
       {error && (
-        <Card className="text-center py-8">
+        <Glass padding="md" className="text-center py-8">
           <p className="text-red-400 text-sm">{error}</p>
-        </Card>
+        </Glass>
       )}
 
       {!loading && !error && articles.length === 0 && (
-        <Card className="text-center py-8">
+        <Glass padding="md" className="text-center py-8">
           <p className="text-sm" style={{ color: "var(--muted)" }}>No headlines available.</p>
-        </Card>
+        </Glass>
       )}
 
       {!loading && !error && articles.length > 0 && (
         <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
           {articles.map((article, i) => (
-            <Card key={i} className="flex flex-col gap-3 hover:border-blue-500/30 transition-colors">
+            <Glass padding="md" key={i} className="flex flex-col gap-3 hover:border-blue-500/30 transition-colors">
               {article.image && (
                 <div className="w-full h-36 rounded-lg overflow-hidden bg-black/20">
                   <img
@@ -279,7 +280,7 @@ function HeadlinesSection() {
                   )}
                 </div>
               </div>
-            </Card>
+            </Glass>
           ))}
         </div>
       )}

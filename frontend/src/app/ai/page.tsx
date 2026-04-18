@@ -202,7 +202,7 @@ export default function AIPage() {
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-2">
           <Bot size={20} className="text-violet-400" />
-          <h1 className="text-lg font-bold">AI Supervisor</h1>
+          <h1 className="text-xl md:text-2xl font-semibold tracking-tight text-gradient">AI Supervisor</h1>
         </div>
         <div className="flex items-center gap-2">
           {usage && (
@@ -335,7 +335,16 @@ export default function AIPage() {
               {sessions.length === 0 && (
                 <p className="text-xs text-center py-4" style={{ color: "var(--muted)" }}>No chats yet</p>
               )}
-              {sessions.map((s) => (
+              {/* Sort: system sessions pinned at top (AI Monitoring, Telegram), rest chronological */}
+              {[...sessions].sort((a, b) => {
+                const aSys = a.title === "AI Monitoring" ? 0 : a.title === "Telegram" ? 1 : 2;
+                const bSys = b.title === "AI Monitoring" ? 0 : b.title === "Telegram" ? 1 : 2;
+                if (aSys !== bSys) return aSys - bSys;
+                return new Date(b.updated_at).getTime() - new Date(a.updated_at).getTime();
+              }).map((s) => {
+                const isSystem = s.title === "AI Monitoring" || s.title === "Telegram";
+                const sysIcon = s.title === "AI Monitoring" ? "🤖" : s.title === "Telegram" ? "📱" : "";
+                return (
                 <div
                   key={s.id}
                   className={`group flex items-center justify-between px-3 py-2 cursor-pointer hover:bg-white/5 transition-colors ${
@@ -344,7 +353,16 @@ export default function AIPage() {
                   onClick={() => { loadSessionMessages(s.id); setShowSidebar(false); }}
                 >
                   <div className="min-w-0 flex-1">
-                    <p className="text-xs font-medium truncate">{s.title || "New Chat"}</p>
+                    <p className="text-xs font-medium truncate flex items-center gap-1">
+                      {isSystem && <span>{sysIcon}</span>}
+                      {s.title || "New Chat"}
+                      {isSystem && (
+                        <span className="text-[8px] px-1 rounded uppercase tracking-wider"
+                              style={{ background: "rgba(139,92,246,0.15)", color: "#c4b5fd" }}>
+                          system
+                        </span>
+                      )}
+                    </p>
                     <p className="text-[10px]" style={{ color: "var(--muted)" }}>
                       <Clock size={9} className="inline mr-1" />
                       {formatDate(s.updated_at)} · {s.message_count} msgs
@@ -358,7 +376,8 @@ export default function AIPage() {
                     <Trash2 size={12} style={{ color: "var(--muted)" }} />
                   </button>
                 </div>
-              ))}
+                );
+              })}
             </div>
           </div>
         </div>

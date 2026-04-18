@@ -10,12 +10,12 @@ import AgentPanel from "@/components/AgentPanel";
 import BrokerModal from "@/components/BrokerModal";
 import AgentWizard from "@/components/AgentWizard";
 import OrderPanel from "@/components/OrderPanel";
-import { StatCard } from "@/components/ui/Card";
+import Glass from "@/components/ui/Glass";
 import Tabs from "@/components/ui/Tabs";
 import DataTable, { Column } from "@/components/ui/DataTable";
 import StatusBadge from "@/components/ui/StatusBadge";
 import type { AccountInfo, BrokerStatus, CandleData, LivePosition, LiveOrder, AgentTrade, EngineLog, PnlSummaryItem } from "@/types";
-import { Plug, Plus, ShoppingCart, Loader2, SlidersHorizontal, Database } from "lucide-react";
+import { Plug, Plus, ShoppingCart, Loader2, SlidersHorizontal, Database, Activity, Gauge } from "lucide-react";
 import Card from "@/components/ui/Card";
 import { toast } from "sonner";
 import { getErrorMessage } from "@/lib/errors";
@@ -433,23 +433,30 @@ export default function TradingPage() {
       </div>
 
       {/* ── Chart ──────────────────────────────────────────────────── */}
-      <div className="rounded-xl overflow-hidden" style={{ padding: "2px 0 0 0", background: "linear-gradient(to right, #8b5cf6, #3b82f6)" }}>
-      <Card className="p-0 overflow-hidden !rounded-t-[10px]">
-        <div className="px-4 pt-3 pb-1 flex items-center gap-4">
+      <Glass padding="none" className="overflow-hidden">
+        <div className="px-4 pt-3 pb-1 flex items-center gap-3 md:gap-4 flex-wrap">
           <span className="text-sm font-semibold">{symbol}</span>
           {(liveBid || candles.length > 0) && (
             <>
-              <span className="text-lg font-semibold">
+              <span className="text-xl md:text-2xl font-semibold tabular" style={{ letterSpacing: "-0.02em" }}>
                 {liveBid ? fmt(liveBid) : candles.length > 0 ? fmt(candles[candles.length - 1].close) : "—"}
               </span>
               {liveBid && liveAsk && (
-                <span className="text-xs" style={{ color: "var(--muted)" }}>
-                  Bid: <span className="text-emerald-400">{fmt(liveBid)}</span>{" "}
-                  Ask: <span className="text-red-400">{fmt(liveAsk)}</span>{" "}
-                  Spread: {((liveAsk - liveBid) * 10).toFixed(1)}
+                <span className="text-xs tabular" style={{ color: "var(--muted)" }}>
+                  Bid <span className="text-emerald-400">{fmt(liveBid)}</span>
+                  {" · "}Ask <span className="text-red-400">{fmt(liveAsk)}</span>
+                  {" · "}Spread {((liveAsk - liveBid) * 10).toFixed(1)}
                 </span>
               )}
-              <span className="text-xs" style={{ color: "var(--muted)" }}>{timeframe}</span>
+              <span className="text-[10px] uppercase tracking-wider" style={{ color: "var(--muted)" }}>
+                {timeframe}
+              </span>
+              {lastTickTime > 0 && Date.now() - lastTickTime < 10000 && (
+                <span className="flex items-center gap-1 text-[10px]" style={{ color: "var(--status-live)" }}>
+                  <span className="pulse-dot" style={{ background: "var(--status-live)" }} />
+                  live
+                </span>
+              )}
             </>
           )}
         </div>
@@ -460,12 +467,11 @@ export default function TradingPage() {
             {broker.connected || dataSource === "databento" ? "Loading chart..." : "Connect a broker or select Databento to load chart data"}
           </div>
         )}
-      </Card>
-      </div>
+      </Glass>
 
       {/* ── Tick Data Panel ─────────────────────────────────────────── */}
       {showTicks && ticks.length > 0 && (
-        <Card>
+        <Glass padding="md">
           <div className="flex items-center justify-between mb-2">
             <h3 className="text-sm font-medium">Tick Data — {symbol} (last 5 min, {ticks.length} ticks)</h3>
             <span className="text-xs px-2 py-0.5 rounded" style={{ background: "rgba(245,158,11,0.15)", color: "#f59e0b" }}>Databento</span>
@@ -498,26 +504,30 @@ export default function TradingPage() {
               </tbody>
             </table>
           </div>
-        </Card>
+        </Glass>
       )}
 
       {/* ── Account Cards ──────────────────────────────────────────── */}
-      <div className="grid grid-cols-2 md:grid-cols-5 gap-3">
-        {[
-          <StatCard key="b" label="Balance" value={account ? `${fmt(account.balance)}` : "—"} sub={account?.currency} />,
-          <StatCard key="e" label="Equity" value={account ? fmt(account.equity) : "—"} />,
-          <StatCard key="p" label="P&L" value={account ? fmt(account.unrealized_pnl) : "—"} color={account && account.unrealized_pnl >= 0 ? "green" : "red"} />,
-          <StatCard key="pos" label="Positions" value={positions.length} />,
-          <StatCard key="ag" label="Active Agents" value={activeAgents} />,
-        ].map((card, i) => (
-          <div key={i} className="animate-fade-in" style={{ animationDelay: `${i * 0.06}s` }}>
-            {card}
-          </div>
-        ))}
+      <div className="grid grid-cols-2 md:grid-cols-6 gap-2 md:gap-3">
+        <TradingTile label="Balance" value={account ? fmt(account.balance) : "—"} sub={account?.currency} />
+        <TradingTile label="Equity" value={account ? fmt(account.equity) : "—"} />
+        <TradingTile
+          label="Unreal. P&L"
+          value={account ? fmt(account.unrealized_pnl) : "—"}
+          color={account && account.unrealized_pnl >= 0 ? "up" : account && account.unrealized_pnl < 0 ? "down" : undefined}
+        />
+        <TradingTile
+          label="Margin Used"
+          value={account ? fmt(account.margin_used) : "—"}
+          sub={account && account.balance > 0 ? `${((account.margin_used / account.balance) * 100).toFixed(1)}%` : undefined}
+          icon={<Gauge size={12} />}
+        />
+        <TradingTile label="Positions" value={positions.length} sub={orders.length > 0 ? `${orders.length} orders` : undefined} />
+        <TradingTile label="Active Agents" value={activeAgents} icon={<Activity size={12} />} />
       </div>
 
       {/* ── Tabs ───────────────────────────────────────────────────── */}
-      <Card>
+      <Glass padding="md">
         <Tabs tabs={[
           {
             label: "Agents",
@@ -590,7 +600,7 @@ export default function TradingPage() {
             ),
           },
         ]} />
-      </Card>
+      </Glass>
 
       {/* ── Modals ─────────────────────────────────────────────────── */}
       <BrokerModal open={brokerModal} onClose={() => setBrokerModal(false)} onConnected={() => { fetchStatus(); fetchData(); fetchCandles(); }} />
@@ -606,5 +616,39 @@ export default function TradingPage() {
         variant="danger"
       />
     </div>
+  );
+}
+
+// ── TradingTile — compact stat card aligned with dashboard style ──────
+function TradingTile({
+  label, value, sub, color, icon,
+}: {
+  label: string;
+  value: string | number;
+  sub?: string;
+  color?: "up" | "down";
+  icon?: React.ReactNode;
+}) {
+  const valueClass = color === "up" ? "text-emerald-400" : color === "down" ? "text-red-400" : "";
+  return (
+    <Glass padding="sm" className="flex flex-col justify-between min-h-[70px]">
+      <div className="flex items-center justify-between">
+        <span className="text-[9px] uppercase tracking-wider" style={{ color: "var(--muted)" }}>
+          {label}
+        </span>
+        {icon && <span style={{ color: "var(--muted)" }}>{icon}</span>}
+      </div>
+      <div>
+        <div className={`text-base md:text-lg font-semibold tabular ${valueClass}`}
+             style={{ letterSpacing: "-0.01em" }}>
+          {value}
+        </div>
+        {sub && (
+          <div className="text-[10px] mt-0.5 tabular" style={{ color: "var(--muted)" }}>
+            {sub}
+          </div>
+        )}
+      </div>
+    </Glass>
   );
 }

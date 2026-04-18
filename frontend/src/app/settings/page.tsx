@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import api from "@/lib/api";
 import Card from "@/components/ui/Card";
+import Glass from "@/components/ui/Glass";
 import StatusBadge from "@/components/ui/StatusBadge";
 import Tabs from "@/components/ui/Tabs";
 import BrokerModal from "@/components/BrokerModal";
@@ -287,7 +288,7 @@ export default function SettingsPage() {
 
   return (
     <div className="space-y-4 max-w-3xl">
-      <h1 className="text-2xl font-semibold bg-gradient-to-r from-violet-400 to-blue-400 bg-clip-text text-transparent">Settings</h1>
+      <h1 className="text-2xl md:text-3xl font-semibold tracking-tight text-gradient">Settings</h1>
 
       <Tabs tabs={[
         {
@@ -295,7 +296,7 @@ export default function SettingsPage() {
           content: (
             <div className="space-y-4">
               {/* Profile */}
-              <Card>
+              <Glass padding="md">
                 <h3 className="text-sm font-medium mb-3">Profile</h3>
                 <div className="space-y-2 text-sm">
                   <div className="flex justify-between"><span style={{ color: "var(--muted)" }}>Email</span><span>{profile?.email || "\u2014"}</span></div>
@@ -303,10 +304,10 @@ export default function SettingsPage() {
                   <div className="flex justify-between"><span style={{ color: "var(--muted)" }}>Member since</span><span>{profile?.created_at ? new Date(profile.created_at).toLocaleDateString() : "\u2014"}</span></div>
                   <div className="flex justify-between"><span style={{ color: "var(--muted)" }}>2FA</span><span>{profile?.has_2fa ? "Enabled" : "Not enabled"}</span></div>
                 </div>
-              </Card>
+              </Glass>
 
               {/* Change Password */}
-              <Card>
+              <Glass padding="md">
                 <h3 className="text-sm font-medium mb-3">Change Password</h3>
                 <div className="space-y-3">
                   <div>
@@ -334,10 +335,10 @@ export default function SettingsPage() {
                   <button onClick={handleChangePassword} disabled={!curPass || !newPass}
                     className="px-4 py-2 text-sm font-medium rounded-lg bg-blue-600 hover:bg-blue-500 text-white disabled:opacity-50">Update Password</button>
                 </div>
-              </Card>
+              </Glass>
 
               {/* Preferences */}
-              <Card>
+              <Glass padding="md">
                 <h3 className="text-sm font-medium mb-3">Preferences</h3>
                 <div className="space-y-3">
                   <div>
@@ -353,7 +354,7 @@ export default function SettingsPage() {
                   </label>
                   <button onClick={handleSaveSettings} className="px-4 py-2 text-sm font-medium rounded-lg bg-blue-600 hover:bg-blue-500 text-white">Save Preferences</button>
                 </div>
-              </Card>
+              </Glass>
             </div>
           ),
         },
@@ -362,7 +363,7 @@ export default function SettingsPage() {
           content: (
             <div className="space-y-4">
               {/* Default Trading Config */}
-              <Card>
+              <Glass padding="md">
                 <h3 className="text-sm font-medium mb-4">Default Trading Configuration</h3>
                 <div className="space-y-4">
                   {/* Default Broker */}
@@ -410,10 +411,10 @@ export default function SettingsPage() {
                     Save Trading Defaults
                   </button>
                 </div>
-              </Card>
+              </Glass>
 
               {/* Agent Filters */}
-              <Card>
+              <Glass padding="md">
                 <h3 className="text-sm font-medium mb-1">Default Agent Filters</h3>
                 <p className="text-xs mb-4" style={{ color: "var(--muted)" }}>
                   Filters applied to new agents by default. Each agent can override these individually via Edit Config.
@@ -490,10 +491,10 @@ export default function SettingsPage() {
                     </button>
                   </div>
                 </div>
-              </Card>
+              </Glass>
 
               {/* Broker Connections */}
-              <Card>
+              <Glass padding="md">
                 <div className="flex items-center justify-between mb-3">
                   <h3 className="text-sm font-medium">Broker Connections</h3>
                   <button onClick={() => setBrokerModal(true)} className="text-xs text-blue-400 hover:text-blue-300">+ Add Connection</button>
@@ -547,10 +548,10 @@ export default function SettingsPage() {
                     <p className="text-sm py-2" style={{ color: "var(--muted)" }}>No brokers configured</p>
                   )}
                 </div>
-              </Card>
+              </Glass>
 
               {/* Broker Help */}
-              <Card>
+              <Glass padding="md">
                 <h3 className="text-sm font-medium mb-2">Need a broker account?</h3>
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
                   <a href="https://www.oanda.com/register/" target="_blank" rel="noopener noreferrer"
@@ -572,10 +573,10 @@ export default function SettingsPage() {
                     <svg className="w-3.5 h-3.5 opacity-50 group-hover:opacity-100 transition-opacity" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14" /></svg>
                   </a>
                 </div>
-              </Card>
+              </Glass>
 
               {/* News API Keys */}
-              <Card>
+              <Glass padding="md">
                 <h3 className="text-sm font-medium mb-1">News API Keys</h3>
                 <p className="text-xs mb-4" style={{ color: "var(--muted)" }}>
                   Used by the news filter to block trades around high-impact events. Keys are stored per-user in your settings.
@@ -610,7 +611,7 @@ export default function SettingsPage() {
                     Save API Keys
                   </button>
                 </div>
-              </Card>
+              </Glass>
             </div>
           ),
         },
@@ -618,7 +619,7 @@ export default function SettingsPage() {
           label: "Security",
           content: (
             <div className="space-y-4">
-              <Card>
+              <Glass padding="md">
                 <h3 className="text-sm font-medium mb-3 flex items-center gap-2">
                   {profile?.has_2fa ? <ShieldCheck size={16} className="text-emerald-400" /> : <Shield size={16} style={{ color: "var(--muted)" }} />}
                   Two-Factor Authentication
@@ -656,7 +657,7 @@ export default function SettingsPage() {
                     </button>
                   </div>
                 )}
-              </Card>
+              </Glass>
             </div>
           ),
         },
@@ -665,7 +666,7 @@ export default function SettingsPage() {
           content: (
             <div className="space-y-4">
               {/* Add Provider */}
-              <Card>
+              <Glass padding="md">
                 <h3 className="text-sm font-medium mb-3 flex items-center gap-2"><Database size={14} /> Add Market Data Provider</h3>
                 <div className="space-y-3">
                   <div className="grid grid-cols-2 gap-3">
@@ -709,11 +710,11 @@ export default function SettingsPage() {
                     <Plus size={14} /> Add Provider
                   </button>
                 </div>
-              </Card>
+              </Glass>
 
               {/* Existing Providers */}
               {providers.length > 0 && (
-                <Card>
+                <Glass padding="md">
                   <h3 className="text-sm font-medium mb-3">Connected Providers</h3>
                   <div className="space-y-3">
                     {providers.map((p) => (
@@ -752,11 +753,11 @@ export default function SettingsPage() {
                       </div>
                     ))}
                   </div>
-                </Card>
+                </Glass>
               )}
 
               {/* Request Other Provider */}
-              <Card>
+              <Glass padding="md">
                 <h3 className="text-sm font-medium mb-2">Need a different provider?</h3>
                 <p className="text-xs mb-3" style={{ color: "var(--muted)" }}>Request support for a provider not in the list.</p>
                 <button
@@ -773,7 +774,7 @@ export default function SettingsPage() {
                 >
                   Request Provider
                 </button>
-              </Card>
+              </Glass>
             </div>
           ),
         },
@@ -781,7 +782,7 @@ export default function SettingsPage() {
           label: "Feedback",
           content: (
             <div className="space-y-4">
-              <Card>
+              <Glass padding="md">
                 <h3 className="text-sm font-medium mb-3 flex items-center gap-2"><MessageSquare size={14} /> Submit Feedback</h3>
                 <div className="space-y-3">
                   <div>
@@ -818,7 +819,7 @@ export default function SettingsPage() {
                     Submit Feedback
                   </button>
                 </div>
-              </Card>
+              </Glass>
             </div>
           ),
         },
@@ -827,7 +828,7 @@ export default function SettingsPage() {
           content: (
             <div className="space-y-4">
               {/* GDPR Personal Data Export */}
-              <Card>
+              <Glass padding="md">
                 <h3 className="text-sm font-medium mb-2 flex items-center gap-2"><Shield size={14} /> Personal Data (GDPR)</h3>
                 <p className="text-xs mb-3" style={{ color: "var(--muted)" }}>
                   Download a copy of all your personal data (profile, agents, trades, logs, settings). This is your right under GDPR Article 15.
@@ -840,9 +841,9 @@ export default function SettingsPage() {
                   {exporting ? <Loader2 size={14} className="animate-spin" /> : <Download size={14} />}
                   Export My Data
                 </button>
-              </Card>
+              </Glass>
 
-              <Card>
+              <Glass padding="md">
                 <h3 className="text-sm font-medium mb-3">Export Data</h3>
                 <div className="space-y-3">
                   <div className="flex items-center justify-between py-2">
@@ -876,10 +877,10 @@ export default function SettingsPage() {
                     </button>
                   </div>
                 </div>
-              </Card>
+              </Glass>
 
               {/* Recycle Bin */}
-              <Card>
+              <Glass padding="md">
                 <div className="flex items-center justify-between mb-3">
                   <h3 className="text-sm font-medium flex items-center gap-2">
                     <Trash2 size={16} style={{ color: "var(--muted)" }} /> Recycle Bin
@@ -907,9 +908,9 @@ export default function SettingsPage() {
                     ))}
                   </div>
                 )}
-              </Card>
+              </Glass>
 
-              <Card>
+              <Glass padding="md">
                 <h3 className="text-sm font-medium mb-3 text-red-400">Danger Zone</h3>
                 <div className="space-y-4">
                   <div className="flex items-center justify-between">
@@ -936,7 +937,7 @@ export default function SettingsPage() {
                     </div>
                   </div>
                 </div>
-              </Card>
+              </Glass>
 
               <ConfirmDialog open={clearLogsConfirm} onClose={() => setClearLogsConfirm(false)}
                 onConfirm={handleClearLogs}
@@ -984,13 +985,13 @@ export default function SettingsPage() {
           label: "AI Supervisor",
           content: (
             <div className="space-y-4">
-              <Card>
+              <Glass padding="md">
                 <p className="text-sm" style={{ color: "var(--muted)" }}>
                   Configure your AI Supervisor on the dedicated{" "}
                   <a href="/ai" className="text-violet-400 hover:underline font-medium">AI Chat page</a>.
                   The supervisor monitors your agents, analyzes trades, and can send Telegram alerts.
                 </p>
-              </Card>
+              </Glass>
             </div>
           ),
         },
