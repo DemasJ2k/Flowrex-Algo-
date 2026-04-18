@@ -1,6 +1,8 @@
 """Unit tests for the BrokerManager."""
 import os
-os.environ["ENCRYPTION_KEY"] = "dGVzdC1lbmNyeXB0aW9uLWtleS0xMjM0NTY3OA=="
+# Valid Fernet key: 32 bytes URL-safe base64 encoded (44 chars).
+# Old value "dGVzdC1lbmNyeXB0aW9uLWtleS0xMjM0NTY3OA==" decoded to only 28 bytes.
+os.environ["ENCRYPTION_KEY"] = "YWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWE="
 os.environ["DEBUG"] = "true"
 
 import pytest

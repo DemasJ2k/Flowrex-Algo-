@@ -59,53 +59,72 @@ def _create_invite(db_session, test_user):
     return "TEST-INVITE-001"
 
 
+# Strong password meeting Batch 4 (audit H24) validation:
+# 12+ chars, uppercase, lowercase, digit
+_STRONG_PW = "TestPassword123"
+
+
+def test_register_without_terms_rejected(client):
+    """REGRESSION: Migration 003 — terms_accepted is required for new registrations."""
+    resp = client.post("/api/auth/register", json={"email": "new@test.com", "password": _STRONG_PW, "invite_code": "X"})
+    assert resp.status_code == 400
+    assert "Terms of Service" in resp.json()["detail"]
+
+
 def test_register_without_invite_rejected(client):
-    resp = client.post("/api/auth/register", json={"email": "new@test.com", "password": "password123"})
+    resp = client.post("/api/auth/register", json={"email": "new@test.com", "password": _STRONG_PW, "terms_accepted": True})
     assert resp.status_code == 400
     assert "Invite code is required" in resp.json()["detail"]
 
 
 def test_register_with_invalid_invite_rejected(client):
-    resp = client.post("/api/auth/register", json={"email": "new@test.com", "password": "password123", "invite_code": "FAKE-CODE"})
+    resp = client.post("/api/auth/register", json={"email": "new@test.com", "password": _STRONG_PW, "invite_code": "FAKE-CODE", "terms_accepted": True})
     assert resp.status_code == 400
     assert "Invalid invite code" in resp.json()["detail"]
 
 
 def test_register_with_valid_invite(client, db_session, test_user):
     code = _create_invite(db_session, test_user)
-    resp = client.post("/api/auth/register", json={"email": "new@test.com", "password": "password123", "invite_code": code})
+    resp = client.post("/api/auth/register", json={"email": "new@test.com", "password": _STRONG_PW, "invite_code": code, "terms_accepted": True})
     assert resp.status_code == 200
     data = resp.json()
     assert "access_token" in data
     assert "refresh_token" in data
 
 
+def test_register_weak_password_rejected(client, db_session, test_user):
+    """REGRESSION: H24 — weak passwords must be rejected by Pydantic schema."""
+    code = _create_invite(db_session, test_user)
+    resp = client.post("/api/auth/register", json={"email": "weak@test.com", "password": "weak", "invite_code": code})
+    assert resp.status_code == 422  # Pydantic validation error
+
+
 def test_register_duplicate_email(client, db_session, test_user):
     code = _create_invite(db_session, test_user)
-    client.post("/api/auth/register", json={"email": "dup@test.com", "password": "password123", "invite_code": code})
-    resp = client.post("/api/auth/register", json={"email": "dup@test.com", "password": "password456", "invite_code": code})
+    client.post("/api/auth/register", json={"email": "dup@test.com", "password": _STRONG_PW, "invite_code": code, "terms_accepted": True})
+    resp = client.post("/api/auth/register", json={"email": "dup@test.com", "password": _STRONG_PW + "x", "invite_code": code, "terms_accepted": True})
     assert resp.status_code == 400
     assert "already registered" in resp.json()["detail"]
 
 
 def test_login_success(client, db_session, test_user):
     code = _create_invite(db_session, test_user)
-    client.post("/api/auth/register", json={"email": "login@test.com", "password": "password123", "invite_code": code})
-    resp = client.post("/api/auth/login", json={"email": "login@test.com", "password": "password123"})
+    client.post("/api/auth/register", json={"email": "login@test.com", "password": _STRONG_PW, "invite_code": code, "terms_accepted": True})
+    resp = client.post("/api/auth/login", json={"email": "login@test.com", "password": _STRONG_PW})
     assert resp.status_code == 200
     assert resp.json()["token_type"] == "bearer"
 
 
 def test_login_wrong_password(client, db_session, test_user):
     code = _create_invite(db_session, test_user)
-    client.post("/api/auth/register", json={"email": "wrong@test.com", "password": "password123", "invite_code": code})
-    resp = client.post("/api/auth/login", json={"email": "wrong@test.com", "password": "badpassword"})
+    client.post("/api/auth/register", json={"email": "wrong@test.com", "password": _STRONG_PW, "invite_code": code, "terms_accepted": True})
+    resp = client.post("/api/auth/login", json={"email": "wrong@test.com", "password": "WrongPassword999"})
     assert resp.status_code == 401
 
 
 def test_refresh_token_flow(client, db_session, test_user):
     code = _create_invite(db_session, test_user)
-    reg = client.post("/api/auth/register", json={"email": "refresh@test.com", "password": "password123", "invite_code": code})
+    reg = client.post("/api/auth/register", json={"email": "refresh@test.com", "password": _STRONG_PW, "invite_code": code, "terms_accepted": True})
     refresh = reg.json()["refresh_token"]
     resp = client.post(f"/api/auth/refresh?token={refresh}")
     assert resp.status_code == 200

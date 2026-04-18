@@ -1,9 +1,58 @@
+import importlib
+import os
 import pytest
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 from sqlalchemy.pool import StaticPool
 from fastapi.testclient import TestClient
 from app.core.password import hash_password
+
+
+# ── Disable rate limiter for tests ──────────────────────────────────────
+# The slowapi `@limiter.limit("3/minute")` on /register etc. trips when tests
+# run in rapid sequence from the same TestClient IP. Disable it for tests.
+def _disable_limiter():
+    try:
+        from app.core.rate_limit import limiter
+        limiter.enabled = False
+    except Exception:
+        pass
+
+_disable_limiter()
+
+
+# ── Skip script-dependent tests in environments where scripts/ isn't on path ──
+# Training scripts are intentionally excluded from the production container
+# (they run on the host). Tests that import from `scripts.*` should skip
+# cleanly when running inside the container or CI without scripts/ available.
+
+def _scripts_available() -> bool:
+    try:
+        importlib.import_module("scripts.model_utils")
+        return True
+    except ImportError:
+        return False
+
+
+# `collect_ignore` is consumed at pytest collection startup BEFORE import.
+# Skip the script-dependent tests entirely when scripts/ isn't on sys.path.
+collect_ignore = []
+if not _scripts_available():
+    collect_ignore.extend([
+        "test_model_utils_advanced.py",
+        "test_retrain.py",
+        "test_seed.py",
+        "test_strategy_labels.py",
+        "test_cot.py",
+    ])
+# Tests for deleted feature modules (removed in Batch 3 of the previous session)
+_deleted_modules = ["features_swing", "features_calendar", "features_momentum"]
+for _mod in _deleted_modules:
+    try:
+        importlib.import_module(f"app.services.ml.{_mod}")
+    except ImportError:
+        collect_ignore.append(f"test_{_mod}.py")
+        collect_ignore.append(f"test_{_mod.replace('features_', 'features_')}.py")
 
 from app.core.database import Base, get_db
 from app.core.auth import get_current_user

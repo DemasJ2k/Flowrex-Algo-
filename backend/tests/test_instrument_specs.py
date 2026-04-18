@@ -28,9 +28,9 @@ def test_calc_lot_size_btcusd():
 
 
 def test_calc_lot_size_zero_sl():
-    """Zero SL distance should return min lot."""
+    """Zero SL distance should return min lot (1 unit for Oanda CFDs)."""
     size = calc_lot_size("XAUUSD", risk_amount=50.0, sl_distance=0.0)
-    assert size == 0.01
+    assert size == 1  # Oanda uses integer units; 1 is the minimum safe fallback
 
 
 def test_calc_sl_tp_buy():
