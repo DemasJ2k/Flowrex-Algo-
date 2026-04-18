@@ -43,15 +43,39 @@ class PotentialAgent:
         self.feature_names: list[str] = []
 
         # Read from config (wizard/settings), with sensible defaults
+        # Safer default 0.001 (0.10%) instead of 0.01 (1.00%) — if config is
+        # missing the key, agent won't silently 10x its position sizing.
+        _risk_per_trade = self.config.get("risk_per_trade")
+        if _risk_per_trade is None:
+            _risk_per_trade = 0.001
+            self._risk_default_warn = True
+        else:
+            self._risk_default_warn = False
         self.risk_config = {
             "max_drawdown_pct": self.config.get("max_drawdown_pct", 0.10),
             "daily_loss_limit_pct": self.config.get("max_daily_loss_pct", 0.03),
-            "risk_per_trade_pct": self.config.get("risk_per_trade", 0.01),
+            "risk_per_trade_pct": _risk_per_trade,
             "max_trades_per_day": self.config.get("max_trades_per_day", 10),
         }
         self.cooldown_bars = self.config.get("cooldown_bars", 3)
         self.session_filter = self.config.get("session_filter", False)
         self.news_filter = self.config.get("news_filter_enabled", False)
+
+        # Optional prop-firm RiskManager (tiered DD + anti-martingale).
+        self.prop_firm_enabled = self.config.get("prop_firm_enabled", False)
+        self._risk_manager = None
+        if self.prop_firm_enabled:
+            try:
+                from app.services.agent.risk_manager import RiskManager
+                override_keys = [
+                    "max_daily_dd_pct", "max_total_dd_pct", "daily_dd_yellow",
+                    "daily_dd_red", "daily_dd_hard_stop", "max_trades_per_day",
+                    "max_concurrent_positions", "base_risk_per_trade_pct",
+                ]
+                overrides = {k: self.config[k] for k in override_keys if k in self.config}
+                self._risk_manager = RiskManager(config=overrides)
+            except Exception:
+                self._risk_manager = None
 
         self._log_fn: Optional[Callable] = None
         self._eval_count = 0
@@ -59,6 +83,8 @@ class PotentialAgent:
         self._reject_count = 0
         self._reject_last_log_time: dict[str, float] = {}  # reason -> last log timestamp
         self._last_trade_bar = -999
+        self._last_trade_time = 0.0  # monotonic seconds — robust to pause/resume
+        self._last_trade_wall_time = 0.0  # persisted across restarts
         self._h1_bars = None
         self._h4_bars = None
         self._d1_bars = None
@@ -67,6 +93,7 @@ class PotentialAgent:
         self._daily_pnl = 0.0
         self._feature_cache_key = None
         self._feature_cache_result = None
+        self._last_prediction: Optional[dict] = None
 
     def load(self) -> bool:
         """Load ML models from disk with validation."""
@@ -149,10 +176,15 @@ class PotentialAgent:
             self._log_reject("Insufficient bars", len(m5_bars))
             return None
 
-        # 2. Cooldown (from config, default 3)
-        bars_since_last = current_bar_index - self._last_trade_bar
-        if bars_since_last < self.cooldown_bars:
-            self._log_reject("Cooldown", bars_since_last)
+        # 2. Cooldown — wall time so restart doesn't reset it
+        cooldown_sec = self.cooldown_bars * 300
+        if self._last_trade_wall_time == 0.0:
+            self._last_trade_wall_time = self._load_last_trade_time_from_db()
+        import time as _wall_time
+        now_wall = _wall_time.time()
+        elapsed_sec = now_wall - self._last_trade_wall_time
+        if self._last_trade_wall_time > 0 and elapsed_sec < cooldown_sec:
+            self._log_reject("Cooldown", f"{int(elapsed_sec)}s/{cooldown_sec}s")
             return None
 
         # 2b. News filter (if enabled in config)
@@ -198,6 +230,18 @@ class PotentialAgent:
         feature_vector = X[-1].reshape(1, -1)
         if np.any(np.isnan(feature_vector)) or np.any(np.isinf(feature_vector)):
             feature_vector = np.nan_to_num(feature_vector, nan=0.0, posinf=0.0, neginf=0.0)
+
+        # Drift check (first eval + every 50 evals)
+        if self._eval_count == 1 or self._eval_count % 50 == 0:
+            try:
+                from app.services.ml.feature_monitor import check_drift
+                drift = check_drift(feature_vector[0], feat_names, self.symbol, self.agent_id)
+                if drift:
+                    self._log("warn",
+                        f"Feature drift: {len(drift)} features outside training distribution "
+                        f"(first 3: {'; '.join(drift[:3])})")
+            except Exception:
+                pass
 
         # 6. Ensemble prediction — best confidence wins
         signal = self._predict_ensemble(feature_vector, feat_names)
@@ -255,6 +299,11 @@ class PotentialAgent:
         sizing_mode = self.config.get("sizing_mode", "risk_pct")
         max_lot_size = self.config.get("max_lot_size", None)
 
+        # Deferred warning if risk_per_trade was missing from config
+        if getattr(self, "_risk_default_warn", False):
+            self._log("warn", "risk_per_trade not in config, using 0.10% default")
+            self._risk_default_warn = False
+
         if sizing_mode == "max_lots" and max_lot_size:
             # Mode 2: Max Lot Size — scale by confidence within user's cap
             conf = signal.confidence
@@ -262,7 +311,7 @@ class PotentialAgent:
             lot_size = max(1, int(round(max_lot_size * conf_pct)))
         else:
             # Mode 1: Risk % of Balance (DEFAULT)
-            risk_pct = self.risk_config.get("risk_per_trade_pct", 0.01)
+            risk_pct = self.risk_config.get("risk_per_trade_pct", 0.001)
             risk_amount = balance * risk_pct
             lot_size = calc_lot_size(self.symbol, risk_amount, sl_distance, self.broker_name)
             self._log("info",
@@ -273,8 +322,10 @@ class PotentialAgent:
         if self.broker_name == "oanda":
             lot_size = max(1, int(round(lot_size)))
 
-        # Hard cap ONLY in max_lots mode
-        if sizing_mode == "max_lots" and max_lot_size and lot_size > max_lot_size:
+        # Hard cap — apply in BOTH sizing modes (was only max_lots before, which
+        # left risk_pct mode without an upper bound and created oversized trades
+        # when wide stops + high risk% collided).
+        if max_lot_size and lot_size > max_lot_size:
             lot_size = int(max_lot_size)
 
         # Safety cap: never risk more than 5% of balance
@@ -287,6 +338,38 @@ class PotentialAgent:
         hour_utc = datetime.now(timezone.utc).hour
         direction_str = "BUY" if signal.direction == 1 else "SELL"
 
+        # Determine trading session
+        if hour_utc < 8:
+            session_name = "asian"
+        elif hour_utc < 13:
+            session_name = "london"
+        elif hour_utc < 17:
+            session_name = "ny_open"
+        elif hour_utc < 21:
+            session_name = "ny_close"
+        else:
+            session_name = "off_hours"
+
+        # Prop-firm final gate
+        if self._risk_manager:
+            try:
+                approved, approved_risk_pct, reason = self._risk_manager.approve_trade(
+                    symbol=self.symbol,
+                    direction=direction_str,
+                    confidence=float(signal.confidence),
+                    atr=float(atr_value),
+                    current_price=float(entry_price),
+                    hour_utc=float(hour_utc),
+                )
+                if not approved:
+                    self._log_reject(f"Prop-firm gate: {reason}")
+                    return None
+                if approved_risk_pct > 0 and approved_risk_pct < self.risk_config["risk_per_trade_pct"]:
+                    self.risk_config["risk_per_trade_pct"] = approved_risk_pct
+                    self._log("info", f"Prop-firm sized down: risk_pct -> {approved_risk_pct*100:.3f}%")
+            except Exception as e:
+                self._log("warn", f"RiskManager.approve_trade failed (non-fatal): {e}")
+
         signal_dict = {
             "direction": direction_str,
             "confidence": signal.confidence,
@@ -298,10 +381,17 @@ class PotentialAgent:
             "atr": atr_value,
             "agent_type": "potential",
             "votes": signal.votes,
+            # Analytics enrichment
+            "session_name": session_name,
+            "atr_at_entry": atr_value,
+            "model_name": signal.reason,
         }
 
         self._signal_count += 1
         self._last_trade_bar = current_bar_index
+        self._last_trade_time = _time.monotonic()
+        import time as _wall_time
+        self._last_trade_wall_time = _wall_time.time()
 
         self._log("signal", f"{direction_str} {self.symbol} @ {entry_price:.2f} | "
                   f"SL:{stop_loss:.2f} TP:{take_profit:.2f} | "
@@ -317,6 +407,8 @@ class PotentialAgent:
         votes = {}
         best_signal = None
         best_conf = 0.0
+        prob_sum = np.zeros(3)
+        prob_count = 0
 
         for mtype, data in self.models.items():
             model = data.get("model")
@@ -334,6 +426,11 @@ class PotentialAgent:
 
             votes[mtype] = {"direction": direction, "confidence": round(conf, 4)}
 
+            # Accumulate probs for HOLD logging
+            if len(proba) == 3:
+                prob_sum += proba
+                prob_count += 1
+
             # Only consider directional predictions above threshold
             if direction != 0 and conf >= self.CONFIDENCE_THRESHOLD and conf > best_conf:
                 best_conf = conf
@@ -344,10 +441,57 @@ class PotentialAgent:
                     votes=votes,
                 )
 
+        # Persist prediction distribution for HOLD logging
+        if prob_count > 0:
+            avg = prob_sum / prob_count
+            self._last_prediction = {
+                "sell_prob": float(avg[0]),
+                "hold_prob": float(avg[1]),
+                "buy_prob": float(avg[2]),
+                "votes": votes,
+            }
+
         if best_signal is not None:
             best_signal.votes = votes
 
         return best_signal
+
+    def _load_last_trade_time_from_db(self) -> float:
+        """Recover last-trade wall-clock time from DB after restart."""
+        try:
+            from app.core.database import SessionLocal
+            from app.models.agent import AgentTrade
+            db = SessionLocal()
+            try:
+                t = (
+                    db.query(AgentTrade)
+                    .filter(AgentTrade.agent_id == self.agent_id)
+                    .order_by(AgentTrade.entry_time.desc())
+                    .first()
+                )
+                if t and t.entry_time:
+                    return t.entry_time.timestamp()
+                return 0.0
+            finally:
+                db.close()
+        except Exception:
+            return 0.0
+
+    # ── Hooks called by engine ─────────────────────────────────────────
+    def on_position_opened(self):
+        if self._risk_manager:
+            try:
+                self._risk_manager.open_position()
+            except Exception:
+                pass
+
+    def on_position_closed(self, pnl: float):
+        if self._risk_manager:
+            try:
+                self._risk_manager.close_position()
+                self._risk_manager.record_trade_result(pnl)
+            except Exception:
+                pass
 
     def _check_risk(self, balance: float, daily_pnl: float, daily_trade_count: int) -> bool:
         """Simple risk checks — no prop firm tiers."""

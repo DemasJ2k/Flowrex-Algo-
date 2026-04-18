@@ -126,6 +126,24 @@ class RiskManager:
         self._trades_today: int = 0
         self._concurrent_positions: int = 0
         self._consecutive_losses: int = 0
+        self._last_reset_date: Optional[str] = None  # UTC date string "YYYY-MM-DD"
+
+    def _maybe_reset_daily(self) -> None:
+        """
+        Reset daily counters at UTC day boundary.
+        On the FIRST call, just record today (don't wipe state — the caller
+        may have pre-populated P&L that shouldn't be erased).
+        """
+        from datetime import datetime, timezone
+        today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+        if self._last_reset_date is None:
+            self._last_reset_date = today
+            return
+        if self._last_reset_date != today:
+            self._daily_pnl = 0.0
+            self._daily_peak_pnl = 0.0
+            self._trades_today = 0
+            self._last_reset_date = today
 
     # ------------------------------------------------------------------
     # Legacy interface (backward-compatible)
@@ -197,6 +215,9 @@ class RiskManager:
         -------
         (approved, risk_pct, reason)
         """
+        # Reset daily counters at UTC day boundary.
+        self._maybe_reset_daily()
+
         cfg = self._cfg
 
         # 1. Daily DD hard stop -- close everything tier

@@ -52,19 +52,31 @@ def run_backtest(
     if _status["active"]:
         return {"status": "busy", "message": f"Backtest running for {_status['symbol']}"}
 
-    _status.update({"active": True, "symbol": body.symbol, "progress": "loading data"})
+    _status.update({"active": True, "symbol": body.symbol, "progress": "fetching dukascopy data"})
 
     def _run():
+        bundle_run_id = None
         try:
-            m5_path = os.path.join(DATA_DIR, f"{body.symbol}_M5.csv")
-            h1_path = os.path.join(DATA_DIR, f"{body.symbol}_H1.csv")
-            if not os.path.exists(m5_path):
-                _results[body.symbol] = {"error": "No data available"}
+            # Backtest data is ALWAYS fetched fresh from Dukascopy — never reads
+            # the persistent History Data files that training uses. Tempdir is
+            # cleaned up after load; DataFrames live only in-memory for ~10 min
+            # via the fetcher's cache.
+            from app.services.backtest.data_fetcher import get_backtest_fetcher
+            fetcher = get_backtest_fetcher()
+            try:
+                bundle = fetcher.fetch(body.symbol, days=2500, timeframes=["M5", "H1"])
+                bundle_run_id = bundle.run_id
+            except Exception as e:
+                _results[body.symbol] = {"error": f"Dukascopy fetch failed: {e}"}
                 return
 
-            _status["progress"] = "loading data"
-            m5 = pd.read_csv(m5_path)
-            h1 = pd.read_csv(h1_path) if os.path.exists(h1_path) else None
+            if bundle.m5 is None or len(bundle.m5) == 0:
+                _results[body.symbol] = {"error": "Dukascopy returned no M5 data"}
+                return
+
+            _status["progress"] = "loaded data"
+            m5 = bundle.m5
+            h1 = bundle.h1
 
             _status["progress"] = "running simulation"
             engine = BacktestEngine()
@@ -127,6 +139,14 @@ def run_backtest(
         finally:
             _status["active"] = False
             _status["progress"] = "done"
+            # Best-effort cleanup of the tempdir (fetch() already removes it
+            # after load but we call cleanup in case of crash mid-fetch)
+            if bundle_run_id:
+                try:
+                    from app.services.backtest.data_fetcher import get_backtest_fetcher
+                    get_backtest_fetcher().cleanup(bundle_run_id)
+                except Exception:
+                    pass
 
     background_tasks.add_task(_run)
     return {"status": "started", "symbol": body.symbol}
@@ -153,7 +173,10 @@ class PotentialBacktestRequest(BaseModel):
     balance: float = 10000.0
     max_lot: float = 0.10
     risk_pct: float = 0.01
-    data_source: str = "history"  # "history" = CSV files, "broker" = live Oanda data
+    # "dukascopy" (DEFAULT as of 2026-04-15): fetch fresh from Dukascopy per run
+    # "broker": live Oanda data (up to 5000 bars)
+    # "history": legacy — reads persistent CSV files from History Data/data/
+    data_source: str = "dukascopy"
 
 
 # Execution cost defaults per symbol (Oanda paper)
@@ -242,8 +265,40 @@ def _run_potential_backtest(body: PotentialBacktestRequest, result_id: int = Non
                 if result_id:
                     _update_backtest_record(result_id, status="error", error_message=err)
                 return
+        elif body.data_source == "dukascopy":
+            # Fresh Dukascopy fetch into a tempdir, loaded into memory, tempdir deleted.
+            _potential_status["progress"] = "fetching fresh Dukascopy data"
+            try:
+                from app.services.backtest.data_fetcher import get_backtest_fetcher
+                bundle = get_backtest_fetcher().fetch(symbol, days=2500)
+                m5 = _normalize_ohlcv(bundle.m5) if bundle.m5 is not None else None
+                h1 = _normalize_ohlcv(bundle.h1) if bundle.h1 is not None else None
+                h4 = _normalize_ohlcv(bundle.h4) if bundle.h4 is not None else None
+                d1 = _normalize_ohlcv(bundle.d1) if bundle.d1 is not None else None
+            except Exception as e:
+                err = f"Dukascopy fetch failed: {e}"
+                _potential_results[symbol] = {"error": err}
+                if result_id:
+                    _update_backtest_record(result_id, status="error", error_message=err)
+                return
+
+            if m5 is None or len(m5) == 0:
+                err = f"Dukascopy returned no M5 data for {symbol}"
+                _potential_results[symbol] = {"error": err}
+                if result_id:
+                    _update_backtest_record(result_id, status="error", error_message=err)
+                return
+
+            # Cap for memory
+            cap = 500_000
+            if len(m5) > cap:
+                m5 = m5.iloc[-cap:].reset_index(drop=True)
+                start_ts = m5["time"].iloc[0]
+                if h1 is not None: h1 = h1[h1["time"] >= start_ts].reset_index(drop=True)
+                if h4 is not None: h4 = h4[h4["time"] >= start_ts].reset_index(drop=True)
+                if d1 is not None: d1 = d1[d1["time"] >= start_ts].reset_index(drop=True)
         else:
-            # History data from CSV files
+            # Legacy history data from CSV files (data_source == "history")
             m5 = _load_tf(symbol, "M5")
             h1 = _load_tf(symbol, "H1")
             h4 = _load_tf(symbol, "H4")

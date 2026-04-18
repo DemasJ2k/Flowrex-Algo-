@@ -119,7 +119,7 @@ def get_all_trades(
     db: Session = Depends(get_db),
 ):
     query = (
-        db.query(AgentTrade)
+        db.query(AgentTrade, TradingAgent.name, TradingAgent.agent_type)
         .join(TradingAgent)
         .filter(
             TradingAgent.created_by == current_user.id,
@@ -128,8 +128,15 @@ def get_all_trades(
     )
     if status:
         query = query.filter(AgentTrade.status == status)
-    trades = query.order_by(AgentTrade.entry_time.desc()).offset(offset).limit(limit).all()
-    return trades
+    rows = query.order_by(AgentTrade.entry_time.desc()).offset(offset).limit(limit).all()
+    # Attach agent_name and agent_type to the response
+    result = []
+    for trade, agent_name, agent_type in rows:
+        resp = TradeResponse.model_validate(trade)
+        resp.agent_name = agent_name
+        resp.agent_type = agent_type
+        result.append(resp)
+    return result
 
 
 @router.get("/pnl-summary", response_model=list[PnlSummaryItem])
@@ -271,10 +278,19 @@ def create_agent(
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
-    # Check for duplicate underlying instrument (e.g., ES and SPX500 both map to SPX500_USD on Oanda)
+    # Validate symbol maps to a known broker instrument (Batch M — V4 tier 2)
     registry = get_symbol_registry()
     broker = body.broker_name or "oanda"
     new_broker_symbol = registry.to_broker(body.symbol, broker)
+    if not new_broker_symbol or new_broker_symbol == body.symbol:
+        # registry.to_broker returns the input unchanged if no mapping exists
+        # This is a warning — the symbol might work (e.g., Oanda auto-discovers)
+        # but it's better to flag it than to silently fail at trade time
+        import logging
+        logging.getLogger("flowrex").warning(
+            f"Symbol '{body.symbol}' has no explicit mapping for broker '{broker}'. "
+            f"Agent will be created but trades may fail if the broker doesn't recognize it."
+        )
 
     existing_agents = (
         db.query(TradingAgent)
@@ -361,12 +377,19 @@ def update_agent(
 
 
 @router.delete("/{agent_id}")
-def delete_agent(
+async def delete_agent(
     agent_id: int,
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
     agent = _get_agent_or_404(agent_id, current_user, db)
+    engine = get_algo_engine()
+    if engine.is_running(agent_id):
+        try:
+            await engine.stop_agent(agent_id)
+        except Exception:
+            pass
+    agent.status = "stopped"
     agent.deleted_at = datetime.now(timezone.utc)
     db.commit()
     return {"message": "Agent deleted", "id": agent_id}
@@ -412,6 +435,23 @@ async def pause_agent(
     agent.status = "paused"
     db.commit()
     return {"status": "paused", "message": "Agent paused"}
+
+
+@router.post("/{agent_id}/resume")
+async def resume_agent(
+    agent_id: int,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    agent = _get_agent_or_404(agent_id, current_user, db)
+    engine = get_algo_engine()
+    if not engine.is_running(agent_id):
+        await engine.start_agent(agent_id)
+    else:
+        await engine.resume_agent(agent_id)
+    agent.status = "running"
+    db.commit()
+    return {"status": "running", "message": "Agent resumed"}
 
 
 @router.get("/{agent_id}/logs", response_model=list[LogResponse])
@@ -534,4 +574,146 @@ def get_agent_performance(
         "max_win_streak": max_win_streak,
         "max_loss_streak": max_loss_streak,
         "equity_curve": equity_curve,
+    }
+
+
+# ── Analytics endpoint ───────────────────────────────────────────────────
+
+@router.get("/{agent_id}/analytics")
+async def get_agent_analytics(
+    agent_id: int,
+    user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """Rich analytics breakdown: by session, confidence, MTF, direction, exit reason."""
+    agent = _get_agent_or_404(agent_id, user, db)
+    trades = (
+        db.query(AgentTrade)
+        .filter(AgentTrade.agent_id == agent.id, AgentTrade.status == "closed")
+        .order_by(AgentTrade.exit_time.asc())
+        .all()
+    )
+
+    if not trades:
+        return {"overall": {}, "by_session": {}, "by_confidence": {},
+                "by_mtf_score": {}, "by_direction": {}, "by_exit_reason": {},
+                "streaks": {}, "recent_trades": []}
+
+    def _bucket_stats(trade_list):
+        pnls = [t.pnl or 0 for t in trade_list]
+        wins = sum(1 for p in pnls if p > 0)
+        return {
+            "trades": len(trade_list),
+            "win_rate": round(wins / len(trade_list) * 100, 1) if trade_list else 0,
+            "avg_pnl": round(sum(pnls) / len(pnls), 2) if pnls else 0,
+            "total_pnl": round(sum(pnls), 2),
+        }
+
+    # Overall
+    all_pnls = [t.pnl or 0 for t in trades]
+    all_wins = sum(1 for p in all_pnls if p > 0)
+    gross_profit = sum(p for p in all_pnls if p > 0)
+    gross_loss = abs(sum(p for p in all_pnls if p < 0))
+    overall = {
+        "total_trades": len(trades),
+        "win_rate": round(all_wins / len(trades) * 100, 1),
+        "profit_factor": round(gross_profit / gross_loss, 2) if gross_loss > 0 else 0,
+        "total_pnl": round(sum(all_pnls), 2),
+        "avg_pnl": round(sum(all_pnls) / len(all_pnls), 2),
+    }
+
+    # By session
+    by_session = {}
+    for t in trades:
+        s = t.session_name or "unknown"
+        by_session.setdefault(s, []).append(t)
+    by_session = {k: _bucket_stats(v) for k, v in by_session.items()}
+
+    # By confidence bucket
+    by_confidence = {}
+    for t in trades:
+        c = t.confidence
+        if c is None:
+            bucket = "unknown"
+        elif c < 0.6:
+            bucket = "0.50-0.60"
+        elif c < 0.7:
+            bucket = "0.60-0.70"
+        elif c < 0.8:
+            bucket = "0.70-0.80"
+        elif c < 0.9:
+            bucket = "0.80-0.90"
+        else:
+            bucket = "0.90-1.00"
+        by_confidence.setdefault(bucket, []).append(t)
+    by_confidence = {k: _bucket_stats(v) for k, v in sorted(by_confidence.items())}
+
+    # By MTF score
+    by_mtf = {}
+    for t in trades:
+        score = str(t.mtf_score) if t.mtf_score is not None else "unknown"
+        by_mtf.setdefault(score, []).append(t)
+    by_mtf = {k: _bucket_stats(v) for k, v in sorted(by_mtf.items())}
+
+    # By direction
+    by_direction = {}
+    for t in trades:
+        by_direction.setdefault(t.direction, []).append(t)
+    by_direction = {k: _bucket_stats(v) for k, v in by_direction.items()}
+
+    # By exit reason
+    by_exit = {}
+    for t in trades:
+        reason = t.exit_reason or "unknown"
+        by_exit.setdefault(reason, []).append(t)
+    by_exit = {k: _bucket_stats(v) for k, v in by_exit.items()}
+
+    # Streaks
+    current_streak_type = None
+    current_streak_count = 0
+    max_win_streak = 0
+    max_loss_streak = 0
+    for t in trades:
+        pnl = t.pnl or 0
+        streak_type = "winning" if pnl > 0 else "losing"
+        if streak_type == current_streak_type:
+            current_streak_count += 1
+        else:
+            current_streak_type = streak_type
+            current_streak_count = 1
+        if streak_type == "winning":
+            max_win_streak = max(max_win_streak, current_streak_count)
+        else:
+            max_loss_streak = max(max_loss_streak, current_streak_count)
+
+    # Recent trades with enriched data
+    recent = []
+    for t in trades[-20:]:
+        recent.append({
+            "direction": t.direction,
+            "pnl": t.pnl,
+            "confidence": t.confidence,
+            "session_name": t.session_name,
+            "mtf_score": t.mtf_score,
+            "model_name": t.model_name,
+            "exit_reason": t.exit_reason,
+            "top_features": t.top_features,
+            "entry_time": t.entry_time.isoformat() if t.entry_time else None,
+            "exit_time": t.exit_time.isoformat() if t.exit_time else None,
+            "time_to_exit_seconds": t.time_to_exit_seconds,
+        })
+
+    return {
+        "overall": overall,
+        "by_session": by_session,
+        "by_confidence": by_confidence,
+        "by_mtf_score": by_mtf,
+        "by_direction": by_direction,
+        "by_exit_reason": by_exit,
+        "streaks": {
+            "current": {"type": current_streak_type, "count": current_streak_count},
+            "max_winning": max_win_streak,
+            "max_losing": max_loss_streak,
+        },
+        "recent_trades": recent,
     }

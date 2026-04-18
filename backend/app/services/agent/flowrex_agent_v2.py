@@ -39,6 +39,7 @@ class FlowrexSignal:
     reason: str = ""
     votes: dict = field(default_factory=dict)
     mtf_layers: dict = field(default_factory=dict)
+    top_features: list = field(default_factory=list)
 
 
 class FlowrexAgentV2:
@@ -59,15 +60,43 @@ class FlowrexAgentV2:
         self.models: dict[str, dict] = {}
         self.feature_names: list[str] = []
 
+        # Safer default 0.001 (0.10%) instead of 0.01 (1.00%) — if config is missing
+        # the key, the agent won't silently 10x its position sizing.
+        _risk_per_trade = self.config.get("risk_per_trade")
+        if _risk_per_trade is None:
+            _risk_per_trade = 0.001
+            # Deferred warning — _log_fn isn't set yet in __init__
+            self._risk_default_warn = True
+        else:
+            self._risk_default_warn = False
         self.risk_config = {
             "max_drawdown_pct": self.config.get("max_drawdown_pct", 0.10),
             "daily_loss_limit_pct": self.config.get("max_daily_loss_pct", 0.03),
-            "risk_per_trade_pct": self.config.get("risk_per_trade", 0.01),
+            "risk_per_trade_pct": _risk_per_trade,
             "max_trades_per_day": self.config.get("max_trades_per_day", 5),
         }
         self.cooldown_bars = self.config.get("cooldown_bars", 3)
         self.session_filter = self.config.get("session_filter", False)
         self.news_filter = self.config.get("news_filter_enabled", False)
+
+        # Prop-firm tiered risk manager (opt-in via config).
+        # When enabled, approve_trade() gates every signal with FTMO-grade
+        # drawdown tiers, anti-martingale sizing, and session windows.
+        self.prop_firm_enabled = self.config.get("prop_firm_enabled", False)
+        self._risk_manager = None
+        if self.prop_firm_enabled:
+            try:
+                from app.services.agent.risk_manager import RiskManager
+                # Merge any user overrides onto the prop-firm defaults.
+                override_keys = [
+                    "max_daily_dd_pct", "max_total_dd_pct", "daily_dd_yellow",
+                    "daily_dd_red", "daily_dd_hard_stop", "max_trades_per_day",
+                    "max_concurrent_positions", "base_risk_per_trade_pct",
+                ]
+                overrides = {k: self.config[k] for k in override_keys if k in self.config}
+                self._risk_manager = RiskManager(config=overrides)
+            except Exception:
+                self._risk_manager = None
 
         self._log_fn: Optional[Callable] = None
         self._eval_count = 0
@@ -75,6 +104,10 @@ class FlowrexAgentV2:
         self._reject_count = 0
         self._reject_last_log_time: dict[str, float] = {}
         self._last_trade_bar = -999
+        self._last_trade_time = 0.0  # monotonic seconds — robust to pause/resume
+        # Wall-clock time of last trade (for cooldown persistence across restarts).
+        # Loaded from DB on start; set on each trade open.
+        self._last_trade_wall_time = 0.0
         self._h1_bars = None
         self._h4_bars = None
         self._d1_bars = None
@@ -83,6 +116,7 @@ class FlowrexAgentV2:
         self._daily_pnl = 0.0
         self._feature_cache_key = None
         self._feature_cache_result = None
+        self._last_prediction: Optional[dict] = None  # for HOLD logging + drift
 
     def load(self) -> bool:
         """Load 3 ML models (XGBoost + LightGBM + CatBoost) from disk."""
@@ -160,10 +194,16 @@ class FlowrexAgentV2:
             self._log_reject("Insufficient bars", len(m5_bars))
             return None
 
-        # 2. Cooldown
-        bars_since_last = current_bar_index - self._last_trade_bar
-        if bars_since_last < self.cooldown_bars:
-            self._log_reject("Cooldown", bars_since_last)
+        # 2. Cooldown — use wall time so restart doesn't reset it.
+        cooldown_sec = self.cooldown_bars * 300  # M5 bars × 300s
+        # Lazy-load last trade time from DB on first eval after start
+        if self._last_trade_wall_time == 0.0:
+            self._last_trade_wall_time = self._load_last_trade_time_from_db()
+        import time as _wall_time
+        now_wall = _wall_time.time()
+        elapsed_sec = now_wall - self._last_trade_wall_time
+        if self._last_trade_wall_time > 0 and elapsed_sec < cooldown_sec:
+            self._log_reject("Cooldown", f"{int(elapsed_sec)}s/{cooldown_sec}s")
             return None
 
         # 3. News filter
@@ -218,6 +258,19 @@ class FlowrexAgentV2:
         if np.any(np.isnan(feature_vector)) or np.any(np.isinf(feature_vector)):
             feature_vector = np.nan_to_num(feature_vector, nan=0.0, posinf=0.0, neginf=0.0)
 
+        # Drift check (first eval after start + every 50 evals).
+        # Warnings go to agent_logs; does NOT block trading.
+        if self._eval_count == 1 or self._eval_count % 50 == 0:
+            try:
+                from app.services.ml.feature_monitor import check_drift
+                drift = check_drift(feature_vector[0], feat_names, self.symbol, self.agent_id)
+                if drift:
+                    self._log("warn",
+                        f"Feature drift: {len(drift)} features outside training distribution "
+                        f"(first 3: {'; '.join(drift[:3])})")
+            except Exception:
+                pass
+
         # 8. 3-model ensemble prediction with majority vote
         signal = self._predict_ensemble(feature_vector, mtf_result)
 
@@ -225,10 +278,10 @@ class FlowrexAgentV2:
             self._log_reject("No signal")
             return None
 
-        # 9. Validate signal agrees with MTF bias
-        if mtf_result["d1_bias"] != 0 and signal.direction != mtf_result["d1_bias"]:
-            self._log_reject("Signal vs D1 bias mismatch")
-            return None
+        # 9. (Gate B removed 2026-04-15) The D1-hard-veto was double-filtering because
+        # fx_d1_bias is already a feature the model trains on, and the MTF score check
+        # in _mtf_filter already requires 2-of-3 layers to agree before signal generation.
+        # Removing this unblocks trading while preserving the score-based filter.
 
         # 10. ATR-based SL/TP
         from app.services.backtest.indicators import atr as compute_atr
@@ -280,7 +333,11 @@ class FlowrexAgentV2:
         entry_price = round(entry_price, price_digits)
 
         # 11. Position sizing — strictly % of balance
-        risk_amount = balance * self.risk_config.get("risk_per_trade_pct", 0.01)
+        # Deferred warning for missing risk_per_trade key
+        if getattr(self, "_risk_default_warn", False):
+            self._log("warn", "risk_per_trade not in config, using 0.10% default")
+            self._risk_default_warn = False
+        risk_amount = balance * self.risk_config.get("risk_per_trade_pct", 0.001)
         lot_size = calc_lot_size(self.symbol, risk_amount, sl_distance, self.broker_name)
 
         if self.broker_name == "oanda":
@@ -300,6 +357,41 @@ class FlowrexAgentV2:
         # 12. Build signal dict
         direction_str = "BUY" if signal.direction == 1 else "SELL"
 
+        hour_utc = datetime.now(timezone.utc).hour
+        if hour_utc < 8:
+            session_name = "asian"
+        elif hour_utc < 13:
+            session_name = "london"
+        elif hour_utc < 17:
+            session_name = "ny_open"
+        elif hour_utc < 21:
+            session_name = "ny_close"
+        else:
+            session_name = "off_hours"
+
+        # Prop-firm final gate: approve_trade() runs the tiered DD + session + anti-martingale check.
+        # If disabled (default), skip silently — preserves legacy behavior.
+        if self._risk_manager:
+            try:
+                approved, approved_risk_pct, reason = self._risk_manager.approve_trade(
+                    symbol=self.symbol,
+                    direction=direction_str,
+                    confidence=float(signal.confidence),
+                    atr=float(atr_value),
+                    current_price=float(entry_price),
+                    hour_utc=float(hour_utc),
+                )
+                if not approved:
+                    self._log_reject(f"Prop-firm gate: {reason}")
+                    return None
+                # Let RiskManager override the risk_pct when it recommends a lower size
+                # (e.g., after losses or in DD yellow tier).
+                if approved_risk_pct > 0 and approved_risk_pct < self.risk_config["risk_per_trade_pct"]:
+                    self.risk_config["risk_per_trade_pct"] = approved_risk_pct
+                    self._log("info", f"Prop-firm sized down: risk_pct -> {approved_risk_pct*100:.3f}%")
+            except Exception as e:
+                self._log("warn", f"RiskManager.approve_trade failed (non-fatal): {e}")
+
         signal_dict = {
             "direction": direction_str,
             "confidence": signal.confidence,
@@ -312,10 +404,19 @@ class FlowrexAgentV2:
             "agent_type": "flowrex_v2",
             "votes": signal.votes,
             "mtf_layers": signal.mtf_layers,
+            # Analytics enrichment
+            "session_name": session_name,
+            "atr_at_entry": atr_value,
+            "model_name": signal.reason,
+            "mtf_score": mtf_result["score"],
+            "top_features": signal.top_features if hasattr(signal, "top_features") else None,
         }
 
         self._signal_count += 1
         self._last_trade_bar = current_bar_index
+        self._last_trade_time = _time.monotonic()
+        import time as _wall_time
+        self._last_trade_wall_time = _wall_time.time()
 
         self._log("signal",
             f"{direction_str} {self.symbol} @ {entry_price:.2f} | "
@@ -414,6 +515,34 @@ class FlowrexAgentV2:
                 confidences.append(conf)
                 weights.append(MODEL_WEIGHTS.get(mtype, 1.0))
 
+        # Persist ensemble-averaged class probabilities for HOLD logging + drift analysis.
+        # Label encoding: 0=sell, 1=hold, 2=buy (matches create_labels).
+        try:
+            import numpy as _np
+            prob_sum = _np.zeros(3)
+            count = 0
+            for mtype, data in self.models.items():
+                model = data.get("model")
+                if model is None:
+                    continue
+                try:
+                    p = model.predict_proba(X)[0]
+                    if len(p) == 3:
+                        prob_sum += p
+                        count += 1
+                except Exception:
+                    continue
+            if count > 0:
+                avg = prob_sum / count
+                self._last_prediction = {
+                    "sell_prob": float(avg[0]),
+                    "hold_prob": float(avg[1]),
+                    "buy_prob": float(avg[2]),
+                    "votes": votes,
+                }
+        except Exception:
+            pass
+
         if not directions:
             return None
 
@@ -462,6 +591,48 @@ class FlowrexAgentV2:
             },
         )
 
+    def _load_last_trade_time_from_db(self) -> float:
+        """
+        Recover the last-trade wall-clock time from DB after a restart.
+        Returns 0.0 if no trade found — which means cooldown is immediately available.
+        """
+        try:
+            from app.core.database import SessionLocal
+            from app.models.agent import AgentTrade
+            db = SessionLocal()
+            try:
+                t = (
+                    db.query(AgentTrade)
+                    .filter(AgentTrade.agent_id == self.agent_id)
+                    .order_by(AgentTrade.entry_time.desc())
+                    .first()
+                )
+                if t and t.entry_time:
+                    return t.entry_time.timestamp()
+                return 0.0
+            finally:
+                db.close()
+        except Exception:
+            return 0.0
+
+    # ── Hooks called by engine ─────────────────────────────────────────
+    def on_position_opened(self):
+        """Called by engine after a trade is opened."""
+        if self._risk_manager:
+            try:
+                self._risk_manager.open_position()
+            except Exception:
+                pass
+
+    def on_position_closed(self, pnl: float):
+        """Called by engine after a trade closes."""
+        if self._risk_manager:
+            try:
+                self._risk_manager.close_position()
+                self._risk_manager.record_trade_result(pnl)
+            except Exception:
+                pass
+
     def _check_risk(self, balance: float, daily_pnl: float, daily_trade_count: int) -> bool:
         """Risk checks."""
         if daily_trade_count >= self.risk_config["max_trades_per_day"]:
@@ -481,6 +652,20 @@ class FlowrexAgentV2:
             if dd > self.risk_config["max_drawdown_pct"]:
                 self._log_reject(f"Max DD exceeded ({dd * 100:.1f}%)")
                 return False
+
+        # If prop-firm mode is enabled, sync state with RiskManager and
+        # run its tiered DD / session / anti-martingale checks.
+        if self._risk_manager:
+            try:
+                rm = self._risk_manager
+                rm._daily_pnl = daily_pnl
+                rm._trades_today = daily_trade_count
+                rm._account_size = balance
+                if rm.should_close_all():
+                    self._log_reject("Prop-firm hard stop (daily DD hit limit)")
+                    return False
+            except Exception:
+                pass
 
         return True
 
