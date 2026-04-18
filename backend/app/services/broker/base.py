@@ -20,6 +20,7 @@ class AccountInfo:
     balance: float = 0.0
     equity: float = 0.0
     margin_used: float = 0.0
+    margin_available: float = 0.0
     currency: str = "USD"
     unrealized_pnl: float = 0.0
     account_id: str = ""
@@ -85,6 +86,9 @@ class OrderResult:
     success: bool = False
     order_id: str = ""
     message: str = ""
+    # Execution quality — populated by brokers that report fills
+    fill_price: float = 0.0
+    requested_price: float = 0.0
 
 
 @dataclass

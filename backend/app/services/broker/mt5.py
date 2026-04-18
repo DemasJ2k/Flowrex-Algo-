@@ -70,7 +70,15 @@ def _get_filling_candidates(symbol: str) -> list:
 
 
 class MT5Adapter(BrokerAdapter):
-    """MetaTrader 5 adapter. Wraps synchronous MT5 calls in asyncio.to_thread."""
+    """
+    MetaTrader 5 adapter. Wraps synchronous MT5 calls in asyncio.to_thread.
+
+    MT5's `mt5.initialize()` is a process-global singleton. Multiple MT5Adapter
+    instances share the same terminal connection. A reference counter ensures
+    `mt5.shutdown()` is only called when the last adapter disconnects.
+    """
+    _init_count = 0
+    _init_lock = None  # lazily created because asyncio.Lock needs a running loop
 
     def __init__(self):
         self._connected = False
@@ -111,10 +119,16 @@ class MT5Adapter(BrokerAdapter):
         if server:
             kwargs["server"] = str(server).strip()
 
-        ok = await asyncio.to_thread(mt5.initialize, **kwargs)
-        if not ok:
-            error = await asyncio.to_thread(mt5.last_error)
-            raise BrokerError(f"MT5 initialization failed: {error}")
+        # Reference-counted init — only call mt5.initialize if we're the first adapter
+        if MT5Adapter._init_lock is None:
+            MT5Adapter._init_lock = asyncio.Lock()
+        async with MT5Adapter._init_lock:
+            if MT5Adapter._init_count == 0:
+                ok = await asyncio.to_thread(mt5.initialize, **kwargs)
+                if not ok:
+                    error = await asyncio.to_thread(mt5.last_error)
+                    raise BrokerError(f"MT5 initialization failed: {error}")
+            MT5Adapter._init_count += 1
 
         self._connected = True
         # Auto-discover symbols
@@ -129,7 +143,12 @@ class MT5Adapter(BrokerAdapter):
 
     async def disconnect(self) -> None:
         if MT5_AVAILABLE and self._connected:
-            await asyncio.to_thread(mt5.shutdown)
+            if MT5Adapter._init_lock is None:
+                MT5Adapter._init_lock = asyncio.Lock()
+            async with MT5Adapter._init_lock:
+                MT5Adapter._init_count = max(0, MT5Adapter._init_count - 1)
+                if MT5Adapter._init_count == 0:
+                    await asyncio.to_thread(mt5.shutdown)
         self._connected = False
 
     async def get_account_info(self) -> AccountInfo:
@@ -226,7 +245,7 @@ class MT5Adapter(BrokerAdapter):
                 min_lot=s.volume_min,
                 lot_step=s.volume_step,
                 pip_size=s.point,
-                pip_value=s.trade_tick_value,
+                pip_value=getattr(s, "trade_tick_value", 1.0),
                 digits=s.digits,
             ))
         return symbols
@@ -283,8 +302,13 @@ class MT5Adapter(BrokerAdapter):
             if result.retcode != 10030:  # 10030 = unsupported filling mode — try next
                 break
 
-        msg = result.comment if result else "order_send returned None"
-        return OrderResult(success=False, message=f"MT5 error {result.retcode if result else 'None'}: {msg}")
+        if result is not None:
+            msg = getattr(result, "comment", "unknown error")
+            code = getattr(result, "retcode", "unknown")
+        else:
+            msg = "order_send returned None for all filling modes"
+            code = "None"
+        return OrderResult(success=False, message=f"MT5 error {code}: {msg}")
 
     async def close_position(self, position_id: str) -> CloseResult:
         _require_mt5()
@@ -297,6 +321,8 @@ class MT5Adapter(BrokerAdapter):
         pos = positions[0]
         close_type = mt5.ORDER_TYPE_SELL if pos.type == 0 else mt5.ORDER_TYPE_BUY
         tick = await asyncio.to_thread(mt5.symbol_info_tick, pos.symbol)
+        if tick is None:
+            return CloseResult(success=False, message=f"No tick data for {pos.symbol}")
         close_price = tick.bid if pos.type == 0 else tick.ask
 
         base_request = {
@@ -323,7 +349,10 @@ class MT5Adapter(BrokerAdapter):
             if result and result.retcode != 10030:
                 break
 
-        msg = result.comment if result else "order_send returned None"
+        if result is not None:
+            msg = getattr(result, "comment", "unknown error")
+        else:
+            msg = "order_send returned None for all filling modes"
         return CloseResult(success=False, message=f"Close failed: {msg}")
 
     async def modify_order(

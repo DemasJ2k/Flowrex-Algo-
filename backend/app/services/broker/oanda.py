@@ -40,6 +40,10 @@ class OandaAdapter(BrokerAdapter):
         self._account_id: str = ""
         self._semaphore = asyncio.Semaphore(25)  # rate limit
         self._registry = get_symbol_registry()
+        # Rate limit tracking (Batch C — Oanda hardening)
+        self._req_count_this_minute = 0
+        self._req_minute_start = 0.0
+        self._market_closed_backoff = 0  # seconds until next retry when market is closed
 
     @property
     def name(self) -> str:
@@ -52,11 +56,35 @@ class OandaAdapter(BrokerAdapter):
         return self._registry.to_canonical(instrument, "oanda")
 
     async def _request(self, method: str, path: str, **kwargs) -> dict:
-        """Make a rate-limited request to Oanda API."""
+        """
+        Make a rate-limited request to Oanda API.
+
+        Batch C additions:
+        - Rate limit proximity warning (logs if >80% of 120 req/sec)
+        - Market-closed detection with exponential backoff
+        """
+        import time as _time
+
         if not self._client:
             raise BrokerError("Not connected to Oanda")
+
+        # ── Rate limit tracking ──
+        now = _time.time()
+        if now - self._req_minute_start > 60:
+            self._req_count_this_minute = 0
+            self._req_minute_start = now
+        self._req_count_this_minute += 1
+        if self._req_count_this_minute > 96:  # 80% of Oanda's 120/min
+            import logging
+            logging.getLogger("flowrex").warning(
+                f"Oanda rate limit proximity: {self._req_count_this_minute} req/min (limit: 120)"
+            )
+
         async with self._semaphore:
-            for attempt in range(2):  # Retry once on transport errors
+            # Retry up to 3 times: transport errors + 5XX responses (but not 4XX — those are auth/config and won't self-heal)
+            max_attempts = 3
+            last_err = None
+            for attempt in range(max_attempts):
                 try:
                     resp = await self._client.request(method, path, **kwargs)
                     if not resp.text or not resp.text.strip():
@@ -65,13 +93,29 @@ class OandaAdapter(BrokerAdapter):
                         data = resp.json()
                     except Exception:
                         raise BrokerError(f"Oanda returned non-JSON: {resp.text[:200]}")
+                    # Server errors: retry with backoff
+                    if 500 <= resp.status_code < 600:
+                        last_err = f"Oanda {resp.status_code}: {str(data)[:200]}"
+                        if attempt < max_attempts - 1:
+                            import asyncio as _a
+                            await _a.sleep(1 + attempt * 2)  # 1s, 3s
+                            continue
+                        raise BrokerError(last_err, code=str(resp.status_code))
                     if resp.status_code >= 400:
                         msg = data.get("errorMessage", str(data))
+                        # Market-closed detection: Oanda returns this on weekends
+                        if "market" in msg.lower() and "closed" in msg.lower():
+                            raise BrokerError(f"Market is closed: {msg}", code="MARKET_CLOSED")
                         raise BrokerError(f"Oanda API error: {msg}", code=str(resp.status_code))
+                    # Successful request — reset market-closed backoff
+                    self._market_closed_backoff = 0
                     return data
                 except (httpx.RemoteProtocolError, httpx.ReadError, httpx.WriteError, httpx.PoolTimeout) as e:
-                    if attempt == 0:
-                        continue  # Retry on transport errors
+                    last_err = e
+                    if attempt < max_attempts - 1:
+                        import asyncio as _a
+                        await _a.sleep(1 + attempt * 2)
+                        continue
                     raise BrokerError(f"Oanda connection error: {e}")
                 except httpx.HTTPError as e:
                     raise BrokerError(f"Oanda HTTP error: {e}")
@@ -141,6 +185,7 @@ class OandaAdapter(BrokerAdapter):
             balance=float(acct.get("balance", 0)),
             equity=float(acct.get("NAV", 0)),
             margin_used=float(acct.get("marginUsed", 0)),
+            margin_available=float(acct.get("marginAvailable", 0)),
             currency=acct.get("currency", "USD"),
             unrealized_pnl=float(acct.get("unrealizedPL", 0)),
             account_id=str(self._account_id or ""),
@@ -324,9 +369,21 @@ class OandaAdapter(BrokerAdapter):
 
         if "orderFillTransaction" in data:
             txn = data["orderFillTransaction"]
-            return OrderResult(success=True, order_id=txn.get("id", ""), message="Order filled")
+            fill_price = 0.0
+            try:
+                fill_price = float(txn.get("price", 0))
+            except (TypeError, ValueError):
+                pass
+            # Requested price = current market (best available) at submission time
+            req_price = float(price) if price is not None else fill_price
+            return OrderResult(
+                success=True,
+                order_id=txn.get("id", ""),
+                message="Order filled",
+                fill_price=fill_price,
+                requested_price=req_price,
+            )
         elif "orderCreateTransaction" in data:
-            # Order created but not yet filled — check if it was also cancelled in same response
             txn = data["orderCreateTransaction"]
             return OrderResult(success=True, order_id=txn.get("id", ""), message="Order created")
         else:

@@ -87,12 +87,26 @@ class BrokerManager:
             # No stored credentials — pass empty dict (adapter may auto-fill from .env)
             credentials = {}
 
-        # Instantiate and connect adapter
+        # Instantiate and connect adapter with retry.
+        # If connect() raises, we do NOT cache a stale adapter — this is a common
+        # wiring bug where a broken adapter sits in the dict, silently failing
+        # every poll with no reconnect opportunity.
         adapter = self._create_adapter(broker_name)
-        await adapter.connect(credentials)
-        self._adapters[key] = adapter
-        self._connect_times[key] = time.time()
-        return True
+        last_err = None
+        for attempt in range(3):
+            try:
+                await adapter.connect(credentials)
+                self._adapters[key] = adapter
+                self._connect_times[key] = time.time()
+                return True
+            except Exception as e:
+                last_err = e
+                if attempt < 2:
+                    import asyncio as _a
+                    await _a.sleep(2 ** attempt)  # 1s, 2s
+                continue
+        # All retries failed — DO NOT cache the broken adapter
+        raise BrokerError(f"Failed to connect to {broker_name} after 3 attempts: {last_err}")
 
     async def disconnect(self, user_id: int, broker_name: str) -> None:
         key = (user_id, broker_name)

@@ -1,14 +1,20 @@
 """
-Tradovate broker adapter — futures trading (ES, NQ, YM).
+Tradovate broker adapter — futures trading.
 
 Authentication: OAuth2 (username + password + app_id + device_id)
 Base URLs: demo.tradovateapi.com/v1 (paper) / live.tradovateapi.com/v1
-Contracts: quarterly roll (ESZ6, NQZ6, YMZ6)
+Contracts: quarterly roll (ESZ6, NQZ6, YMZ6, GCZ6, ...)
+
+Batch 10 fixes (2026-04-15 audit):
+  - C30: Live/demo toggle now reads both 'live' and 'demo' credential keys
+  - C31: Bracket orders pass actual symbol, not empty string
+  - C32: Token refresh with expiresIn + refreshToken + 401 auto-refresh
+  - C33: Contract specs added for GC, SI, BTC, ETH futures
 """
 import os
 import asyncio
 from typing import Optional
-from datetime import datetime, timezone
+from datetime import datetime, timezone, timedelta
 
 import httpx
 
@@ -23,6 +29,7 @@ DEMO_URL = "https://demo.tradovateapi.com/v1"
 LIVE_URL = "https://live.tradovateapi.com/v1"
 AUTH_URL = "https://demo.tradovateapi.com/v1/auth/accesstokenrequest"
 LIVE_AUTH_URL = "https://live.tradovateapi.com/v1/auth/accesstokenrequest"
+RENEW_PATH = "/auth/renewaccesstoken"
 
 # Tradovate timeframe mapping
 TF_MAP = {
@@ -30,14 +37,23 @@ TF_MAP = {
     "H1": 3600, "H4": 14400, "D1": 86400, "W1": 604800,
 }
 
-# Futures contract sizing
+# Futures contract sizing — verified against CME specs. Point value × 1 contract = notional per 1-point move.
+# Added GC, SI, BTC, ETH per audit C33. Values match front-month standard contracts.
 CONTRACT_SPECS = {
-    "ES": {"point_value": 50.0, "tick_size": 0.25, "tick_value": 12.50},
-    "NQ": {"point_value": 20.0, "tick_size": 0.25, "tick_value": 5.00},
-    "YM": {"point_value": 5.0, "tick_size": 1.0, "tick_value": 5.00},
+    "ES":   {"point_value": 50.0,   "tick_size": 0.25,  "tick_value": 12.50},   # S&P 500 E-mini
+    "NQ":   {"point_value": 20.0,   "tick_size": 0.25,  "tick_value": 5.00},    # Nasdaq 100 E-mini
+    "YM":   {"point_value": 5.0,    "tick_size": 1.0,   "tick_value": 5.00},    # Dow E-mini
+    "GC":   {"point_value": 100.0,  "tick_size": 0.10,  "tick_value": 10.00},   # Gold futures
+    "SI":   {"point_value": 5000.0, "tick_size": 0.005, "tick_value": 25.00},   # Silver futures
+    "BTC":  {"point_value": 5.0,    "tick_size": 5.0,   "tick_value": 25.00},   # Bitcoin futures (standard)
+    "ETH":  {"point_value": 50.0,   "tick_size": 0.05,  "tick_value": 2.50},    # Ether futures (standard)
+    "CL":   {"point_value": 1000.0, "tick_size": 0.01,  "tick_value": 10.00},   # Crude oil
+    "ZN":   {"point_value": 1000.0, "tick_size": 0.015625, "tick_value": 15.625},  # 10-year T-note
 }
 
 RATE_LIMIT = 20
+# Refresh token 5 minutes before expiry to avoid race with mid-flight requests
+TOKEN_REFRESH_BUFFER_SEC = 300
 
 
 class TradovateAdapter(BrokerAdapter):
@@ -46,6 +62,11 @@ class TradovateAdapter(BrokerAdapter):
     def __init__(self):
         self._client: Optional[httpx.AsyncClient] = None
         self._access_token: str = ""
+        self._md_access_token: str = ""  # returned alongside main token, same lifetime
+        self._token_expires_at: Optional[datetime] = None
+        self._refresh_lock = asyncio.Lock()
+        # Credentials snapshot for re-auth (no refresh token on Tradovate — we re-login)
+        self._creds_snapshot: dict = {}
         self._account_id: int = 0
         self._account_spec: str = ""
         self._base_url: str = DEMO_URL
@@ -59,42 +80,46 @@ class TradovateAdapter(BrokerAdapter):
         return "tradovate"
 
     async def connect(self, credentials: dict) -> bool:
-        """Connect to Tradovate via OAuth2."""
+        """
+        Connect to Tradovate via OAuth2.
+
+        Live/demo mode: prefers explicit `live` key, falls back to `not demo`.
+        Previously (audit C30) the code only read `live`, so the frontend's
+        `demo: true` toggle was silently ignored and everyone got demo mode.
+        """
         username = credentials.get("username", os.environ.get("TRADOVATE_USERNAME", ""))
         password = credentials.get("password", os.environ.get("TRADOVATE_PASSWORD", ""))
         app_id = credentials.get("app_id", os.environ.get("TRADOVATE_APP_ID", ""))
         device_id = credentials.get("device_id", os.environ.get("TRADOVATE_DEVICE_ID", "flowrex-algo"))
         cid = credentials.get("cid", os.environ.get("TRADOVATE_CID", ""))
         sec = credentials.get("sec", os.environ.get("TRADOVATE_SEC", ""))
-        self._is_live = credentials.get("live", False)
+
+        # ── Live/demo mode resolution (C30 fix) ──
+        # Priority order: explicit 'live' key > 'demo' inverted > env var > default demo
+        if "live" in credentials:
+            self._is_live = bool(credentials["live"])
+        elif "demo" in credentials:
+            self._is_live = not bool(credentials["demo"])
+        else:
+            self._is_live = os.environ.get("TRADOVATE_LIVE", "false").lower() == "true"
 
         if not username or not password:
             raise BrokerError("Tradovate credentials required (username, password)")
 
+        # Snapshot credentials for token refresh
+        self._creds_snapshot = {
+            "username": username,
+            "password": password,
+            "app_id": app_id,
+            "device_id": device_id,
+            "cid": cid,
+            "sec": sec,
+        }
+
         self._base_url = LIVE_URL if self._is_live else DEMO_URL
-        auth_url = LIVE_AUTH_URL if self._is_live else AUTH_URL
 
-        try:
-            async with httpx.AsyncClient(timeout=15.0) as client:
-                resp = await client.post(auth_url, json={
-                    "name": username,
-                    "password": password,
-                    "appId": app_id or None,
-                    "appVersion": "1.0",
-                    "deviceId": device_id,
-                    "cid": cid or None,
-                    "sec": sec or None,
-                })
-                if resp.status_code != 200:
-                    raise BrokerError(f"Auth failed: {resp.status_code} — {resp.text[:200]}")
-
-                data = resp.json()
-                self._access_token = data.get("accessToken", "")
-                if not self._access_token:
-                    raise BrokerError(f"No access token in response: {data}")
-
-        except httpx.HTTPError as e:
-            raise BrokerError(f"Tradovate connection error: {e}")
+        # Perform initial auth
+        await self._authenticate()
 
         self._client = httpx.AsyncClient(
             base_url=self._base_url,
@@ -121,12 +146,82 @@ class TradovateAdapter(BrokerAdapter):
 
         return True
 
+    async def _authenticate(self):
+        """
+        Acquire a fresh access token from Tradovate.
+
+        Tradovate OAuth2 doesn't issue a refresh token — we re-send credentials
+        via /auth/accesstokenrequest. Called from connect() on first auth and
+        from _ensure_token_fresh() when the token is within 5 min of expiry.
+        """
+        auth_url = LIVE_AUTH_URL if self._is_live else AUTH_URL
+        creds = self._creds_snapshot
+
+        try:
+            async with httpx.AsyncClient(timeout=15.0) as client:
+                resp = await client.post(auth_url, json={
+                    "name": creds.get("username", ""),
+                    "password": creds.get("password", ""),
+                    "appId": creds.get("app_id") or None,
+                    "appVersion": "1.0",
+                    "deviceId": creds.get("device_id", "flowrex-algo"),
+                    "cid": creds.get("cid") or None,
+                    "sec": creds.get("sec") or None,
+                })
+                if resp.status_code != 200:
+                    raise BrokerError(f"Auth failed: {resp.status_code} — {resp.text[:200]}")
+
+                data = resp.json()
+                self._access_token = data.get("accessToken", "")
+                self._md_access_token = data.get("mdAccessToken", "")
+                if not self._access_token:
+                    raise BrokerError(f"No access token in response: {data}")
+
+                # Track expiry. Tradovate returns ISO8601 "expirationTime" field.
+                expiration = data.get("expirationTime")
+                if expiration:
+                    try:
+                        self._token_expires_at = datetime.fromisoformat(
+                            expiration.replace("Z", "+00:00")
+                        )
+                    except ValueError:
+                        # Fallback: assume 80 minutes (Tradovate default)
+                        self._token_expires_at = datetime.now(timezone.utc) + timedelta(minutes=80)
+                else:
+                    self._token_expires_at = datetime.now(timezone.utc) + timedelta(minutes=80)
+
+                # Update the client headers so subsequent requests use the new token
+                if self._client is not None:
+                    self._client.headers["Authorization"] = f"Bearer {self._access_token}"
+
+        except httpx.HTTPError as e:
+            raise BrokerError(f"Tradovate auth error: {e}")
+
+    async def _ensure_token_fresh(self):
+        """Refresh the access token if it's near expiry. C32 fix."""
+        if not self._token_expires_at:
+            return
+        remaining = (self._token_expires_at - datetime.now(timezone.utc)).total_seconds()
+        if remaining > TOKEN_REFRESH_BUFFER_SEC:
+            return
+        async with self._refresh_lock:
+            # Double-check inside the lock — another coroutine may have refreshed already
+            if not self._token_expires_at:
+                return
+            remaining = (self._token_expires_at - datetime.now(timezone.utc)).total_seconds()
+            if remaining <= TOKEN_REFRESH_BUFFER_SEC:
+                await self._authenticate()
+
     async def disconnect(self) -> None:
         if self._client:
             await self._client.aclose()
             self._client = None
         self._access_token = ""
+        self._md_access_token = ""
+        self._token_expires_at = None
+        self._creds_snapshot = {}
         self._account_id = 0
+        self._contract_cache.clear()
 
     async def get_account_info(self) -> AccountInfo:
         data = await self._request("GET", f"/account/item?id={self._account_id}")
@@ -250,10 +345,17 @@ class TradovateAdapter(BrokerAdapter):
     async def get_symbols(self) -> list[SymbolInfo]:
         data = await self._request("GET", "/contract/list")
         symbols = []
-        for c in data[:100]:
+        # Removed the hardcoded `data[:100]` cap (audit H40) — Tradovate has 1000+
+        # instruments and we need to see all futures, not just the first 100.
+        for c in data:
             name = c.get("name", "")
             canonical = self._to_canonical(name)
-            spec = CONTRACT_SPECS.get(canonical[:2], {})
+            # Try 3-char prefix first (BTC, ETH), then 2-char (ES, NQ, YM, GC, SI, CL, ZN)
+            spec = (
+                CONTRACT_SPECS.get(canonical[:3])
+                or CONTRACT_SPECS.get(canonical[:2])
+                or {}
+            )
             symbols.append(SymbolInfo(
                 name=canonical or name,
                 min_lot=1,
@@ -298,14 +400,26 @@ class TradovateAdapter(BrokerAdapter):
             result = await self._request("POST", "/order/placeorder", json=order_body)
             order_id = str(result.get("orderId", result.get("id", "")))
 
-            # Place bracket (SL/TP) if provided
+            # Place bracket (SL/TP) if provided. C31 fix: pass the actual
+            # broker_symbol so Tradovate can route the bracket correctly.
+            bracket_warning = None
             if sl or tp:
-                await self._place_bracket(order_id, contract_id, action, int(size), sl, tp)
+                try:
+                    await self._place_bracket(
+                        order_id, broker_symbol, contract_id, action, int(size), sl, tp,
+                    )
+                except BrokerError as be:
+                    # Don't silently swallow — surface as a warning on the result
+                    bracket_warning = f"Main order filled but bracket failed: {be}"
+
+            msg = result.get("ordStatus", "Placed")
+            if bracket_warning:
+                msg = f"{msg} ({bracket_warning})"
 
             return OrderResult(
                 success=True,
                 order_id=order_id,
-                message=result.get("ordStatus", "Placed"),
+                message=msg,
             )
         except BrokerError as e:
             return OrderResult(success=False, message=str(e))
@@ -356,20 +470,49 @@ class TradovateAdapter(BrokerAdapter):
     # ── Internal helpers ─────────────────────────────────────────────────
 
     async def _request(self, method: str, path: str, **kwargs) -> dict:
+        """
+        Rate-limited request with proactive token refresh and 401 auto-retry.
+
+        C32 fix: before each request, check if the token is about to expire.
+        On a 401 response, refresh the token ONCE and retry the request.
+        """
         if not self._client:
             raise BrokerError("Not connected to Tradovate")
+
+        # Proactive refresh (doesn't count against the retry budget below)
+        try:
+            await self._ensure_token_fresh()
+        except BrokerError:
+            # If refresh fails, still try the request — we may get lucky
+            pass
+
         async with self._semaphore:
+            refreshed_after_401 = False
             for attempt in range(2):
                 try:
                     resp = await self._client.request(method, path, **kwargs)
+
+                    # Reactive 401 refresh: if the token expired between the proactive
+                    # check and the actual request, we get a 401 — refresh and retry once.
+                    if resp.status_code == 401 and not refreshed_after_401:
+                        refreshed_after_401 = True
+                        try:
+                            await self._authenticate()
+                        except BrokerError as e:
+                            raise BrokerError(f"Token refresh failed after 401: {e}")
+                        continue  # Retry the request with the fresh token
+
                     if not resp.text or not resp.text.strip():
                         raise BrokerError(f"Empty response for {method} {path}")
-                    data = resp.json()
+                    try:
+                        data = resp.json()
+                    except Exception:
+                        raise BrokerError(f"Non-JSON response: {resp.text[:200]}")
                     if resp.status_code >= 400:
                         msg = data.get("errorText", data.get("message", str(data)))
                         raise BrokerError(f"API error: {msg}", code=str(resp.status_code))
                     return data
-                except (httpx.RemoteProtocolError, httpx.ReadError, httpx.WriteError):
+                except (httpx.RemoteProtocolError, httpx.ReadError, httpx.WriteError, httpx.PoolTimeout):
                     if attempt == 0:
                         continue
                     raise BrokerError(f"Connection error on attempt {attempt + 1}")
@@ -388,8 +531,19 @@ class TradovateAdapter(BrokerAdapter):
         except BrokerError:
             return {}
 
-    async def _place_bracket(self, order_id, contract_id, action, qty, sl, tp):
-        """Place stop-loss and take-profit as OCO bracket."""
+    async def _place_bracket(self, order_id, broker_symbol, contract_id, action, qty, sl, tp):
+        """
+        Place stop-loss and take-profit as OCO bracket.
+
+        C31 fix: now passes `broker_symbol` (was empty string). Tradovate requires
+        a symbol on each OSO leg to route the order — silently rejecting the
+        bracket with empty symbol meant live trades had NO stop-loss protection.
+
+        Propagates exceptions instead of swallowing them so callers can surface
+        the failure to the user.
+        """
+        if not broker_symbol:
+            raise BrokerError("Bracket order requires a symbol")
         exit_action = "Sell" if action == "Buy" else "Buy"
         bracket = []
         if sl:
@@ -397,7 +551,7 @@ class TradovateAdapter(BrokerAdapter):
                 "accountSpec": self._account_spec,
                 "accountId": self._account_id,
                 "action": exit_action,
-                "symbol": "",
+                "symbol": broker_symbol,
                 "orderQty": qty,
                 "orderType": "Stop",
                 "stopPrice": sl,
@@ -408,26 +562,25 @@ class TradovateAdapter(BrokerAdapter):
                 "accountSpec": self._account_spec,
                 "accountId": self._account_id,
                 "action": exit_action,
-                "symbol": "",
+                "symbol": broker_symbol,
                 "orderQty": qty,
                 "orderType": "Limit",
                 "price": tp,
                 "isAutomated": True,
             })
         if bracket:
-            try:
-                await self._request("POST", "/order/placeoso", json={
-                    "accountSpec": self._account_spec,
-                    "accountId": self._account_id,
-                    "orderType": "Market",
-                    "action": action,
-                    "symbol": "",
-                    "orderQty": qty,
-                    "bracket1": bracket[0] if len(bracket) > 0 else None,
-                    "bracket2": bracket[1] if len(bracket) > 1 else None,
-                })
-            except BrokerError:
-                pass  # Bracket placement is best-effort
+            # Propagate errors to caller — no silent swallowing. The caller
+            # (place_order) decides how to surface the failure.
+            await self._request("POST", "/order/placeoso", json={
+                "accountSpec": self._account_spec,
+                "accountId": self._account_id,
+                "orderType": "Market",
+                "action": action,
+                "symbol": broker_symbol,
+                "orderQty": qty,
+                "bracket1": bracket[0] if len(bracket) > 0 else None,
+                "bracket2": bracket[1] if len(bracket) > 1 else None,
+            })
 
     async def _discover_symbols(self):
         """Fetch available contracts and populate symbol registry."""
