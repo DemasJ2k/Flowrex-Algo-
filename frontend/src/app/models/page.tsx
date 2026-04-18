@@ -149,7 +149,7 @@ export default function ModelsPage() {
 
   const handleTrain = async (symbol: string) => {
     try {
-      const res = await api.post("/api/ml/train", { symbol, pipeline: "scalping", timeframe: "M5" });
+      const res = await api.post("/api/ml/train", { symbol, pipeline: "flowrex_v2", timeframe: "M5" });
       if (res.data.status === "started") { setTraining(true); setTrainingStatus("Starting..."); toast.success("Training " + symbol); }
       else toast.error(res.data.message || "Busy");
     } catch (e: unknown) { toast.error(getErrorMessage(e)); }
@@ -459,9 +459,11 @@ export default function ModelsPage() {
           <button
             onClick={() => handleRetrain()}
             disabled={retraining || training}
-            className="px-4 py-1.5 text-xs font-medium rounded-lg bg-blue-600 hover:bg-blue-500 text-white disabled:opacity-30 transition-colors"
+            className="flex items-center gap-1.5 px-4 py-1.5 text-xs font-medium rounded-lg bg-blue-600 hover:bg-blue-500 text-white disabled:opacity-30 transition-colors"
           >
-            Retrain All
+            {retraining && retrainSymbol === "ALL" ? (
+              <><Loader2 size={12} className="animate-spin" /> Retraining...</>
+            ) : "Retrain All"}
           </button>
         </div>
         <p className="text-xs mt-2" style={{ color: "var(--muted)" }}>

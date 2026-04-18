@@ -112,8 +112,15 @@ function CalendarSection() {
       </div>
 
       {loading && (
-        <div className="flex items-center justify-center py-12" style={{ color: "var(--muted)" }}>
-          <RefreshCw size={16} className="animate-spin mr-2" /> Loading calendar...
+        <div className="relative">
+          <div className="absolute inset-0 z-10 flex items-center justify-center rounded-xl" style={{ background: "rgba(0,0,0,0.4)" }}>
+            <div className="flex items-center gap-2 text-sm" style={{ color: "var(--muted)" }}>
+              <RefreshCw size={16} className="animate-spin" /> Loading calendar...
+            </div>
+          </div>
+          <div className="flex items-center justify-center py-12" style={{ color: "transparent" }}>
+            <RefreshCw size={16} className="mr-2" /> Loading calendar...
+          </div>
         </div>
       )}
 
@@ -300,7 +307,7 @@ export default function NewsPage() {
         <div>
           <h1 className="text-xl font-semibold bg-gradient-to-r from-violet-400 to-blue-400 bg-clip-text text-transparent">News & Calendar</h1>
           <p className="text-xs" style={{ color: "var(--muted)" }}>
-            Economic events and market headlines -- auto-refreshes every 5 minutes
+            Economic events and market headlines — auto-refreshes every 5 minutes
             {lastUpdated && (
               <span className="ml-2">
                 | Last updated: {lastUpdated.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}
@@ -308,6 +315,13 @@ export default function NewsPage() {
             )}
           </p>
         </div>
+        <button
+          onClick={() => window.dispatchEvent(new CustomEvent("flowrex:news-refresh"))}
+          className="flex items-center gap-1.5 px-3 py-1.5 text-xs rounded-lg border hover:bg-white/5"
+          style={{ borderColor: "var(--border)" }}
+        >
+          <RefreshCw size={14} /> Refresh Now
+        </button>
       </div>
 
       {/* Tabs */}

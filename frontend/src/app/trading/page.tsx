@@ -311,6 +311,17 @@ export default function TradingPage() {
   ];
 
   const tradeCols: Column<AgentTrade>[] = [
+    { header: "Agent", key: "agent_name" as keyof AgentTrade, render: (r) => {
+      const row = r as unknown as { agent_name?: string; agent_type?: string };
+      const name = row.agent_name || "—";
+      const type = row.agent_type || "";
+      return (
+        <div className="flex flex-col max-w-[130px]">
+          <span className="text-xs font-medium truncate" title={name}>{name}</span>
+          {type && <span className="text-[10px] truncate" style={{ color: "var(--muted)" }}>{type}</span>}
+        </div>
+      );
+    }},
     { header: "Symbol", key: "symbol" },
     { header: "Side", key: "direction", render: (r) => <StatusBadge value={r.direction} /> },
     { header: "Size", key: "lot_size", align: "right" },
@@ -378,7 +389,7 @@ export default function TradingPage() {
           {indicatorMenuOpen && (
             <div className="absolute top-full left-0 mt-1 w-48 rounded-lg border shadow-xl z-50 p-2 space-y-1"
               style={{ background: "var(--card)", borderColor: "var(--border)" }}>
-              {([["ema8", "EMA 8"], ["ema21", "EMA 21"], ["ema50", "EMA 50"], ["sma200", "SMA 200"], ["bollinger", "Bollinger Bands"]] as const).map(([key, label]) => (
+              {([["ema8", "EMA 8"], ["ema21", "EMA 21"], ["ema50", "EMA 50"], ["sma200", "SMA 200"], ["bollinger", "Bollinger Bands"], ["rsi14", "RSI (14)"]] as const).map(([key, label]) => (
                 <label key={key} className="flex items-center gap-2 px-2 py-1.5 text-xs rounded hover:bg-white/5 cursor-pointer">
                   <input type="checkbox" checked={!!indicators[key]} onChange={() => toggleIndicator(key)} className="rounded" />
                   {label}
@@ -390,7 +401,7 @@ export default function TradingPage() {
 
         <div className="flex gap-1">
           {(dataSource === "databento" ? DATABENTO_TIMEFRAMES : BROKER_TIMEFRAMES).map((tf) => (
-            <button key={tf} onClick={() => setTimeframe(tf)}
+            <button key={tf} onClick={() => { setTimeframe(tf); setIndicatorMenuOpen(false); }}
               className={`px-2.5 py-1.5 text-xs font-medium rounded transition-colors ${
                 timeframe === tf ? "bg-blue-600 text-white" : "hover:bg-white/10"
               }`}
@@ -583,7 +594,7 @@ export default function TradingPage() {
       {/* ── Modals ─────────────────────────────────────────────────── */}
       <BrokerModal open={brokerModal} onClose={() => setBrokerModal(false)} onConnected={() => { fetchStatus(); fetchData(); fetchCandles(); }} />
       <AgentWizard open={wizardOpen} onClose={() => setWizardOpen(false)} onCreated={fetchData} />
-      <OrderPanel open={orderOpen} onClose={() => setOrderOpen(false)} defaultSymbol={symbol} />
+      <OrderPanel key={symbol} open={orderOpen} onClose={() => setOrderOpen(false)} defaultSymbol={symbol} />
       <ConfirmDialog
         open={confirmClose !== null}
         onClose={() => setConfirmClose(null)}

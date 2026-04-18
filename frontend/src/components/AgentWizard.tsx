@@ -62,6 +62,10 @@ export default function AgentWizard({
       if (t.risk_per_trade) setRiskPerTrade(t.risk_per_trade);
       if (t.max_daily_loss_pct) setMaxDailyLoss(t.max_daily_loss_pct * 100);
       if (t.cooldown_bars !== undefined) setCooldownBars(t.cooldown_bars);
+      // Default filter toggles — load user's saved preferences
+      if (t.news_filter_enabled !== undefined) setNewsFilter(t.news_filter_enabled);
+      if (t.session_filter !== undefined) setSessionFilter(t.session_filter);
+      if (t.regime_filter !== undefined) setRegimeFilter(t.regime_filter);
       if (r.data?.default_broker) setBroker(r.data.default_broker);
     }).catch(() => {}); // silently ignore — wizard still works with fallback defaults
   }, [open]);
@@ -157,8 +161,8 @@ export default function AgentWizard({
           </div>
           <div className="grid grid-cols-2 gap-3">
             <div>
-              <label className="block text-xs font-medium mb-1" style={{ color: "var(--muted)" }}>Broker</label>
-              <select value={broker} onChange={(e) => setBroker(e.target.value)}
+              <label htmlFor="aw-broker" className="block text-xs font-medium mb-1" style={{ color: "var(--muted)" }}>Broker</label>
+              <select id="aw-broker" value={broker} onChange={(e) => setBroker(e.target.value)}
                 className="w-full px-3 py-2 text-sm rounded-lg border bg-transparent" style={{ borderColor: "var(--border)", background: "var(--card)" }}>
                 <option value="oanda">Oanda</option>
                 <option value="tradovate">Tradovate</option>
@@ -166,13 +170,9 @@ export default function AgentWizard({
                 <option value="mt5">MT5</option>
               </select>
             </div>
-            <div>
-              <label className="block text-xs font-medium mb-1" style={{ color: "var(--muted)" }}>Timeframe</label>
-              <select value={timeframe} onChange={(e) => setTimeframe(e.target.value)}
-                className="w-full px-3 py-2 text-sm rounded-lg border bg-transparent" style={{ borderColor: "var(--border)", background: "var(--card)" }}>
-                {["M1", "M5", "M15", "H1", "H4", "D1"].map((tf) => <option key={tf} value={tf}>{tf}</option>)}
-              </select>
-            </div>
+            {/* Timeframe dropdown removed (audit H18): all models are M5-only and
+                the engine hardcodes get_candles(symbol, "M5", 500). The dropdown
+                was vestigial — the field was sent to the API but ignored. */}
           </div>
         </div>
       )}

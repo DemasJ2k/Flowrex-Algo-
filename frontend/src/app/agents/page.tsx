@@ -29,6 +29,7 @@ export default function AgentsPage() {
   const [sortBy, setSortBy] = useState("name");
   const [sortDir, setSortDir] = useState<"asc" | "desc">("asc");
   const pollRef = useRef<ReturnType<typeof setInterval>>(undefined);
+  const [marketStatus, setMarketStatus] = useState<Record<string, { open: boolean; reason: string }>>({});
 
   const fetchData = () => {
     Promise.all([
@@ -37,10 +38,21 @@ export default function AgentsPage() {
     ]).finally(() => setLoading(false));
   };
 
+  const fetchMarketStatus = () => {
+    api.get("/api/market/status").then((r) => setMarketStatus(r.data)).catch(() => {});
+  };
+
   useEffect(() => {
     fetchData();
     pollRef.current = setInterval(fetchData, 10000);
     return () => { if (pollRef.current) clearInterval(pollRef.current); };
+  }, []);
+
+  // Market hours change at most every few hours — poll separately every 5 min
+  useEffect(() => {
+    fetchMarketStatus();
+    const t = setInterval(fetchMarketStatus, 300_000);
+    return () => clearInterval(t);
   }, []);
 
   const handleAction = async (id: number, action: string) => {
@@ -62,15 +74,16 @@ export default function AgentsPage() {
   };
 
   const handleClone = (agent: Agent) => {
-    setWizardDefaults(agent);
+    setWizardDefaults({ ...agent, name: `${agent.name} (Copy)` });
     setWizardOpen(true);
   };
 
   const handleBatchAction = async (action: string) => {
     const targets = agents.filter((a) => action === "start" ? a.status !== "running" : a.status === "running");
-    for (const a of targets) {
-      try { await api.post(`/api/agents/${a.id}/${action}`); } catch { /* continue */ }
-    }
+    // Await ALL requests before refreshing to avoid race condition
+    await Promise.all(
+      targets.map((a) => api.post(`/api/agents/${a.id}/${action}`).catch(() => null))
+    );
     toast.success(`${action === "start" ? "Started" : "Stopped"} ${targets.length} agents`);
     fetchData();
   };
@@ -190,6 +203,18 @@ export default function AgentsPage() {
                       <StatusBadge value={a.agent_type} />
                       <StatusBadge value={a.mode} />
                       <span className="text-xs px-1.5 py-0.5 rounded" style={{ background: "var(--sidebar-active)", color: "var(--muted)" }}>{a.symbol}</span>
+                      {marketStatus[a.symbol] && (
+                        <span
+                          className={`text-[10px] px-1.5 py-0.5 rounded font-medium ${
+                            marketStatus[a.symbol].open
+                              ? "text-emerald-400 bg-emerald-500/10 border border-emerald-500/30"
+                              : "text-amber-400 bg-amber-500/10 border border-amber-500/30"
+                          }`}
+                          title={marketStatus[a.symbol].reason}
+                        >
+                          {marketStatus[a.symbol].open ? "MKT OPEN" : "MKT CLOSED"}
+                        </span>
+                      )}
                     </div>
                     {/* Row 2: Metrics */}
                     <div className="flex items-center gap-4 text-xs" style={{ color: "var(--muted)" }}>

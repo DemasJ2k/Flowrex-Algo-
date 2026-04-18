@@ -3,7 +3,7 @@
 import { useEffect, useRef, useCallback } from "react";
 import { createChart, IChartApi, ISeriesApi, CandlestickData, HistogramData, LineData, Time, SeriesMarker } from "lightweight-charts";
 import type { CandleData } from "@/types";
-import { ema, sma, bollingerBands } from "@/lib/indicators";
+import { ema, sma, rsi, bollingerBands } from "@/lib/indicators";
 
 export interface ChartIndicators {
   ema8?: boolean;
@@ -11,6 +11,7 @@ export interface ChartIndicators {
   ema50?: boolean;
   sma200?: boolean;
   bollinger?: boolean;
+  rsi14?: boolean;
 }
 
 export interface ChartMarker {
@@ -165,8 +166,33 @@ export default function CandlestickChart({
     if (indicators.ema50) addLine(ema(closes, 50), "#a855f7", 1);     // purple
     if (indicators.sma200) addLine(sma(closes, 200), "#ffffff80", 1, true); // white dotted
 
-    // Bollinger Bands
-    if (indicators.bollinger) {
+    // RSI (14-period, separate right axis scaled 0-100)
+    if (indicators.rsi14 && closes.length >= 15) {
+      const rsiValues = rsi(closes, 14);
+      const rsiSeries = chart.addLineSeries({
+        color: "#06b6d4",
+        lineWidth: 1,
+        priceLineVisible: false,
+        lastValueVisible: true,
+        crosshairMarkerVisible: false,
+        priceScaleId: "rsi",
+      });
+      chart.priceScale("rsi").applyOptions({
+        scaleMargins: { top: 0.8, bottom: 0 },
+        borderVisible: false,
+      });
+      const rsiData: LineData[] = [];
+      for (let i = 0; i < rsiValues.length; i++) {
+        if (rsiValues[i] !== null) {
+          rsiData.push({ time: times[i] as Time, value: rsiValues[i] as number });
+        }
+      }
+      rsiSeries.setData(rsiData);
+      indicatorSeriesRef.current.push(rsiSeries);
+    }
+
+    // Bollinger Bands (guard: need at least 20 bars for period=20)
+    if (indicators.bollinger && closes.length >= 20) {
       const bb = bollingerBands(closes, 20, 2);
       const upper = bb.map((b) => b.upper);
       const lower = bb.map((b) => b.lower);
@@ -174,8 +200,8 @@ export default function CandlestickChart({
       addLine(lower, "#6b728060", 1);
     }
 
-    // Trade markers
-    if (markers.length > 0 && candleSeriesRef.current) {
+    // Trade markers (guard: times must have entries to filter against)
+    if (markers.length > 0 && candleSeriesRef.current && times.length > 0) {
       const chartMarkers: SeriesMarker<Time>[] = markers
         .filter((m) => m.time >= times[0] && m.time <= times[times.length - 1])
         .sort((a, b) => a.time - b.time)

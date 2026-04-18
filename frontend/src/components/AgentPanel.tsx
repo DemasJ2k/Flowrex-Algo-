@@ -9,10 +9,12 @@ import { Play, Pause, Square, Trash2, ChevronDown, ChevronRight } from "lucide-r
 import { toast } from "sonner";
 import { toSydneyTime } from "@/lib/timezone";
 import { getErrorMessage } from "@/lib/errors";
+import ConfirmDialog from "@/components/ui/ConfirmDialog";
 
 function AgentCard({ agent, onAction }: { agent: Agent; onAction: () => void }) {
   const [expanded, setExpanded] = useState(false);
   const [logs, setLogs] = useState<AgentLog[]>([]);
+  const [deleteConfirmOpen, setDeleteConfirmOpen] = useState(false);
   const [trades, setTrades] = useState<AgentTrade[]>([]);
   const [subTab, setSubTab] = useState<"trades" | "logs">("trades");
   const pollRef = useRef<ReturnType<typeof setInterval>>(undefined);
@@ -47,7 +49,6 @@ function AgentCard({ agent, onAction }: { agent: Agent; onAction: () => void }) 
   };
 
   const handleDelete = async () => {
-    if (!confirm(`Delete agent "${agent.name}"? This cannot be undone.`)) return;
     try {
       await api.delete(`/api/agents/${agent.id}`);
       toast.success(`Agent "${agent.name}" deleted`);
@@ -61,6 +62,7 @@ function AgentCard({ agent, onAction }: { agent: Agent; onAction: () => void }) 
   const fmt = (v: number) => v.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 
   return (
+    <>
     <Card className="mb-2">
       {/* Header */}
       <div className="flex items-center gap-3 cursor-pointer" onClick={() => setExpanded(!expanded)}>
@@ -96,7 +98,7 @@ function AgentCard({ agent, onAction }: { agent: Agent; onAction: () => void }) 
               <Square size={14} className="text-red-400" />
             </button>
           )}
-          <button onClick={handleDelete} className="p-1.5 rounded hover:bg-white/10" title="Delete">
+          <button onClick={() => setDeleteConfirmOpen(true)} aria-label={`Delete agent ${agent.name}`} className="p-1.5 rounded hover:bg-white/10" title="Delete">
             <Trash2 size={14} style={{ color: "var(--muted)" }} />
           </button>
         </div>
@@ -157,7 +159,10 @@ function AgentCard({ agent, onAction }: { agent: Agent; onAction: () => void }) 
                       {toSydneyTime(l.created_at + (l.created_at.includes("Z") || l.created_at.includes("+") ? "" : "Z"))}
                     </span>
                     <StatusBadge value={l.level} />
-                    <span className="break-all">{l.message}</span>
+                    {/* max-h limits HTML error dumps (BTCUSD 2026-04-15 incident) */}
+                    <span className="flex-1 min-w-0 break-all whitespace-pre-wrap max-h-32 overflow-y-auto block">
+                      {l.message}
+                    </span>
                   </div>
                 ))
               )}
@@ -166,6 +171,16 @@ function AgentCard({ agent, onAction }: { agent: Agent; onAction: () => void }) 
         </div>
       )}
     </Card>
+    <ConfirmDialog
+      open={deleteConfirmOpen}
+      onClose={() => setDeleteConfirmOpen(false)}
+      onConfirm={handleDelete}
+      title="Delete Agent"
+      message={`Delete agent "${agent.name}"? This will stop the agent and remove all its logs and trades. This cannot be undone.`}
+      confirmLabel="Delete Agent"
+      variant="danger"
+    />
+    </>
   );
 }
 

@@ -31,7 +31,9 @@ export default function AgentConfigEditor({
   const [newsFilter, setNewsFilter] = useState(cfg.news_filter_enabled !== false);
   const [loading, setLoading] = useState(false);
 
-  // Reset state when agent changes
+  // Reset state when agent changes (or when modal reopens for a different agent).
+  // FIX (Batch 8 / audit H15+H16): depend on `agent` directly so reference changes
+  // also reset, and reset filter checkboxes alongside other fields.
   useEffect(() => {
     if (!agent || loading) return;
     const c = (agent.risk_config || {}) as Record<string, unknown>;
@@ -42,7 +44,11 @@ export default function AgentConfigEditor({
     setMaxDailyLoss(((c.max_daily_loss_pct as number) || 0.04) * 100);
     setCooldown((c.cooldown_bars as number) || 3);
     setMode(agent.mode);
-  }, [agent?.id]);
+    setSessionFilter(c.session_filter !== false);
+    setRegimeFilter(c.regime_filter !== false);
+    setNewsFilter(c.news_filter_enabled !== false);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [agent]);
 
   if (!agent) return null;
 
@@ -103,25 +109,40 @@ export default function AgentConfigEditor({
         <div className="grid grid-cols-2 gap-3">
           {sizingMode === "risk_pct" ? (
             <div>
-              <label className="block text-xs font-medium mb-1" style={{ color: "var(--muted)" }}>Risk per Trade (%)</label>
-              <input type="number" step="0.01" min="0.01" max="3" value={riskPerTrade.toFixed(2)}
-                onChange={(e) => setRiskPerTrade(parseFloat(e.target.value) || 0.5)}
+              <label htmlFor="cfg-risk-per-trade" className="block text-xs font-medium mb-1" style={{ color: "var(--muted)" }}>Risk per Trade (%)</label>
+              <input
+                id="cfg-risk-per-trade"
+                type="number" step="0.01" min="0.01" max="3" value={riskPerTrade.toFixed(2)}
+                onChange={(e) => {
+                  const v = parseFloat(e.target.value);
+                  if (!isNaN(v) && v >= 0.01 && v <= 3) setRiskPerTrade(v);
+                }}
                 className="w-full px-3 py-2 text-sm rounded-lg border bg-transparent outline-none focus:border-blue-500"
                 style={{ borderColor: "var(--border)" }} />
             </div>
           ) : (
             <div>
-              <label className="block text-xs font-medium mb-1" style={{ color: "var(--muted)" }}>Max Lot Size</label>
-              <input type="number" step="1" min="1" max="100" value={maxLotSize}
-                onChange={(e) => setMaxLotSize(parseInt(e.target.value) || 5)}
+              <label htmlFor="cfg-max-lot" className="block text-xs font-medium mb-1" style={{ color: "var(--muted)" }}>Max Lot Size</label>
+              <input
+                id="cfg-max-lot"
+                type="number" step="1" min="1" max="100" value={maxLotSize}
+                onChange={(e) => {
+                  const v = parseInt(e.target.value);
+                  if (!isNaN(v) && v >= 1 && v <= 100) setMaxLotSize(v);
+                }}
                 className="w-full px-3 py-2 text-sm rounded-lg border bg-transparent outline-none focus:border-blue-500"
                 style={{ borderColor: "var(--border)" }} />
             </div>
           )}
           <div>
-            <label className="block text-xs font-medium mb-1" style={{ color: "var(--muted)" }}>Max Daily Loss (%)</label>
-            <input type="number" step="0.5" min="1" max="10" value={maxDailyLoss.toFixed(1)}
-              onChange={(e) => setMaxDailyLoss(parseFloat(e.target.value) || 4)}
+            <label htmlFor="cfg-daily-loss" className="block text-xs font-medium mb-1" style={{ color: "var(--muted)" }}>Max Daily Loss (%)</label>
+            <input
+              id="cfg-daily-loss"
+              type="number" step="0.5" min="1" max="10" value={maxDailyLoss.toFixed(1)}
+              onChange={(e) => {
+                const v = parseFloat(e.target.value);
+                if (!isNaN(v) && v >= 1 && v <= 10) setMaxDailyLoss(v);
+              }}
               className="w-full px-3 py-2 text-sm rounded-lg border bg-transparent outline-none focus:border-blue-500"
               style={{ borderColor: "var(--border)" }} />
           </div>
@@ -129,9 +150,14 @@ export default function AgentConfigEditor({
 
         <div className="grid grid-cols-2 gap-3">
           <div>
-            <label className="block text-xs font-medium mb-1" style={{ color: "var(--muted)" }}>Cooldown (bars)</label>
-            <input type="number" min="1" max="20" value={cooldown}
-              onChange={(e) => setCooldown(parseInt(e.target.value) || 3)}
+            <label htmlFor="cfg-cooldown" className="block text-xs font-medium mb-1" style={{ color: "var(--muted)" }}>Cooldown (bars)</label>
+            <input
+              id="cfg-cooldown"
+              type="number" min="1" max="20" value={cooldown}
+              onChange={(e) => {
+                const v = parseInt(e.target.value);
+                if (!isNaN(v) && v >= 1 && v <= 20) setCooldown(v);
+              }}
               className="w-full px-3 py-2 text-sm rounded-lg border bg-transparent outline-none focus:border-blue-500"
               style={{ borderColor: "var(--border)" }} />
           </div>

@@ -67,13 +67,15 @@ interface BacktestResult {
 
 export default function BacktestPage() {
   const [symbol, setSymbol] = useState<string>("US30");
-  const [dataSource, setDataSource] = useState<"history" | "broker">("broker");
+  const [agentType, setAgentType] = useState<"potential" | "flowrex_v2">("potential");
+  const [dataSource, setDataSource] = useState<"history" | "broker" | "dukascopy">("dukascopy");
   const [datePreset, setDatePreset] = useState<DatePreset>("6m");
   const [customStart, setCustomStart] = useState("");
   const [customEnd, setCustomEnd] = useState("");
   const [balance, setBalance] = useState(10000);
-  const [maxLot, setMaxLot] = useState(0.1);
-  const [riskPct, setRiskPct] = useState(1.0);
+  const [sizingMode, setSizingMode] = useState<"risk_pct" | "max_lots">("risk_pct");
+  const [maxLot, setMaxLot] = useState(5);
+  const [riskPct, setRiskPct] = useState(0.10);
   const [loading, setLoading] = useState(false);
   const [progress, setProgress] = useState("");
   const [result, setResult] = useState<BacktestResult | null>(null);
@@ -91,7 +93,7 @@ export default function BacktestPage() {
         end_date: customEnd || undefined,
       };
     }
-    if (datePreset === "all") return {};
+    if (datePreset === "all") return { start_date: "2010-01-01" };
     const now = new Date();
     const months = datePreset === "3m" ? 3 : datePreset === "6m" ? 6 : 12;
     const start = new Date(now);
@@ -101,8 +103,8 @@ export default function BacktestPage() {
 
   const runBacktest = async () => {
     if (balance < 100) { toast.error("Balance must be at least $100"); return; }
-    if (riskPct <= 0 || riskPct > 5) { toast.error("Risk % must be between 0 and 5"); return; }
-    if (maxLot <= 0) { toast.error("Max lot must be greater than 0"); return; }
+    if (sizingMode === "risk_pct" && (riskPct <= 0 || riskPct > 3)) { toast.error("Risk % must be between 0.01 and 3"); return; }
+    if (sizingMode === "max_lots" && maxLot <= 0) { toast.error("Max lot must be greater than 0"); return; }
     setLoading(true);
     setResult(null);
     setProgress("Starting...");
@@ -110,9 +112,11 @@ export default function BacktestPage() {
       const dates = getDateRange();
       await api.post("/api/backtest/potential", {
         symbol,
+        agent_type: agentType,
         balance,
-        max_lot: maxLot,
-        risk_pct: riskPct / 100,
+        max_lot: sizingMode === "max_lots" ? maxLot : 100,
+        risk_pct: sizingMode === "risk_pct" ? riskPct / 100 : 0.01,
+        sizing_mode: sizingMode,
         data_source: dataSource,
         ...dates,
       });
@@ -243,17 +247,34 @@ export default function BacktestPage() {
         <FlaskConical size={24} /> Backtest
       </h1>
 
-      {/* Agent Info */}
+      {/* Agent Selection + Config */}
       <Card>
-        <div className="flex items-center gap-3 mb-4">
-          <div className="w-8 h-8 rounded-lg bg-gradient-to-br from-violet-500 to-blue-500 flex items-center justify-center">
-            <Zap size={16} className="text-white" />
-          </div>
-          <div>
-            <h2 className="text-sm font-semibold">Potential Agent v2</h2>
-            <p className="text-xs" style={{ color: "var(--muted)" }}>
-              85 institutional features, ATR-normalized, Grade A models
-            </p>
+        {/* Agent Type Selector */}
+        <div className="mb-4">
+          <label className="block text-xs font-medium mb-2" style={{ color: "var(--muted)" }}>Agent / Model</label>
+          <div className="grid grid-cols-2 gap-2">
+            <button onClick={() => setAgentType("potential")}
+              className={`p-3 text-left rounded-lg border transition-colors ${agentType === "potential" ? "border-violet-500 bg-violet-500/10" : "hover:bg-white/5"}`}
+              style={{ borderColor: agentType === "potential" ? undefined : "var(--border)" }}>
+              <div className="flex items-center gap-2 mb-1">
+                <div className="w-6 h-6 rounded bg-gradient-to-br from-violet-500 to-blue-500 flex items-center justify-center">
+                  <Zap size={12} className="text-white" />
+                </div>
+                <span className="text-sm font-semibold">Potential Agent v2</span>
+              </div>
+              <p className="text-[10px]" style={{ color: "var(--muted)" }}>85 institutional features, ATR-normalized, XGBoost + LightGBM</p>
+            </button>
+            <button onClick={() => setAgentType("flowrex_v2")}
+              className={`p-3 text-left rounded-lg border transition-colors ${agentType === "flowrex_v2" ? "border-blue-500 bg-blue-500/10" : "hover:bg-white/5"}`}
+              style={{ borderColor: agentType === "flowrex_v2" ? undefined : "var(--border)" }}>
+              <div className="flex items-center gap-2 mb-1">
+                <div className="w-6 h-6 rounded bg-gradient-to-br from-blue-500 to-cyan-500 flex items-center justify-center">
+                  <Zap size={12} className="text-white" />
+                </div>
+                <span className="text-sm font-semibold">Flowrex Agent v2</span>
+              </div>
+              <p className="text-[10px]" style={{ color: "var(--muted)" }}>120 curated features, 3-model ensemble (XGB + LGB + CatBoost), 4-layer MTF</p>
+            </button>
           </div>
         </div>
 
@@ -289,18 +310,24 @@ export default function BacktestPage() {
         {/* Data Source */}
         <div className="mb-4">
           <label className="block text-xs font-medium mb-2" style={{ color: "var(--muted)" }}>Data Source</label>
-          <div className="grid grid-cols-2 gap-2">
+          <div className="grid grid-cols-3 gap-2">
             <button onClick={() => setDataSource("broker")}
               className={`p-2.5 text-center rounded-lg border transition-colors ${dataSource === "broker" ? "border-blue-500 bg-blue-500/10" : "hover:bg-white/5"}`}
               style={{ borderColor: dataSource === "broker" ? undefined : "var(--border)" }}>
               <p className="font-medium text-sm">Broker (Live)</p>
               <p className="text-xs" style={{ color: "var(--muted)" }}>Latest 5000 bars from Oanda</p>
             </button>
+            <button onClick={() => setDataSource("dukascopy")}
+              className={`p-2.5 text-center rounded-lg border transition-colors ${dataSource === "dukascopy" ? "border-violet-500 bg-violet-500/10" : "hover:bg-white/5"}`}
+              style={{ borderColor: dataSource === "dukascopy" ? undefined : "var(--border)" }}>
+              <p className="font-medium text-sm">Dukascopy (Fresh)</p>
+              <p className="text-xs" style={{ color: "var(--muted)" }}>Fetches fresh data per run</p>
+            </button>
             <button onClick={() => setDataSource("history")}
               className={`p-2.5 text-center rounded-lg border transition-colors ${dataSource === "history" ? "border-blue-500 bg-blue-500/10" : "hover:bg-white/5"}`}
               style={{ borderColor: dataSource === "history" ? undefined : "var(--border)" }}>
-              <p className="font-medium text-sm">Historical</p>
-              <p className="text-xs" style={{ color: "var(--muted)" }}>Full history from CSV/Databento</p>
+              <p className="font-medium text-sm">Historical (CSV)</p>
+              <p className="text-xs" style={{ color: "var(--muted)" }}>Local CSV files on server</p>
             </button>
           </div>
         </div>
@@ -366,8 +393,25 @@ export default function BacktestPage() {
           )}
         </div>
 
+        {/* Position Sizing Mode */}
+        <div className="mb-4">
+          <label className="block text-xs font-medium mb-2" style={{ color: "var(--muted)" }}>Position Sizing</label>
+          <div className="grid grid-cols-2 gap-2 mb-3">
+            <button onClick={() => setSizingMode("risk_pct")}
+              className={`p-2 text-center rounded-lg border text-xs transition-colors ${sizingMode === "risk_pct" ? "border-blue-500 bg-blue-500/10" : "hover:bg-white/5"}`}
+              style={{ borderColor: sizingMode === "risk_pct" ? undefined : "var(--border)" }}>
+              Risk % of Balance
+            </button>
+            <button onClick={() => setSizingMode("max_lots")}
+              className={`p-2 text-center rounded-lg border text-xs transition-colors ${sizingMode === "max_lots" ? "border-blue-500 bg-blue-500/10" : "hover:bg-white/5"}`}
+              style={{ borderColor: sizingMode === "max_lots" ? undefined : "var(--border)" }}>
+              Max Lot Size
+            </button>
+          </div>
+        </div>
+
         {/* Parameters */}
-        <div className="grid grid-cols-2 md:grid-cols-3 gap-3 mb-4">
+        <div className="grid grid-cols-2 gap-3 mb-4">
           <div>
             <label className="block text-xs font-medium mb-1 flex items-center gap-1" style={{ color: "var(--muted)" }}>
               <DollarSign size={12} /> Starting Balance
@@ -383,36 +427,45 @@ export default function BacktestPage() {
               style={{ borderColor: "var(--border)" }}
             />
           </div>
-          <div>
-            <label className="block text-xs font-medium mb-1 flex items-center gap-1" style={{ color: "var(--muted)" }}>
-              <BarChart3 size={12} /> Max Lot Size
-            </label>
-            <input
-              type="number"
-              step="0.01"
-              min="0.01"
-              max="10"
-              value={maxLot}
-              onChange={(e) => setMaxLot(parseFloat(e.target.value) || 0.1)}
-              className="w-full px-3 py-2 text-sm rounded-lg border bg-transparent"
-              style={{ borderColor: "var(--border)" }}
-            />
-          </div>
-          <div>
-            <label className="block text-xs font-medium mb-1 flex items-center gap-1" style={{ color: "var(--muted)" }}>
-              <Shield size={12} /> Risk % per Trade
-            </label>
-            <input
-              type="number"
-              step="0.1"
-              min="0.1"
-              max="5"
-              value={riskPct}
-              onChange={(e) => setRiskPct(parseFloat(e.target.value) || 1)}
-              className="w-full px-3 py-2 text-sm rounded-lg border bg-transparent"
-              style={{ borderColor: "var(--border)" }}
-            />
-          </div>
+          {sizingMode === "risk_pct" ? (
+            <div>
+              <label className="block text-xs font-medium mb-1 flex items-center gap-1" style={{ color: "var(--muted)" }}>
+                <Shield size={12} /> Risk % per Trade
+              </label>
+              <input
+                type="number"
+                step="0.01"
+                min="0.01"
+                max="3"
+                value={riskPct}
+                onChange={(e) => {
+                  const v = parseFloat(e.target.value);
+                  if (!isNaN(v) && v >= 0.01 && v <= 3) setRiskPct(v);
+                }}
+                className="w-full px-3 py-2 text-sm rounded-lg border bg-transparent"
+                style={{ borderColor: "var(--border)" }}
+              />
+            </div>
+          ) : (
+            <div>
+              <label className="block text-xs font-medium mb-1 flex items-center gap-1" style={{ color: "var(--muted)" }}>
+                <BarChart3 size={12} /> Max Lot Size
+              </label>
+              <input
+                type="number"
+                step="1"
+                min="1"
+                max="100"
+                value={maxLot}
+                onChange={(e) => {
+                  const v = parseInt(e.target.value);
+                  if (!isNaN(v) && v >= 1 && v <= 100) setMaxLot(v);
+                }}
+                className="w-full px-3 py-2 text-sm rounded-lg border bg-transparent"
+                style={{ borderColor: "var(--border)" }}
+              />
+            </div>
+          )}
         </div>
 
         {/* Run Button */}

@@ -5,8 +5,12 @@
   --foreground: #e4e4e7;
   --card: #111318;
   --card-foreground: #e4e4e7;
-  --border: #1e2028;
-  --muted: #71717a;
+  /* Border lightened from #1e2028 (1.5:1 contrast — fails WCAG 1.4.11)
+     to #333840 (~3.0:1) for visible UI element borders. */
+  --border: #333840;
+  /* Muted lightened from #71717a (3.0:1 contrast — fails WCAG AA 4.5:1)
+     to #9ca3af (~5.1:1) so muted text is legible. */
+  --muted: #9ca3af;
   --accent: #3b82f6;
   --accent-green: #22c55e;
   --accent-red: #ef4444;
@@ -41,6 +45,43 @@ body {
   background: var(--background);
   color: var(--foreground);
   font-family: Arial, Helvetica, sans-serif;
+}
+
+/* Visible focus indicator for keyboard navigation (WCAG 2.4.7).
+   Hidden when the user is interacting via mouse but visible on Tab. */
+*:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+  border-radius: 2px;
+}
+
+/* Respect prefers-reduced-motion (WCAG 2.3.3) — disable animations for
+   users who have requested reduced motion in their OS settings. */
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}
+
+/* Skip-to-content link: visually hidden until focused, then visible at top.
+   Used by AppShell layout for keyboard users to skip past the sidebar nav. */
+.skip-link {
+  position: absolute;
+  top: -40px;
+  left: 8px;
+  z-index: 100;
+  padding: 8px 16px;
+  background: var(--accent);
+  color: white;
+  border-radius: 4px;
+  text-decoration: none;
+  font-weight: 600;
+}
+.skip-link:focus {
+  top: 8px;
 }
 
 /* Animations */
@@ -136,3 +177,68 @@ body {
   background: var(--border);
   border-radius: 3px;
 }
+
+/* AI Supervisor markdown rendering */
+.ai-md {
+  line-height: 1.6;
+  color: var(--foreground);
+}
+.ai-md h1 { font-size: 1.05rem; font-weight: 700; margin: 0.75rem 0 0.5rem; color: var(--foreground); }
+.ai-md h2 { font-size: 0.95rem; font-weight: 700; margin: 0.75rem 0 0.5rem; color: var(--foreground); border-bottom: 1px solid var(--border); padding-bottom: 0.25rem; }
+.ai-md h3 { font-size: 0.9rem; font-weight: 600; margin: 0.5rem 0 0.25rem; color: var(--foreground); }
+.ai-md h4, .ai-md h5, .ai-md h6 { font-size: 0.85rem; font-weight: 600; margin: 0.5rem 0 0.25rem; }
+.ai-md p { margin: 0.5rem 0; }
+.ai-md p:first-child { margin-top: 0; }
+.ai-md p:last-child { margin-bottom: 0; }
+.ai-md ul, .ai-md ol { margin: 0.5rem 0; padding-left: 1.25rem; }
+.ai-md ul { list-style: disc; }
+.ai-md ol { list-style: decimal; }
+.ai-md li { margin: 0.2rem 0; }
+.ai-md li > ul, .ai-md li > ol { margin: 0.2rem 0; }
+.ai-md strong { color: var(--foreground); font-weight: 600; }
+.ai-md em { font-style: italic; }
+.ai-md code {
+  background: rgba(139, 92, 246, 0.15);
+  color: #c4b5fd;
+  padding: 0.1rem 0.35rem;
+  border-radius: 4px;
+  font-size: 0.85em;
+  font-family: ui-monospace, "SF Mono", Menlo, monospace;
+}
+.ai-md pre {
+  background: rgba(0, 0, 0, 0.3);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 0.75rem;
+  margin: 0.5rem 0;
+  overflow-x: auto;
+}
+.ai-md pre code {
+  background: transparent;
+  padding: 0;
+  color: var(--foreground);
+}
+.ai-md blockquote {
+  border-left: 3px solid #8b5cf6;
+  padding-left: 0.75rem;
+  margin: 0.5rem 0;
+  color: var(--muted);
+  font-style: italic;
+}
+.ai-md table {
+  border-collapse: collapse;
+  margin: 0.5rem 0;
+  font-size: 0.85em;
+  width: 100%;
+}
+.ai-md th, .ai-md td {
+  border: 1px solid var(--border);
+  padding: 0.35rem 0.6rem;
+  text-align: left;
+}
+.ai-md th {
+  background: rgba(139, 92, 246, 0.1);
+  font-weight: 600;
+}
+.ai-md a { color: #8b5cf6; text-decoration: underline; }
+.ai-md hr { border: none; border-top: 1px solid var(--border); margin: 0.75rem 0; }

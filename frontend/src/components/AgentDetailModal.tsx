@@ -10,7 +10,64 @@ import StatusBadge from "@/components/ui/StatusBadge";
 import EquityCurveChart from "@/components/EquityCurveChart";
 import api from "@/lib/api";
 import type { Agent, AgentPerformance, AgentTrade, AgentLog } from "@/types";
-import { Loader2 } from "lucide-react";
+import { Loader2, BarChart3 } from "lucide-react";
+
+interface AnalyticsData {
+  overall: Record<string, number>;
+  by_session: Record<string, { trades: number; win_rate: number; avg_pnl: number; total_pnl: number }>;
+  by_confidence: Record<string, { trades: number; win_rate: number; avg_pnl: number; total_pnl: number }>;
+  by_mtf_score: Record<string, { trades: number; win_rate: number; avg_pnl: number; total_pnl: number }>;
+  by_direction: Record<string, { trades: number; win_rate: number; avg_pnl: number; total_pnl: number }>;
+  by_exit_reason: Record<string, { trades: number; win_rate: number; avg_pnl: number; total_pnl: number }>;
+  streaks: { current: { type: string; count: number }; max_winning: number; max_losing: number };
+}
+
+function BarRow({ label, value, max, color }: { label: string; value: number; max: number; color: string }) {
+  const pct = max > 0 ? Math.min(100, (value / max) * 100) : 0;
+  return (
+    <div className="flex items-center gap-2 text-xs">
+      <span className="w-20 truncate" style={{ color: "var(--muted)" }}>{label}</span>
+      <div className="flex-1 h-4 rounded" style={{ background: "var(--card-hover)" }}>
+        <div className="h-full rounded" style={{ width: `${pct}%`, background: color, minWidth: pct > 0 ? "4px" : "0" }} />
+      </div>
+      <span className="w-14 text-right font-mono">{value.toFixed(1)}%</span>
+    </div>
+  );
+}
+
+function AnalyticsSection({ title, data }: {
+  title: string;
+  data: Record<string, { trades: number; win_rate: number; avg_pnl: number; total_pnl: number }>;
+}) {
+  const entries = Object.entries(data);
+  if (entries.length === 0) return null;
+  const maxWr = Math.max(...entries.map(([, v]) => v.win_rate), 1);
+
+  return (
+    <div>
+      <h4 className="text-xs font-semibold mb-2" style={{ color: "var(--muted)" }}>{title}</h4>
+      <div className="space-y-1">
+        {entries.map(([k, v]) => (
+          <div key={k} className="flex items-center gap-2 text-xs">
+            <span className="w-20 truncate font-medium">{k}</span>
+            <div className="flex-1 h-4 rounded" style={{ background: "var(--card-hover)" }}>
+              <div className="h-full rounded" style={{
+                width: `${Math.min(100, (v.win_rate / maxWr) * 100)}%`,
+                background: v.win_rate >= 50 ? "#10b981" : "#ef4444",
+                minWidth: v.trades > 0 ? "4px" : "0",
+              }} />
+            </div>
+            <span className="w-12 text-right font-mono">{v.win_rate.toFixed(0)}%</span>
+            <span className="w-10 text-right" style={{ color: "var(--muted)" }}>{v.trades}t</span>
+            <span className={`w-16 text-right font-mono ${v.total_pnl >= 0 ? "text-emerald-400" : "text-red-400"}`}>
+              {v.total_pnl >= 0 ? "+" : ""}{v.total_pnl.toFixed(0)}
+            </span>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
 
 export default function AgentDetailModal({
   agent,
@@ -26,6 +83,7 @@ export default function AgentDetailModal({
   const [perf, setPerf] = useState<AgentPerformance | null>(null);
   const [trades, setTrades] = useState<AgentTrade[]>([]);
   const [logs, setLogs] = useState<AgentLog[]>([]);
+  const [analytics, setAnalytics] = useState<AnalyticsData | null>(null);
   const [loading, setLoading] = useState(true);
   const [logFilter, setLogFilter] = useState("all");
   const [logSearch, setLogSearch] = useState("");
@@ -34,14 +92,16 @@ export default function AgentDetailModal({
     if (!agent) return;
     setLoading(true);
     try {
-      const [perfRes, tradesRes, logsRes] = await Promise.all([
+      const [perfRes, tradesRes, logsRes, analyticsRes] = await Promise.all([
         api.get(`/api/agents/${agent.id}/performance`),
         api.get(`/api/agents/${agent.id}/trades?limit=200`),
         api.get(`/api/agents/${agent.id}/logs?limit=100`),
+        api.get(`/api/agents/${agent.id}/analytics`).catch(() => ({ data: null })),
       ]);
       setPerf(perfRes.data);
       setTrades(tradesRes.data);
       setLogs(logsRes.data);
+      setAnalytics(analyticsRes.data);
     } catch { /* ignore */ }
     finally { setLoading(false); }
   }, [agent]);
@@ -104,7 +164,6 @@ export default function AgentDetailModal({
             label: "Performance",
             content: perf ? (
               <div className="space-y-4">
-                {/* Stat Cards */}
                 <div className="grid grid-cols-2 md:grid-cols-4 gap-2">
                   <StatCard label="Total P&L" value={(perf.total_pnl >= 0 ? "+" : "") + fmt(perf.total_pnl)} color={perf.total_pnl >= 0 ? "green" : "red"} />
                   <StatCard label="Win Rate" value={perf.win_rate.toFixed(1) + "%"} sub={perf.closed_trades + " closed"} />
@@ -124,7 +183,6 @@ export default function AgentDetailModal({
                   <span>Loss Streak: <span className="text-white font-medium">{perf.max_loss_streak}</span></span>
                   <span>Open: <span className="text-white font-medium">{perf.open_trades}</span> / Total: <span className="text-white font-medium">{perf.total_trades}</span></span>
                 </div>
-                {/* Equity Curve */}
                 {equityCurve.length >= 2 ? (
                   <EquityCurveChart data={equityCurve} height={160} />
                 ) : (
@@ -134,6 +192,46 @@ export default function AgentDetailModal({
                 )}
               </div>
             ) : <p className="text-sm" style={{ color: "var(--muted)" }}>No performance data</p>,
+          },
+          {
+            label: "Analytics",
+            content: analytics && analytics.overall?.total_trades ? (
+              <div className="space-y-4">
+                {/* Overall stats */}
+                <div className="grid grid-cols-2 md:grid-cols-5 gap-2">
+                  <StatCard label="Trades" value={String(analytics.overall.total_trades)} />
+                  <StatCard label="Win Rate" value={`${analytics.overall.win_rate}%`} color={analytics.overall.win_rate >= 50 ? "green" : "red"} />
+                  <StatCard label="Profit Factor" value={String(analytics.overall.profit_factor || 0)} />
+                  <StatCard label="Total P&L" value={`$${analytics.overall.total_pnl}`} color={analytics.overall.total_pnl >= 0 ? "green" : "red"} />
+                  <StatCard label="Avg P&L" value={`$${analytics.overall.avg_pnl}`} color={analytics.overall.avg_pnl >= 0 ? "green" : "red"} />
+                </div>
+
+                {/* Streaks */}
+                {analytics.streaks && (
+                  <div className="flex items-center gap-4 text-xs" style={{ color: "var(--muted)" }}>
+                    <span>Current: <span className={analytics.streaks.current?.type === "winning" ? "text-emerald-400" : "text-red-400"}>
+                      {analytics.streaks.current?.count || 0} {analytics.streaks.current?.type || "none"}
+                    </span></span>
+                    <span>Max Win Streak: <span className="text-emerald-400 font-medium">{analytics.streaks.max_winning}</span></span>
+                    <span>Max Loss Streak: <span className="text-red-400 font-medium">{analytics.streaks.max_losing}</span></span>
+                  </div>
+                )}
+
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  <AnalyticsSection title="By Session" data={analytics.by_session} />
+                  <AnalyticsSection title="By Confidence" data={analytics.by_confidence} />
+                  <AnalyticsSection title="By Direction" data={analytics.by_direction} />
+                  <AnalyticsSection title="By Exit Reason" data={analytics.by_exit_reason} />
+                  <AnalyticsSection title="By MTF Score" data={analytics.by_mtf_score} />
+                </div>
+              </div>
+            ) : (
+              <div className="text-center py-8" style={{ color: "var(--muted)" }}>
+                <BarChart3 size={32} className="mx-auto mb-2 opacity-30" />
+                <p className="text-sm">No analytics data yet</p>
+                <p className="text-xs mt-1">Analytics populate as trades close</p>
+              </div>
+            ),
           },
           {
             label: "Trades",
@@ -158,7 +256,8 @@ export default function AgentDetailModal({
                   <input value={logSearch} onChange={(e) => setLogSearch(e.target.value)} placeholder="Search..."
                     className="flex-1 px-2 py-1 text-xs rounded border bg-transparent outline-none" style={{ borderColor: "var(--border)" }} />
                 </div>
-                <div className="max-h-64 overflow-y-auto text-xs font-mono space-y-0.5">
+                <div className="max-h-64 overflow-y-auto text-xs font-mono space-y-0.5"
+                     role="log" aria-live="polite" aria-label="Agent log entries">
                   {filteredLogs.length === 0 ? (
                     <p className="py-4 text-center" style={{ color: "var(--muted)" }}>No matching logs</p>
                   ) : (
@@ -166,7 +265,9 @@ export default function AgentDetailModal({
                       <div key={l.id} className="flex items-start gap-2 py-1">
                         <span className="flex-shrink-0" style={{ color: "var(--muted)" }}>{toSydneyTime(l.created_at + (l.created_at.includes("Z") || l.created_at.includes("+") ? "" : "Z"))}</span>
                         <StatusBadge value={l.level} />
-                        <span className="break-all">{l.message}</span>
+                        <span className="flex-1 min-w-0 break-all whitespace-pre-wrap max-h-32 overflow-y-auto block">
+                          {l.message}
+                        </span>
                       </div>
                     ))
                   )}

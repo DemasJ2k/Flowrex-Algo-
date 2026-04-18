@@ -44,6 +44,7 @@ function DashboardView() {
   const [models, setModels] = useState<MLModel[]>([]);
   const [broker, setBroker] = useState<BrokerStatus>({ connected: false, broker: null });
   const [loading, setLoading] = useState(true);
+  const [fetchError, setFetchError] = useState(false);
   const [brokerModal, setBrokerModal] = useState(false);
 
   const fetchDashboard = useCallback(async () => {
@@ -66,6 +67,11 @@ function DashboardView() {
       if (trRes?.data) setTrades(trRes.data);
       if (logRes?.data) setLogs(logRes.data);
       if (mdl?.data) setModels(mdl.data);
+      // If at least broker + agents loaded, clear error
+      if (brk?.data || ag?.data) setFetchError(false);
+      else setFetchError(true);
+    } catch {
+      setFetchError(true);
     } finally {
       setLoading(false);
     }
@@ -89,9 +95,10 @@ function DashboardView() {
   const winRate = totalTrades > 0 ? (totalWins / totalTrades * 100) : 0;
 
   const todayPnl = useMemo(() => {
-    const today = new Date().toISOString().split("T")[0];
+    const now = new Date();
+    const todayUtc = `${now.getUTCFullYear()}-${String(now.getUTCMonth() + 1).padStart(2, "0")}-${String(now.getUTCDate()).padStart(2, "0")}`;
     return trades
-      .filter((t) => t.exit_time?.startsWith(today) && t.status === "closed")
+      .filter((t) => t.exit_time?.startsWith(todayUtc) && t.status === "closed")
       .reduce((s, t) => s + (t.broker_pnl ?? t.pnl ?? 0), 0);
   }, [trades]);
 
@@ -133,6 +140,13 @@ function DashboardView() {
 
   return (
     <div className="space-y-5">
+      {/* Error banner */}
+      {fetchError && (
+        <div className="px-4 py-3 rounded-lg border border-amber-500/30 bg-amber-500/10 text-sm text-amber-400 flex items-center justify-between">
+          <span>Some data failed to load. Check your broker connection.</span>
+          <button onClick={fetchDashboard} className="text-xs px-3 py-1 rounded border border-amber-500/30 hover:bg-amber-500/20">Retry</button>
+        </div>
+      )}
       {/* Header */}
       <div className="flex items-center justify-between">
         <h1 className="text-2xl font-semibold bg-gradient-to-r from-violet-400 to-blue-400 bg-clip-text text-transparent">Dashboard</h1>

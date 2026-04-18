@@ -6,6 +6,7 @@ import Card from "@/components/ui/Card";
 import StatusBadge from "@/components/ui/StatusBadge";
 import Tabs from "@/components/ui/Tabs";
 import BrokerModal from "@/components/BrokerModal";
+import Modal from "@/components/ui/Modal";
 import ConfirmDialog from "@/components/ui/ConfirmDialog";
 import { toast } from "sonner";
 import { getErrorMessage } from "@/lib/errors";
@@ -60,6 +61,34 @@ export default function SettingsPage() {
   // Data
   const [clearLogsConfirm, setClearLogsConfirm] = useState(false);
 
+  // GDPR: account deletion
+  const [deleteAccountOpen, setDeleteAccountOpen] = useState(false);
+  const [deletePassword, setDeletePassword] = useState("");
+  const [deleteLoading, setDeleteLoading] = useState(false);
+  const handleDeleteAccount = async () => {
+    if (!deletePassword) { toast.error("Password is required"); return; }
+    setDeleteLoading(true);
+    try {
+      await api.request({ method: "DELETE", url: "/api/auth/account", data: { password: deletePassword } });
+      toast.success("Account deleted. Redirecting...");
+      localStorage.removeItem("access_token");
+      localStorage.removeItem("refresh_token");
+      window.location.href = "/login";
+    } catch (e: unknown) {
+      toast.error(getErrorMessage(e));
+    } finally { setDeleteLoading(false); }
+  };
+  // GDPR: personal data export
+  const [exporting, setExporting] = useState(false);
+  const handleExportPersonalData = async () => {
+    setExporting(true);
+    try {
+      await downloadJSON("/api/auth/export-data", `flowrex-personal-data-${new Date().toISOString().slice(0, 10)}.json`);
+    } catch (e: unknown) {
+      toast.error(getErrorMessage(e));
+    } finally { setExporting(false); }
+  };
+
   const fetchData = () => {
     Promise.all([
       api.get("/api/settings/").then((r) => {
@@ -75,7 +104,12 @@ export default function SettingsPage() {
       api.get("/api/market-data/providers").then((r) => setProviders(r.data)).catch(() => {}),
     ]).finally(() => setLoading(false));
   };
-  useEffect(() => { fetchData(); }, []);
+  useEffect(() => {
+    fetchData();
+    // Auto-refresh broker balance + uptime every 30s while on this page
+    const interval = setInterval(fetchData, 30000);
+    return () => clearInterval(interval);
+  }, []);
 
   // Apply theme when settings load or change
   useEffect(() => {
@@ -789,9 +823,25 @@ export default function SettingsPage() {
           ),
         },
         {
-          label: "Data",
+          label: "Privacy & Data",
           content: (
             <div className="space-y-4">
+              {/* GDPR Personal Data Export */}
+              <Card>
+                <h3 className="text-sm font-medium mb-2 flex items-center gap-2"><Shield size={14} /> Personal Data (GDPR)</h3>
+                <p className="text-xs mb-3" style={{ color: "var(--muted)" }}>
+                  Download a copy of all your personal data (profile, agents, trades, logs, settings). This is your right under GDPR Article 15.
+                </p>
+                <button
+                  onClick={handleExportPersonalData}
+                  disabled={exporting}
+                  className="flex items-center gap-1.5 px-4 py-2 text-sm font-medium rounded-lg bg-blue-600 hover:bg-blue-500 text-white disabled:opacity-50"
+                >
+                  {exporting ? <Loader2 size={14} className="animate-spin" /> : <Download size={14} />}
+                  Export My Data
+                </button>
+              </Card>
+
               <Card>
                 <h3 className="text-sm font-medium mb-3">Export Data</h3>
                 <div className="space-y-3">
@@ -861,15 +911,30 @@ export default function SettingsPage() {
 
               <Card>
                 <h3 className="text-sm font-medium mb-3 text-red-400">Danger Zone</h3>
-                <div className="flex items-center justify-between">
-                  <div>
-                    <p className="text-sm">Clear all agent logs</p>
-                    <p className="text-xs" style={{ color: "var(--muted)" }}>This does not delete trades or agents</p>
+                <div className="space-y-4">
+                  <div className="flex items-center justify-between">
+                    <div>
+                      <p className="text-sm">Clear all agent logs</p>
+                      <p className="text-xs" style={{ color: "var(--muted)" }}>This does not delete trades or agents</p>
+                    </div>
+                    <button onClick={() => setClearLogsConfirm(true)}
+                      className="flex items-center gap-1.5 px-3 py-1.5 text-xs rounded-lg border border-red-500/30 text-red-400 hover:bg-red-500/10">
+                      <Trash2 size={14} /> Clear Logs
+                    </button>
                   </div>
-                  <button onClick={() => setClearLogsConfirm(true)}
-                    className="flex items-center gap-1.5 px-3 py-1.5 text-xs rounded-lg border border-red-500/30 text-red-400 hover:bg-red-500/10">
-                    <Trash2 size={14} /> Clear Logs
-                  </button>
+
+                  <div className="border-t pt-4" style={{ borderColor: "var(--border)" }}>
+                    <div className="flex items-center justify-between">
+                      <div>
+                        <p className="text-sm font-medium text-red-400">Delete My Account</p>
+                        <p className="text-xs" style={{ color: "var(--muted)" }}>Permanently delete your account and all associated data. This cannot be undone.</p>
+                      </div>
+                      <button onClick={() => setDeleteAccountOpen(true)}
+                        className="flex items-center gap-1.5 px-3 py-1.5 text-xs rounded-lg bg-red-600 hover:bg-red-500 text-white font-medium">
+                        <Trash2 size={14} /> Delete Account
+                      </button>
+                    </div>
+                  </div>
                 </div>
               </Card>
 
@@ -877,6 +942,41 @@ export default function SettingsPage() {
                 onConfirm={handleClearLogs}
                 title="Clear Agent Logs" message="Delete all engine logs? This cannot be undone. Trades and agents are not affected."
                 confirmLabel="Clear All Logs" variant="danger" />
+
+              {/* Delete account dialog — requires password confirmation */}
+              <Modal open={deleteAccountOpen} onClose={() => { setDeleteAccountOpen(false); setDeletePassword(""); }} title="Delete Account" width="max-w-sm">
+                <div className="space-y-4">
+                  <p className="text-sm" style={{ color: "var(--muted)" }}>
+                    This will <strong className="text-red-400">permanently delete</strong> your account, all agents, all trades, all logs, and all broker connections. This action is irreversible.
+                  </p>
+                  <div>
+                    <label htmlFor="delete-pw" className="block text-xs font-medium mb-1" style={{ color: "var(--muted)" }}>Confirm your password</label>
+                    <input
+                      id="delete-pw"
+                      type="password"
+                      value={deletePassword}
+                      onChange={(e) => setDeletePassword(e.target.value)}
+                      autoComplete="current-password"
+                      placeholder="Enter your password"
+                      className="w-full px-3 py-2 text-sm rounded-lg border bg-transparent outline-none focus:border-red-500"
+                      style={{ borderColor: "var(--border)" }}
+                    />
+                  </div>
+                  <div className="flex justify-end gap-2">
+                    <button onClick={() => { setDeleteAccountOpen(false); setDeletePassword(""); }}
+                      className="px-4 py-2 text-sm rounded-lg border hover:bg-white/5" style={{ borderColor: "var(--border)" }}>
+                      Cancel
+                    </button>
+                    <button
+                      onClick={handleDeleteAccount}
+                      disabled={!deletePassword || deleteLoading}
+                      className="px-4 py-2 text-sm font-medium rounded-lg bg-red-600 hover:bg-red-500 text-white disabled:opacity-50"
+                    >
+                      {deleteLoading ? "Deleting..." : "Delete My Account"}
+                    </button>
+                  </div>
+                </div>
+              </Modal>
             </div>
           ),
         },

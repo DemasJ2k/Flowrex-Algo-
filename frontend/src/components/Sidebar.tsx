@@ -16,6 +16,8 @@ import {
   MessageSquare,
   Menu,
   X,
+  PanelLeftOpen,
+  PanelLeftClose,
 } from "lucide-react";
 
 const navItems = [
@@ -36,8 +38,22 @@ const EXPANDED_W = "w-56";    // 224px
 export default function Sidebar() {
   const pathname = usePathname();
   const [mobileOpen, setMobileOpen] = useState(false);
-  const [hovered, setHovered] = useState(false);
+  const [pinned, setPinned] = useState(false);
   const [isAdmin, setIsAdmin] = useState(false);
+
+  // Persist pin preference across reloads so user doesn't re-pin every visit.
+  useEffect(() => {
+    const stored = typeof window !== "undefined" ? localStorage.getItem("flowrex_sidebar_pinned") : null;
+    if (stored === "true") setPinned(true);
+  }, []);
+
+  useEffect(() => {
+    if (typeof window !== "undefined") {
+      localStorage.setItem("flowrex_sidebar_pinned", pinned ? "true" : "false");
+      // Notify AppShell so it can adjust main content margin
+      document.documentElement.setAttribute("data-sidebar-pinned", pinned ? "true" : "false");
+    }
+  }, [pinned]);
 
   useEffect(() => {
     import("@/lib/api").then(({ default: api }) => {
@@ -45,7 +61,7 @@ export default function Sidebar() {
     });
   }, []);
 
-  const expanded = hovered;
+  const expanded = pinned;
   const visibleItems = navItems.filter((item) => !("adminOnly" in item && item.adminOnly) || isAdmin);
 
   return (
@@ -97,22 +113,29 @@ export default function Sidebar() {
         </nav>
       </aside>
 
-      {/* Desktop sidebar — collapsible icon rail */}
+      {/* Desktop sidebar — click-to-pin. No hover-expand (was causing overlay
+          issues on pages with their own sub-sidebars, e.g. AI chat). */}
       <aside
         className={cn(
           "fixed left-0 top-0 h-screen hidden md:flex flex-col border-r z-40 transition-all duration-200 overflow-hidden",
           expanded ? EXPANDED_W : COLLAPSED_W,
         )}
         style={{ background: "var(--sidebar-bg)", borderColor: "var(--border)" }}
-        onMouseEnter={() => setHovered(true)}
-        onMouseLeave={() => setHovered(false)}
       >
-        {/* Logo */}
+        {/* Logo + pin toggle */}
         <div className="flex items-center gap-2 px-4 py-4 border-b min-h-[64px]" style={{ borderColor: "var(--border)" }}>
           <img src="/logo-icon.png" alt="FX" className="w-8 h-8 rounded-lg flex-shrink-0 object-contain" />
-          <span className={cn("text-base font-semibold tracking-tight whitespace-nowrap transition-opacity duration-200", expanded ? "opacity-100" : "opacity-0")}>
+          <span className={cn("flex-1 text-base font-semibold tracking-tight whitespace-nowrap transition-opacity duration-200", expanded ? "opacity-100" : "opacity-0 w-0 overflow-hidden")}>
             Flowrex Algo
           </span>
+          <button
+            onClick={() => setPinned(!pinned)}
+            className="p-1 rounded hover:bg-white/10 flex-shrink-0"
+            title={pinned ? "Collapse sidebar" : "Expand sidebar"}
+            style={{ color: "var(--muted)" }}
+          >
+            {pinned ? <PanelLeftClose size={16} /> : <PanelLeftOpen size={16} />}
+          </button>
         </div>
 
         {/* Navigation */}

@@ -14,6 +14,8 @@ export default function RegisterPage() {
   const [password, setPassword] = useState("");
   const [confirm, setConfirm] = useState("");
   const [showPassword, setShowPassword] = useState(false);
+  const [termsAccepted, setTermsAccepted] = useState(false);
+  const [dateOfBirth, setDateOfBirth] = useState("");
   const [loading, setLoading] = useState(false);
   const router = useRouter();
 
@@ -43,13 +45,35 @@ export default function RegisterPage() {
       toast.error("Passwords do not match");
       return;
     }
-    if (password.length < 8) {
-      toast.error("Password must be at least 8 characters");
+    if (password.length < 12) {
+      toast.error("Password must be at least 12 characters with uppercase, lowercase, and a digit");
       return;
+    }
+    if (!termsAccepted) {
+      toast.error("You must accept the Terms of Service and Privacy Policy");
+      return;
+    }
+    if (dateOfBirth) {
+      const dob = new Date(dateOfBirth);
+      const today = new Date();
+      let age = today.getFullYear() - dob.getFullYear();
+      const m = today.getMonth() - dob.getMonth();
+      if (m < 0 || (m === 0 && today.getDate() < dob.getDate())) age--;
+      if (age < 18) {
+        toast.error("You must be at least 18 years old to use this platform");
+        return;
+      }
     }
     setLoading(true);
     try {
-      const res = await api.post("/api/auth/register", { email, password, invite_code: inviteCode });
+      const payload: Record<string, unknown> = {
+        email,
+        password,
+        invite_code: inviteCode,
+        terms_accepted: termsAccepted,
+      };
+      if (dateOfBirth) payload.date_of_birth = dateOfBirth;
+      const res = await api.post("/api/auth/register", payload);
       localStorage.setItem("access_token", res.data.access_token);
       if (res.data.refresh_token) localStorage.setItem("refresh_token", res.data.refresh_token);
       toast.success("Account created successfully");
@@ -111,13 +135,30 @@ export default function RegisterPage() {
           </div>
 
           <div>
-            <label className="block text-xs font-medium mb-1" style={{ color: "var(--muted)" }}>Confirm Password</label>
-            <input type={showPassword ? "text" : "password"} value={confirm} onChange={(e) => setConfirm(e.target.value)} required
+            <label htmlFor="reg-confirm" className="block text-xs font-medium mb-1" style={{ color: "var(--muted)" }}>Confirm Password</label>
+            <input id="reg-confirm" type={showPassword ? "text" : "password"} value={confirm} onChange={(e) => setConfirm(e.target.value)} required
               className="w-full px-3 py-2.5 text-sm rounded-lg border bg-transparent outline-none focus:border-blue-500"
               style={{ borderColor: "var(--border)" }} placeholder="Re-enter password" />
           </div>
 
-          <button type="submit" disabled={loading}
+          <div>
+            <label htmlFor="reg-dob" className="block text-xs font-medium mb-1" style={{ color: "var(--muted)" }}>Date of Birth</label>
+            <input id="reg-dob" type="date" value={dateOfBirth} onChange={(e) => setDateOfBirth(e.target.value)}
+              className="w-full px-3 py-2.5 text-sm rounded-lg border bg-transparent outline-none focus:border-blue-500"
+              style={{ borderColor: "var(--border)" }} />
+            <p className="text-[10px] mt-1" style={{ color: "var(--muted)" }}>You must be 18+ to use this platform (financial trading requirement)</p>
+          </div>
+
+          <label className="flex items-start gap-2 text-xs cursor-pointer">
+            <input type="checkbox" checked={termsAccepted} onChange={(e) => setTermsAccepted(e.target.checked)}
+              className="rounded mt-0.5" required />
+            <span style={{ color: "var(--muted)" }}>
+              I accept the <a href="/terms" target="_blank" className="text-blue-400 hover:underline">Terms of Service</a> and <a href="/privacy" target="_blank" className="text-blue-400 hover:underline">Privacy Policy</a>.
+              I understand this platform trades with real or simulated money.
+            </span>
+          </label>
+
+          <button type="submit" disabled={loading || !termsAccepted}
             className="w-full py-2.5 text-sm font-medium rounded-lg btn-gradient text-white disabled:opacity-50">
             {loading ? "Creating..." : "Create Account"}
           </button>

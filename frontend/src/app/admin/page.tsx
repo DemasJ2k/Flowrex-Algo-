@@ -107,7 +107,9 @@ export default function AdminPage() {
     ) : null },
   ];
 
-  if (loading) return <div className="flex items-center justify-center h-64"><Loader2 size={24} className="animate-spin" style={{ color: "var(--muted)" }} /></div>;
+  // Guard: don't render admin content until auth check completes (security fix)
+  if (isAdmin === null || loading) return <div className="flex items-center justify-center h-64"><Loader2 size={24} className="animate-spin" style={{ color: "var(--muted)" }} /></div>;
+  if (isAdmin === false) return null; // redirect already in progress
 
   return (
     <div className="space-y-4">

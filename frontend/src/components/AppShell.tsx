@@ -10,15 +10,27 @@ const PUBLIC_PATHS = ["/login", "/register"];
 export default function AppShell({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
   const [authed, setAuthed] = useState<boolean | null>(null);
+  const [sidebarPinned, setSidebarPinned] = useState(false);
 
   useEffect(() => {
     const token = localStorage.getItem("access_token");
     setAuthed(!!token);
-    // Listen for storage changes (login/logout in other tabs)
     const handler = () => setAuthed(!!localStorage.getItem("access_token"));
     window.addEventListener("storage", handler);
     return () => window.removeEventListener("storage", handler);
   }, [pathname]);
+
+  // Track sidebar pin state so main content shifts to avoid overlap.
+  useEffect(() => {
+    const stored = localStorage.getItem("flowrex_sidebar_pinned") === "true";
+    setSidebarPinned(stored);
+    // Poll document attribute — Sidebar updates it on toggle
+    const observer = new MutationObserver(() => {
+      setSidebarPinned(document.documentElement.getAttribute("data-sidebar-pinned") === "true");
+    });
+    observer.observe(document.documentElement, { attributes: true, attributeFilter: ["data-sidebar-pinned"] });
+    return () => observer.disconnect();
+  }, []);
 
   // Still loading auth state
   if (authed === null) return <>{children}</>;
@@ -34,12 +46,14 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
   // Authenticated pages: sidebar + profile dropdown
   return (
     <>
+      {/* Skip-to-content link for keyboard users — bypasses the sidebar nav */}
+      <a href="#main-content" className="skip-link">Skip to main content</a>
       <Sidebar />
-      <div className="md:ml-16 min-h-screen">
+      <div className={`min-h-screen transition-all duration-200 ${sidebarPinned ? "md:ml-56" : "md:ml-16"}`}>
         <header className="flex items-center justify-end px-4 py-3 md:px-6">
           <ProfileDropdown />
         </header>
-        <main className="px-4 pb-6 md:px-6 pt-0">
+        <main id="main-content" className="px-4 pb-6 md:px-6 pt-0" tabIndex={-1}>
           {children}
         </main>
       </div>
