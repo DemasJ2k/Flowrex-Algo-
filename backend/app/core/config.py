@@ -34,6 +34,7 @@ class Settings(BaseSettings):
 
     # Monitoring
     SENTRY_DSN: str = ""  # Sentry error tracking — set in .env for production
+    LOG_LEVEL: str = ""   # DEBUG / INFO / WARNING / ERROR — overrides DEBUG-based default
 
     # Telegram — central bot for all users (users connect via /connect flow)
     TELEGRAM_BOT_TOKEN: str = ""  # Global bot token (from BotFather)

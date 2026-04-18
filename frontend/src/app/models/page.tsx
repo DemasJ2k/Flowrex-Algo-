@@ -1,5 +1,6 @@
 "use client";
 
+import { debugWarn } from "@/lib/debug";
 import { useEffect, useState, useMemo } from "react";
 import api from "@/lib/api";
 import type { MLModel } from "@/types";
@@ -75,15 +76,15 @@ export default function ModelsPage() {
   const [schedule, setSchedule] = useState<RetrainSchedule | null>(null);
 
   const fetchModels = () => {
-    api.get("/api/ml/models").then((r) => setModels(r.data)).catch((e) => console.warn("fetch failed:", e?.message)).finally(() => setLoading(false));
+    api.get("/api/ml/models").then((r) => setModels(r.data)).catch((e) => debugWarn("fetch failed:", e?.message)).finally(() => setLoading(false));
   };
   const fetchPotentialModels = () => {
-    api.get("/api/ml/potential-models").then((r) => setPotentialModels(r.data)).catch((e) => console.warn("fetch failed:", e?.message));
-    api.get("/api/ml/flowrex-models").then((r) => setFlowrexModels(r.data)).catch((e) => console.warn("fetch failed:", e?.message));
+    api.get("/api/ml/potential-models").then((r) => setPotentialModels(r.data)).catch((e) => debugWarn("fetch failed:", e?.message));
+    api.get("/api/ml/flowrex-models").then((r) => setFlowrexModels(r.data)).catch((e) => debugWarn("fetch failed:", e?.message));
   };
   const fetchRetrainData = () => {
-    api.get("/api/ml/retrain/history?limit=10").then((r) => setRetrainHistory(r.data)).catch((e) => console.warn("fetch failed:", e?.message));
-    api.get("/api/ml/retrain/schedule").then((r) => setSchedule(r.data)).catch((e) => console.warn("fetch failed:", e?.message));
+    api.get("/api/ml/retrain/history?limit=10").then((r) => setRetrainHistory(r.data)).catch((e) => debugWarn("fetch failed:", e?.message));
+    api.get("/api/ml/retrain/schedule").then((r) => setSchedule(r.data)).catch((e) => debugWarn("fetch failed:", e?.message));
   };
   useEffect(() => { fetchModels(); fetchPotentialModels(); fetchRetrainData(); }, []);
 

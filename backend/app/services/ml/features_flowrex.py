@@ -20,7 +20,10 @@ import time as _time
 import numpy as np
 import pandas as pd
 
-_VERBOSE = os.environ.get("FLOWREX_VERBOSE", "1") == "1"
+# Feature computation runs both from the live agent (every 5 min per agent)
+# AND from training scripts. Default OFF to keep API logs clean; training
+# scripts set FLOWREX_VERBOSE=1 explicitly for progress output.
+_VERBOSE = os.environ.get("FLOWREX_VERBOSE", "0") == "1"
 
 
 def _log(msg):

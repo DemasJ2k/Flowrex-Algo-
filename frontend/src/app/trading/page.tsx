@@ -1,5 +1,6 @@
 "use client";
 
+import { debugWarn } from "@/lib/debug";
 import { useEffect, useState, useCallback, useRef } from "react";
 import api from "@/lib/api";
 import CandlestickChart, { ChartIndicators, ChartMarker } from "@/components/CandlestickChart";
@@ -166,7 +167,7 @@ export default function TradingPage() {
       }
     } catch {
       if (!warnedRef.current) {
-        console.warn("Backend unreachable — polling paused until it recovers");
+        debugWarn("Backend unreachable — polling paused until it recovers");
         warnedRef.current = true;
       }
       backendAlive.current = false;
@@ -229,7 +230,7 @@ export default function TradingPage() {
 
   // Fetch available data sources
   useEffect(() => {
-    api.get("/api/market-data/sources").then((r) => setDataSources(r.data)).catch((e) => console.warn("fetch failed:", e?.message));
+    api.get("/api/market-data/sources").then((r) => setDataSources(r.data)).catch((e) => debugWarn("fetch failed:", e?.message));
   }, []);
 
   useEffect(() => { fetchStatus(); }, [fetchStatus]);

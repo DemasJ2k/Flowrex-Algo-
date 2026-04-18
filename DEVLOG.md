@@ -11,6 +11,77 @@ _Chronological record of all changes. Read this before starting any task._
 
 ---
 
+## 2026-04-18 — Code-review fixes + Telegram + market hours + debug-logging cleanup + user guide
+
+Post-merge review-driven improvements + new user-facing docs.
+
+### Code-review fixes applied
+- **Dead code removed** — `app/api/telegram.py` `/status` handler had an unreachable `db.query(UserSettings).join(...)` expression before the real scan
+- **Rate-limit dict bounded** — `_error_rate_limit` and `_alert_rate_limit` in monitoring.py capped at 500 entries with oldest-first eviction
+- **Market-hours decision cached** (5min TTL) — was opening DB session per poll tick; now cached per agent
+- **Max-hold reconcile now fetches PnL** — when `close_position()` fails but broker already closed the trade, we query the broker's trade history to recover actual PnL (Oanda-specific)
+- **Agents page market-status polling throttled** — was polling every 10s (same cadence as agent status); separated to 5min interval
+- **main.py orphan-check variable-scope bug fixed** — `brokers_needed` was only defined inside `if running:` but referenced outside; hoisted + extended to all users with agents
+
+### Central Telegram bot (@FlowrexAgent_bot)
+- `app/api/telegram.py` — `/connect` returns binding code deep link, `/webhook` handles /start /status /unlink /help with secret-token validation
+- Migration 008: `telegram_bindings` table (6-char codes, 10-min TTL)
+- `telegram.py` service: dual-mode (global bot + per-user chat_id OR legacy per-user token)
+- Frontend: "Connect to @FlowrexAgent_bot" card with optional `@username` pre-fill + mismatch warning; shows "Connected as @username" after binding
+
+### Market hours awareness
+- `app/services/market_hours.py` — crypto 24/7; forex Sun 22:00 → Fri 22:00 UTC; indices/futures same + daily 21-22 UTC CME halt
+- Engine `_run_loop`: proactively sleeps until next open, cached 5min
+- `GET /api/market/status` endpoint
+- Frontend: MKT OPEN / MKT CLOSED badges on agent cards
+
+### Debug-logging cleanup
+Comprehensive audit of all `print()` and `console.*` in production code.
+
+**Backend (25 prints → logger):**
+- `main.py` lifespan: 17 prints (Sentry, encryption, DB, broker auto-connect, orphan check, scheduler init, shutdown, WebSocket rejection) → `logger.info/warning/critical` with exc_info
+- `app/services/llm/monitoring.py`: 5 error-path prints → `logger.warning(exc_info=True)`
+- `app/services/agent/engine.py`: 3 prints (orphan ticket CRITICAL, config reload fail, model reload fail) → `logger.critical/warning`
+- `app/services/agent/trade_monitor.py`: 1 print → `logger.error(exc_info=True)`
+- `app/api/backtest.py`: 1 `traceback.print_exc()` → `logger.error(exc_info=True)`
+- `app/services/ml/features_flowrex.py`: `FLOWREX_VERBOSE` default `"1"` → `"0"` (training scripts explicitly set to `"1"`); prevents feature computation noise in API logs
+
+**Frontend (19 console.warn → debugWarn):**
+- New `src/lib/debug.ts` — `debugWarn/Error/Log` wrappers gated on `NODE_ENV === "development"`
+- Replaced all `console.warn("fetch failed:", ...)` calls across 7 files
+- One `console.warn` in trading/page.tsx ("Backend unreachable — polling paused") also migrated
+
+**Infrastructure:**
+- New `LOG_LEVEL` env var override in `config.py` + `middleware.py:setup_logging()` — decouples verbose logging from DEBUG flag (which would also loosen security). Accepted: DEBUG / INFO / WARNING / ERROR / CRITICAL.
+- Added to `docker-compose.prod.yml` via `${LOG_LEVEL:-}`
+
+**Verification:** temporarily set `LOG_LEVEL=DEBUG`, captured live logs, confirmed JSON-structured output end-to-end, no secret leakage, no stack traces in production builds. Restored LOG_LEVEL to empty.
+
+**Frontend build audit:**
+- Scanned `.next/static/chunks/*.js` for `sk-ant-` / `github_pat_` / `Bearer `-pattern / 40+ char random strings
+- All matches were false positives: `"sk-ant-..."` placeholder hint text, `Bearer` inside CSS parser regex literal, library identifiers like `createInitialRSCPayload`
+- No real secrets leaked
+
+### User documentation
+- `docs/USER-GUIDE.md` — 11-section markdown user guide
+- `docs/USER-GUIDE.txt` — plain text version with ASCII-art box tables for readability (~700 lines)
+- Covers: what Flowrex is, pages tour (9 pages), models page workflow, backtest workflow, default trading configuration, agent analytics teaching (section 9 explains what each breakdown means and gives actionable advice), broker/symbol/prop-firm compatibility matrix, quick-start checklist, glossary
+
+### Tests
+- 40 new tests added in prior batch: `test_market_hours.py` (20), `test_monitoring.py` (12), `test_telegram_webhook.py` (8)
+- Full suite: 479 passing, 0 failures
+
+### Commits
+- 14 commits pushed to GitHub (`main` branch on DemasJ2k/Flowrex-Algo-)
+- Organized by domain: migrations/models → core hardening → brokers → engine+monitoring+telegram+market hours → ML pipeline → tests → frontend → infra+docs → planning docs → trained models → data refresh → pytest config
+
+### Training in flight
+- `tmux experiments`: Flowrex_v2 retraining US30/BTCUSD/ES (quick mode, 2 variants each) — US30+BTCUSD done Grade A, ES on Fold 3 (flagged regime break 2024-02 → 2025-04, Sharpe 0.28)
+- `tmux experiments2`: queued to run XAUUSD/NAS100/ETHUSD/XAGUSD/AUS200 after batch 1
+- `tmux potential`: potential-agent retraining with bounded CVD for XAUUSD → ES (fixes CVD leak; blocks re-enabling agents 72 and 85)
+
+---
+
 ## 2026-04-17 — Engine wiring audit + label leakage fix
 
 User asked for a complete audit of "what's supposed to be connected to the engine but yet isn't"

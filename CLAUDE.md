@@ -8,15 +8,36 @@
 - **Brokers:** Oanda, cTrader, MT5
 
 ## Current Phase
-**POST-AUDIT HARDENING COMPLETE** (2026-04-15)
+**ENGINE WIRING + AI AUTONOMY + LABEL-LEAKAGE FIX COMPLETE** (2026-04-18)
+- 25+ wiring gaps closed (on_error, parse_actions, RiskManager, feature drift,
+  margin check, symbol validation, cooldown persistence, broker reconcile,
+  max hold, stale-data hash, broker 5XX retry, feature cache invalidation)
+- Label leakage fix: bounded CVD in features_potential.py (root cause of
+  backtest 60-79% WR vs live 30% WR divergence). Requires retraining
+  existing `potential`-type models before re-enabling those agents.
+- Central Telegram bot (@FlowrexAgent_bot): binding codes, webhook,
+  per-user chat_id, hourly AI reports, trade alerts, autonomous actions
+- Market hours awareness: agents auto-sleep until next open on weekends
+- AI chat persistence (migration 006): sessions + messages in DB
+- Agent analytics (migration 007): session, MTF, SHAP, timing per trade
+- Telegram bindings (migration 008): 6-char connect codes
+- Logging cleanup: 25 print()s → structured logger.* with exc_info
+- LOG_LEVEL env override (separate from DEBUG flag)
+- Frontend: AI chat page rewrite, Telegram Connect card, Analytics tab,
+  MKT OPEN/CLOSED badges, sidebar click-to-pin, settings modal,
+  broker balance auto-refresh
+- 479/479 tests passing (40 new: market_hours + monitoring + webhook)
+- 12+ commits pushed to GitHub
+- docs/USER-GUIDE.txt written (full user documentation)
+- Training in progress: potential XAUUSD+ES retraining (fixes CVD leak)
+
+### 2026-04-15 — Post-Audit Hardening (prior phase)
 - 166-finding audit (AUDIT-2026-04-15.md) executed across 11 batches
-- 56 new tests added, 453 passing
+- 56 new tests added (453 baseline → 479 after this phase)
 - Migration 002 closed 6-item schema drift
 - 2FA bypass closed, LLM per-user, CORS restricted, CSP headers, rate limits
 - Training auto-archive, Dukascopy-direct backtest, walk-forward embargo
-- Tradovate 4 critical fixes (live/demo, bracket orders, token refresh, contract specs)
-- GDPR: account delete + data export endpoints shipped
-- 5 agents live on Oanda paper, backend healthy
+- Tradovate 4 critical fixes, GDPR endpoints shipped
 
 ## Completed Phases
 - Phase 1 — Foundation (2026-03-28)

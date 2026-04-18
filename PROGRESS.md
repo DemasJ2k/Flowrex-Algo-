@@ -881,3 +881,87 @@ _Updated at the end of each phase. Read this to understand what has been built._
 - 5 agents live on Oanda paper, backend healthy
 - BTCUSD Flowrex v2 training completed Grade A, auto-archived the previous models
 - All deployed changes verified via healthy `/api/health` response and agent auto-start logs
+
+---
+
+## Phase 21 — Engine Wiring + AI Autonomy + Label-Leakage Fix (2026-04-16 → 2026-04-18)
+**Status:** Complete
+
+### Engine wiring gaps closed (25+)
+- `supervisor.on_error()` wired into `_run_loop` + `_create_trade` (rate-limited 15min)
+- `parse_actions()` → `execute_autonomous_actions()` executes PAUSE_AGENT / ADJUST_RISK
+- `RiskManager.approve_trade()` integrated via opt-in `prop_firm_enabled` flag; hooks from engine
+- `feature_monitor.check_drift()` called every 50 evals in both v2 agents
+- Pre-trade margin verification (uses `margin_available` from AccountInfo)
+- Symbol + feature-count pre-flight checks on agent start
+- Cooldown persisted across restarts via wall-clock from DB
+- Periodic hourly broker reconciliation (even in quiet markets)
+- Max hold time (24h default) with PnL-fetching reconcile fallback
+- Stale/duplicate bar detection via OHLC hash
+- Feature cache cleared on model reload
+- Config hot-reload re-initializes RiskManager
+- Broker: 5XX retry with backoff, connect() no longer caches broken adapter
+- `_last_prediction` stored in agents → HOLD distribution logged
+
+### Label leakage fix (backtest-live parity)
+- `features_potential.py`: unbounded `np.cumsum` for CVD → `rolling(100)` — root cause of backtest Grade A vs live 30% WR divergence (flowrex_v2 already had the fix)
+- `features_potential.py` + `features_mtf.py`: `np.roll` circular shift → proper backward shift
+- `docs/MIGRATION-2026-04-18-label-leakage.md` — retrain procedure for existing `potential`-type models
+
+### Central Telegram bot (@FlowrexAgent_bot)
+- `app/api/telegram.py` (new): `/connect` generates 6-char code; `/webhook` handles `/start <code>`, `/status`, `/unlink`, `/help`; secret-token validation
+- Migration 008: `telegram_bindings` table (10-min TTL codes)
+- Dual-mode notifier: global bot token + per-user chat_id OR legacy per-user bot token
+- Frontend Telegram Connect card with optional `@username` pre-fill + mismatch warning
+
+### AI chat persistence + monitoring
+- Migration 006: `chat_sessions` + `chat_messages` tables
+- `app/services/llm/monitoring.py` (new): `on_trade_closed`, `on_error`, `execute_autonomous_actions`, `detect_and_alert`, `hourly_check_all_users`; rate-limited (15min/1hr) with bounded dict eviction
+- Per-user "AI Monitoring" chat session for audit trail
+- Supervisor: max_tokens 1024 → 4096, system prompt expanded, parse_actions JSON error logging
+
+### Agent analytics (migration 007)
+- 8 new columns on `agent_trades`: `mtf_score`, `mtf_layers`, `session_name`, `top_features`, `atr_at_entry`, `model_name`, `time_to_exit_seconds`, `bars_to_exit`
+- `GET /api/agents/{id}/analytics` endpoint
+- Frontend Analytics tab with breakdowns: session, confidence, MTF, direction, exit reason, streaks
+
+### Market hours awareness
+- `app/services/market_hours.py` (new): crypto 24/7; forex/metals Sun 22:00 → Fri 22:00 UTC; futures + daily 21-22 CME halt
+- Engine poll loop sleeps until next open (cached 5min)
+- `GET /api/market/status` endpoint
+- Frontend: MKT OPEN / MKT CLOSED badges on agent cards
+
+### Logging cleanup (debug-logging audit)
+- 25 `print()`s across main.py + monitoring.py + trade_monitor.py + backtest.py → structured `logger.*` with exc_info
+- `features_flowrex.py`: `FLOWREX_VERBOSE` default off (training scripts set it)
+- New `LOG_LEVEL` env var override (decoupled from DEBUG)
+- Frontend `lib/debug.ts` wrapper — silent in production; 19 `console.warn` calls migrated
+
+### Frontend polish
+- AI page rewrite: session sidebar, markdown rendering (react-markdown + remark-gfm), Telegram Connect, settings modal, cost tracking, mobile responsive
+- AgentWizard: loads filter defaults (news_filter, session_filter, regime_filter) from user settings (was hardcoded)
+- Settings page: auto-refresh broker balance/uptime every 30s
+- Sidebar: click-to-pin replaces hover-expand (fixes overlay with sub-sidebars)
+- Economic calendar: switched from Trading Economics (stale 2025 data) to Finnhub (fresh)
+
+### Tests + infra
+- 40 new tests: `test_market_hours.py` (20), `test_monitoring.py` (12), `test_telegram_webhook.py` (8)
+- All 479 tests passing
+- `main.py` orphan-check variable-scope bug fixed
+- `pytest.ini` added; `experiments/` in `.gitignore`
+- 12+ commits pushed to GitHub
+
+### Docs
+- `docs/USER-GUIDE.md` + `docs/USER-GUIDE.txt` — full user documentation (11 sections)
+- `docs/MIGRATION-2026-04-18-label-leakage.md` — retrain procedure
+- `CLAUDE.md` current phase updated
+- DEVLOG updated
+
+### Training in progress
+- Batch 1 (tmux `experiments`, --quick): US30 ✓, BTCUSD ✓ (Grade A, Sharpe 19.3, WR 79%), ES running
+- Batch 2 (tmux `experiments2`): XAUUSD/NAS100/ETHUSD/XAGUSD/AUS200 queued
+- Potential retraining (tmux `potential`): XAUUSD → ES sequential (CVD fix validation)
+
+### Live state
+- 1 active: GOLD XAUUSD flowrex_v2 (weekend sleep, auto-resume Sun 22:00 UTC)
+- 5 stopped: potential-type agents need retrain before re-enabling

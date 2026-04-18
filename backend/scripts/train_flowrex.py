@@ -31,6 +31,7 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 warnings.filterwarnings("ignore")
 optuna.logging.set_verbosity(optuna.logging.WARNING)
 
+os.environ.setdefault("FLOWREX_VERBOSE", "1")  # progress logs when training
 from app.services.ml.features_flowrex import compute_flowrex_features
 from app.services.ml.symbol_config import get_symbol_config
 from scripts.model_utils import (

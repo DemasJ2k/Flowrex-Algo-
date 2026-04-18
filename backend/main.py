@@ -1,5 +1,6 @@
 from contextlib import asynccontextmanager
 import json
+import logging
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
 from slowapi import _rate_limit_exceeded_handler
@@ -26,6 +27,7 @@ import app.models  # noqa: F401 — register all models
 
 
 setup_logging()
+logger = logging.getLogger("flowrex.lifespan")
 
 
 @asynccontextmanager
@@ -43,28 +45,28 @@ async def lifespan(app: FastAPI):
                 environment="production" if not settings.DEBUG else "development",
                 release="flowrex-algo@1.0",
             )
-            print("Sentry initialized")
+            logger.info("Sentry initialized")
         except Exception as e:
-            print(f"Sentry init failed (non-fatal): {e}")
+            logger.warning(f"Sentry init failed (non-fatal): {e}")
 
     # ── Secrets validation (Batch B — fail fast on bad config) ──
     try:
         from app.core.encryption import validate_encryption_key
         validate_encryption_key()
-        print("ENCRYPTION_KEY validated")
+        logger.info("ENCRYPTION_KEY validated")
     except RuntimeError as e:
-        print(f"CRITICAL: {e}")
+        logger.critical(f"ENCRYPTION_KEY validation failed: {e}")
         if not settings.DEBUG:
             raise  # Don't start production with a bad key
 
     if settings.SECRET_KEY.startswith("dev-") and not settings.DEBUG:
-        print("CRITICAL: SECRET_KEY is the development default. Set a production key in .env.")
+        logger.critical("SECRET_KEY is the development default. Set a production key in .env.")
 
     db_ok = check_db_connection()
     if db_ok:
-        print("Database connected successfully")
+        logger.info("Database connected successfully")
     else:
-        print("WARNING: Database connection failed")
+        logger.warning("Database connection failed")
 
     # Auto-reconnect brokers for running agents + orphan check.
     try:
@@ -83,18 +85,18 @@ async def lifespan(app: FastAPI):
             for user_id, broker_name in brokers_needed:
                 try:
                     await manager.connect(user_id, broker_name, None, db)
-                    print(f"Auto-connected broker: {broker_name} for user {user_id}")
+                    logger.info(f"Auto-connected broker: {broker_name} for user {user_id}")
                 except Exception as e:
-                    print(f"Auto-connect failed for {broker_name}: {e}")
+                    logger.warning(f"Auto-connect failed for {broker_name}: {e}")
             # Auto-restart running agents
             from app.services.agent.engine import get_algo_engine
             algo_engine = get_algo_engine()
             for agent in running:
                 try:
                     await algo_engine.start_agent(agent.id)
-                    print(f"Auto-started agent: {agent.name} ({agent.symbol})")
+                    logger.info(f"Auto-started agent: {agent.name} ({agent.symbol})")
                 except Exception as e:
-                    print(f"Auto-start failed for {agent.name}: {e}")
+                    logger.warning(f"Auto-start failed for {agent.name}: {e}")
 
         # ── Orphan reconciliation: also check brokers for users who have any
         # trading_agents at all (not just running), since stopped agents could
@@ -121,26 +123,26 @@ async def lifespan(app: FastAPI):
                         AgentTrade.status == "open",
                     ).first()
                     if not match:
-                        print(
-                            f"CRITICAL: Orphaned broker position — "
+                        logger.critical(
+                            f"Orphaned broker position — "
                             f"ticket={ticket} symbol={pos.symbol} "
                             f"direction={pos.direction} size={pos.size} "
                             f"pnl={pos.pnl}. No matching AgentTrade in DB."
                         )
         except Exception as e:
-            print(f"Trade orphan check failed: {e}")
+            logger.warning(f"Trade orphan check failed: {e}", exc_info=True)
 
         db.close()
     except Exception as e:
-        print(f"Auto-reconnect error: {e}")
+        logger.warning(f"Auto-reconnect error: {e}", exc_info=True)
 
     # Initialize retrain scheduler
     try:
         from app.services.ml.retrain_scheduler import init_scheduler
         init_scheduler()
-        print("Retrain scheduler initialized")
+        logger.info("Retrain scheduler initialized")
     except Exception as e:
-        print(f"Retrain scheduler init skipped: {e}")
+        logger.warning(f"Retrain scheduler init skipped: {e}")
 
     yield
     # Shutdown
@@ -151,7 +153,7 @@ async def lifespan(app: FastAPI):
         pass
     from app.services.agent.engine import get_algo_engine
     await get_algo_engine().stop_all()
-    print("Shutting down Flowrex Algo")
+    logger.info("Shutting down Flowrex Algo")
 
 
 app = FastAPI(
@@ -251,7 +253,7 @@ async def websocket_endpoint(websocket: WebSocket):
 
     if user_id == 0 and not settings.DEBUG:
         # Production requires auth — log the rejection for debugging
-        print(f"WebSocket rejected: no valid token. Origin={origin}, auth_header={'yes' if auth_header else 'no'}, query_token={'yes' if websocket.query_params.get('token') else 'no'}")
+        logger.warning(f"WebSocket rejected: no valid token. Origin={origin}, auth_header={'yes' if auth_header else 'no'}, query_token={'yes' if websocket.query_params.get('token') else 'no'}")
         await websocket.close(code=1008)
         return
     if user_id == 0:

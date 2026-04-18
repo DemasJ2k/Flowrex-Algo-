@@ -1,5 +1,6 @@
 """Backtest API endpoints — with transaction cost configuration."""
-import os, traceback
+import logging
+import os
 from datetime import datetime, timezone
 from fastapi import APIRouter, Depends, BackgroundTasks, HTTPException
 from pydantic import BaseModel
@@ -9,6 +10,8 @@ import numpy as np
 import pandas as pd
 import joblib
 from sqlalchemy.orm import Session
+
+logger = logging.getLogger("flowrex.backtest")
 
 from app.core.auth import get_current_user
 from app.core.database import get_db, SessionLocal
@@ -611,7 +614,7 @@ def _run_potential_backtest(body: PotentialBacktestRequest, result_id: int = Non
             _update_backtest_record(result_id, status="completed", results=result_data)
 
     except Exception as e:
-        traceback.print_exc()
+        logger.error(f"Potential backtest failed for {body.symbol}: {e}", exc_info=True)
         error_msg = str(e)
         _potential_results[body.symbol] = {"error": error_msg}
         if result_id:

@@ -16,6 +16,7 @@ Design principles:
 - Token usage is bounded: haiku for event hooks, sonnet for hourly deep dives.
 """
 import asyncio
+import logging
 from datetime import datetime, timezone, timedelta
 from typing import Optional
 
@@ -23,6 +24,8 @@ from sqlalchemy.orm import Session
 
 from app.core.database import SessionLocal
 from app.core.encryption import get_fernet
+
+logger = logging.getLogger("flowrex.monitoring")
 from app.models.user import User, UserSettings
 from app.models.agent import TradingAgent, AgentTrade, AgentLog
 from app.models.chat import ChatSession, ChatMessage
@@ -202,7 +205,7 @@ async def on_trade_closed(user_id: int, trade_data: dict, agent_data: dict):
                     try:
                         await execute_autonomous_actions(user_id, reply)
                     except Exception as e:
-                        print(f"[monitoring] autonomous action error: {e}")
+                        logger.warning(f"Autonomous action error: {e}", exc_info=True)
             except Exception:
                 pass
 
@@ -366,7 +369,7 @@ async def execute_autonomous_actions(user_id: int, response: str) -> list[dict]:
                                                   f"💡 **Recommendation:** {rec}")
                     executed.append(action)
             except Exception as e:
-                print(f"[autonomous_action] failed {act}: {e}")
+                logger.warning(f"Autonomous action {act} failed: {e}", exc_info=True)
     finally:
         db.close()
 
@@ -406,7 +409,7 @@ async def hourly_check_all_users():
             try:
                 await _run_hourly_for_user(db, sr.user_id)
             except Exception as e:
-                print(f"[hourly_check] user={sr.user_id} error: {e}")
+                logger.warning(f"Hourly check failed for user {sr.user_id}: {e}", exc_info=True)
     finally:
         db.close()
 
@@ -437,7 +440,7 @@ async def _run_hourly_for_user(db: Session, user_id: int):
     try:
         await execute_autonomous_actions(user_id, reply)
     except Exception as e:
-        print(f"[monitoring] hourly autonomous action error: {e}")
+        logger.warning(f"Hourly autonomous action error: {e}", exc_info=True)
 
     chat_id, user_token = _user_telegram(db, user_id)
     if chat_id:

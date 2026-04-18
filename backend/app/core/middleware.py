@@ -106,7 +106,14 @@ class _JSONFormatter(logging.Formatter):
 
 def setup_logging():
     """Configure structured logging. JSON in production, plain text in debug."""
-    level = logging.DEBUG if settings.DEBUG else logging.INFO
+    # LOG_LEVEL env var overrides the DEBUG-driven default.
+    # Lets you enable verbose logs in production without flipping DEBUG
+    # (which would also loosen security headers and auth fallbacks).
+    override = (settings.LOG_LEVEL or "").strip().upper()
+    if override in ("DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"):
+        level = getattr(logging, override)
+    else:
+        level = logging.DEBUG if settings.DEBUG else logging.INFO
 
     if settings.DEBUG:
         fmt = "%(asctime)s %(levelname)s [%(name)s] %(message)s"

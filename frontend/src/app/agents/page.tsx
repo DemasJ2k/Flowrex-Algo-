@@ -1,5 +1,6 @@
 "use client";
 
+import { debugWarn } from "@/lib/debug";
 import { useEffect, useState, useMemo, useRef } from "react";
 import api from "@/lib/api";
 import type { Agent, PnlSummaryItem } from "@/types";
@@ -33,8 +34,8 @@ export default function AgentsPage() {
 
   const fetchData = () => {
     Promise.all([
-      api.get("/api/agents/").then((r) => setAgents(r.data)).catch((e) => console.warn("fetch failed:", e?.message)),
-      api.get("/api/agents/pnl-summary").then((r) => setPnl(r.data)).catch((e) => console.warn("fetch failed:", e?.message)),
+      api.get("/api/agents/").then((r) => setAgents(r.data)).catch((e) => debugWarn("fetch failed:", e?.message)),
+      api.get("/api/agents/pnl-summary").then((r) => setPnl(r.data)).catch((e) => debugWarn("fetch failed:", e?.message)),
     ]).finally(() => setLoading(false));
   };
 

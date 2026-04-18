@@ -1,5 +1,6 @@
 "use client";
 
+import { debugWarn } from "@/lib/debug";
 import { useEffect, useState, useMemo, useCallback, useRef } from "react";
 import Link from "next/link";
 import LandingPage from "@/components/LandingPage";
@@ -330,8 +331,8 @@ function DashboardView() {
 
       {/* Broker Modal */}
       <BrokerModal open={brokerModal} onClose={() => setBrokerModal(false)} onConnected={() => {
-        api.get("/api/broker/status").then((r) => setBroker(r.data)).catch((e) => console.warn("fetch failed:", e?.message));
-        api.get("/api/broker/account").then((r) => setAccount(r.data)).catch((e) => console.warn("fetch failed:", e?.message));
+        api.get("/api/broker/status").then((r) => setBroker(r.data)).catch((e) => debugWarn("fetch failed:", e?.message));
+        api.get("/api/broker/account").then((r) => setAccount(r.data)).catch((e) => debugWarn("fetch failed:", e?.message));
       }} />
     </div>
   );

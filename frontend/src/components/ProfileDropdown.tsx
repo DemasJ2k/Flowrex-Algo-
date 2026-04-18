@@ -1,5 +1,6 @@
 "use client";
 
+import { debugWarn } from "@/lib/debug";
 import { useState, useEffect, useRef } from "react";
 import { useRouter } from "next/navigation";
 import { Settings, LogOut, Shield, User, ChevronDown } from "lucide-react";
@@ -16,7 +17,7 @@ export default function ProfileDropdown() {
     api.get("/api/auth/me").then((r) => {
       setEmail(r.data.email || "");
       setIsAdmin(r.data.is_admin || false);
-    }).catch((e) => console.warn("fetch failed:", e?.message));
+    }).catch((e) => debugWarn("fetch failed:", e?.message));
   }, []);
 
   useEffect(() => {

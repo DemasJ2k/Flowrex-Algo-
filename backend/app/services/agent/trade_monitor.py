@@ -3,10 +3,13 @@ Trade monitor — watches open agent trades for SL/TP hits.
 Reconciles paper trades with broker positions.
 """
 import asyncio
+import logging
 from datetime import datetime, timezone
 from sqlalchemy.orm import Session
 from app.models.agent import AgentTrade, TradingAgent
 from app.services.broker.base import BrokerAdapter
+
+logger = logging.getLogger("flowrex.trade_monitor")
 
 
 class TradeMonitor:
@@ -42,7 +45,7 @@ class TradeMonitor:
             try:
                 await self._check_open_trades()
             except Exception as e:
-                print(f"TradeMonitor error: {e}")
+                logger.error(f"TradeMonitor error: {e}", exc_info=True)
             await asyncio.sleep(30)
 
     async def _check_open_trades(self):

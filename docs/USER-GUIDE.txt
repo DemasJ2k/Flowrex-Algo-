@@ -1,0 +1,833 @@
+
+════════════════════════════════════════════════════════════════════════════════
+
+                          F L O W R E X   A L G O
+                              User Guide
+
+                            Updated: 2026-04-18
+
+════════════════════════════════════════════════════════════════════════════════
+
+
+TABLE OF CONTENTS
+─────────────────────────────────────────────────────────────────────────────
+
+   1.  What is Flowrex Algo?
+   2.  What Flowrex Does
+   3.  What You Can Do With the App
+   4.  Supported Brokers & Symbols
+   5.  The Pages — Full Tour
+         • Dashboard
+         • Trading
+         • Agents
+         • Models
+         • Backtest
+         • News
+         • AI Chat
+         • Settings
+         • Admin
+   6.  How the Models Page Works
+   7.  How the Backtest Page Works
+   8.  Default Trading Configuration
+   9.  Reading Agent Analytics
+  10.  Quick Start Checklist
+  11.  Glossary
+
+
+
+
+════════════════════════════════════════════════════════════════════════════════
+ 1.  WHAT IS FLOWREX ALGO?
+════════════════════════════════════════════════════════════════════════════════
+
+Flowrex Algo is an autonomous algorithmic trading platform. It combines:
+
+   •  Machine-learning models trained on 7+ years of historical data
+   •  Live broker integration (Oanda, cTrader, Tradovate, MT5)
+   •  AI-powered supervision via Claude for analysis and autonomous
+      risk management
+   •  Real-time monitoring through a web dashboard + Telegram notifications
+
+Think of it as a MANAGED EXECUTION LAYER around ML trading signals. You
+don't write code — you configure agents, pick symbols, set risk limits,
+and the platform handles everything else.
+
+
+
+
+════════════════════════════════════════════════════════════════════════════════
+ 2.  WHAT FLOWREX DOES
+════════════════════════════════════════════════════════════════════════════════
+
+For each trading symbol (XAUUSD, BTCUSD, US30, etc.), Flowrex will:
+
+   1.  Fetch live M5 (5-minute) candlestick data from your broker
+       every 60 seconds
+
+   2.  Compute 120 technical features — price patterns, order blocks,
+       volume profile, volatility, multi-timeframe alignment, ICT/SMC
+       structure, momentum
+
+   3.  Run a 3-model ML ensemble (XGBoost + LightGBM + CatBoost) trained
+       specifically for that symbol
+
+   4.  Generate BUY / SELL / HOLD signals with a confidence score
+
+   5.  Apply risk filters — news filter, session filter, drawdown limits,
+       cooldown
+
+   6.  Place orders on your broker with configured position sizing
+
+   7.  Monitor exits — TP/SL hits, max-hold time, broker reconciliation
+
+   8.  Analyze every trade via the AI Supervisor and report to Telegram
+
+All fully automated. You can pause, adjust, or stop any agent at any time.
+
+
+
+
+════════════════════════════════════════════════════════════════════════════════
+ 3.  WHAT YOU CAN DO WITH THE APP
+════════════════════════════════════════════════════════════════════════════════
+
+   ┌─────────────────────┬────────────────────────────────────────────────┐
+   │  CAPABILITY         │  DESCRIPTION                                   │
+   ├─────────────────────┼────────────────────────────────────────────────┤
+   │  Create agents      │  One ML-powered bot per symbol.                │
+   │                     │  Configure risk, filters, broker.              │
+   │                     │                                                │
+   │  Start/stop/pause   │  Full control over every agent —               │
+   │                     │  individually or in bulk.                      │
+   │                     │                                                │
+   │  Backtest           │  Test any config against historical data       │
+   │                     │  before going live.                            │
+   │                     │                                                │
+   │  Retrain models     │  Trigger fresh training on latest data.        │
+   │                     │  Optionally scheduled monthly.                 │
+   │                     │                                                │
+   │  Paper or live      │  Every agent runs in PAPER (simulated) or      │
+   │                     │  LIVE (real money) mode.                       │
+   │                     │                                                │
+   │  AI chat            │  Ask Claude about your portfolio, trades,      │
+   │                     │  risk exposure.                                │
+   │                     │                                                │
+   │  Autonomous actions │  Let Claude auto-pause agents during losing    │
+   │                     │  streaks (opt-in).                             │
+   │                     │                                                │
+   │  Telegram alerts    │  Every trade open/close, hourly summaries,     │
+   │                     │  critical alerts.                              │
+   │                     │                                                │
+   │  Economic calendar  │  Check upcoming high-impact news before        │
+   │                     │  trading.                                      │
+   │                     │                                                │
+   │  Full analytics     │  Win rate by session, confidence calibration,  │
+   │                     │  streak tracking.                              │
+   └─────────────────────┴────────────────────────────────────────────────┘
+
+
+
+
+════════════════════════════════════════════════════════════════════════════════
+ 4.  SUPPORTED BROKERS & SYMBOLS
+════════════════════════════════════════════════════════════════════════════════
+
+─── 4.1  BROKERS ─────────────────────────────────────────────────────────────
+
+   ┌────────────┬─────────────────────────────────┬──────┬──────────────────┐
+   │  BROKER    │  BEST FOR                       │ LIVE │  PAPER           │
+   ├────────────┼─────────────────────────────────┼──────┼──────────────────┤
+   │  Oanda     │  Forex, commodities, indices    │  ✓   │  Practice acct   │
+   │  Tradovate │  US futures (ES, NQ, GC, CL)    │  ✓   │  Demo            │
+   │  cTrader   │  Forex, prop firms (FTMO, etc.) │  ✓   │  Yes             │
+   │  MT5       │  Any MT5-compatible broker      │  ✓   │  Yes             │
+   └────────────┴─────────────────────────────────┴──────┴──────────────────┘
+
+
+─── 4.2  SYMBOLS ─────────────────────────────────────────────────────────────
+
+   ┌──────────┬──────────────────────┬──────────────────────┬────────────┐
+   │  SYMBOL  │  DESCRIPTION         │  RECOMMENDED BROKER  │  CLASS     │
+   ├──────────┼──────────────────────┼──────────────────────┼────────────┤
+   │  XAUUSD  │  Gold                │  Oanda / MT5 /       │  Commodity │
+   │          │                      │  cTrader (prop)      │            │
+   │  XAGUSD  │  Silver              │  Oanda / MT5         │  Commodity │
+   │  BTCUSD  │  Bitcoin             │  Oanda / MT5         │  Crypto    │
+   │  ETHUSD  │  Ethereum            │  Oanda / MT5         │  Crypto    │
+   │  US30    │  Dow Jones           │  Oanda CFD /         │  Index     │
+   │          │                      │  Tradovate (YM)      │            │
+   │  NAS100  │  Nasdaq-100          │  Oanda CFD /         │  Index     │
+   │          │                      │  Tradovate (NQ)      │            │
+   │  ES      │  S&P 500 E-mini      │  TRADOVATE (native)  │  Futures   │
+   │          │  futures             │  / Oanda SPX500 CFD  │            │
+   │  AUS200  │  S&P/ASX 200         │  Oanda / cTrader     │  Asia idx  │
+   └──────────┴──────────────────────┴──────────────────────┴────────────┘
+
+
+─── 4.3  PROP FIRM COMPATIBILITY ─────────────────────────────────────────────
+
+   Prop firms (FTMO, MyForexFunds, TopStep) typically use cTrader or MT5.
+
+   When creating an agent for a prop account:
+     •  Set broker to  ctrader  or  mt5
+     •  Enable PROP FIRM MODE in the agent config
+     •  This enforces tiered drawdown limits:
+            yellow  =  -1.5%  →  reduce position size
+            red     =  -2.5%  →  stop new entries
+            hard    =  -3.0%  →  close everything
+
+
+─── 4.4  QUICK RECOMMENDATIONS ───────────────────────────────────────────────
+
+     •  ES (S&P 500)               →  Tradovate (cheapest, native futures)
+     •  XAUUSD, forex              →  Oanda (tight spread) or cTrader (prop)
+     •  BTCUSD, ETHUSD             →  Oanda (CFD, no exchange needed)
+     •  US30 / NAS100              →  Oanda CFDs (flexible) or Tradovate
+                                      futures (cheaper long-term)
+
+
+
+
+════════════════════════════════════════════════════════════════════════════════
+ 5.  THE PAGES — FULL TOUR
+════════════════════════════════════════════════════════════════════════════════
+
+─── DASHBOARD ────────────────────────────────────────────────────────────────
+URL:  /
+
+   WHAT'S SHOWN
+     •  Today's P&L  —  sum across all agents, live-updating
+     •  Total equity  —  broker balance
+     •  Open positions  —  count of active trades
+     •  Win rate  —  rolling win % over recent trades
+     •  Sparkline charts  —  24-hour P&L per symbol
+     •  Active agents list  —  status + P&L per agent
+
+   FEATURES
+     •  Click agent to jump to detail modal
+     •  Real-time updates via WebSocket (no refresh needed)
+     •  Timezone shown in your local time (default Sydney, configurable)
+
+
+─── TRADING ──────────────────────────────────────────────────────────────────
+URL:  /trading
+
+   WHAT'S SHOWN
+     •  Interactive price chart (TradingView-style) for selected symbol
+     •  Timeframe selector  (M5 / M15 / H1 / H4 / D1)
+     •  Indicators  —  EMA(50), Bollinger Bands, RSI(14)
+     •  Live orders panel  —  open positions + pending orders
+     •  Trade history table  —  all closed trades, filterable
+     •  Account summary  —  balance, margin used, margin available
+
+   FEATURES
+     •  Indicator toggle menu (on/off per indicator)
+     •  Click trade row → entry/exit markers on chart
+     •  "Agent" column shows which bot placed each trade
+     •  Manual BUY / SELL buttons — bypass agents if needed
+
+
+─── AGENTS ───────────────────────────────────────────────────────────────────
+URL:  /agents
+
+   WHAT'S SHOWN
+     •  Agent cards, one per bot, with:
+           - Name, symbol, broker, agent type
+           - Status badge  (running / stopped / paused)
+           - MKT OPEN / MKT CLOSED badge (market hours per symbol)
+           - P&L, win rate, trade count, profit factor, sparkline
+     •  Action buttons per agent:  Play / Pause / Stop / Clone / Delete
+     •  Bulk actions:  Start All, Stop All
+     •  Filters:  by status, symbol, search
+
+   FEATURES
+     •  New Agent wizard  —  4-step guided flow:
+           Step 1:  Choose symbol + agent type
+           Step 2:  Pick broker + mode (paper/live)
+           Step 3:  Set risk parameters (or use defaults)
+           Step 4:  Review & deploy
+
+     •  Click agent → detail modal with 4 tabs:
+           •  Performance  —  P&L chart, drawdown, equity curve
+           •  Analytics    —  breakdowns (see section 9 below)
+           •  Trades       —  every trade ever taken by this agent
+           •  Logs         —  every eval, signal, trade, warning, error
+
+     •  Edit Config  —  hot-reload settings without stopping the agent
+
+
+─── MODELS ───────────────────────────────────────────────────────────────────
+URL:  /models
+
+   WHAT'S SHOWN
+     •  Model list  —  one row per (symbol, model_type) combination:
+           Symbol | Type | Grade | Sharpe | WR | Trades | Last Trained
+
+     •  Retrain history  —  table of past training runs
+
+     •  Retrain Scheduler  —  cron config for monthly auto-retrain
+
+   FEATURES
+     •  Retrain button per symbol  —  kicks off training in background
+     •  Retrain All  —  trains every symbol (~8-12 hours)
+     •  Schedule Retrain  —  monthly auto-retrain, 1st of each month
+     •  View history  —  see Grade changes over time, which retrains
+                         were promoted to production
+
+   (Full details in Section 6)
+
+
+─── BACKTEST ─────────────────────────────────────────────────────────────────
+URL:  /backtest
+
+   WHAT'S SHOWN
+     •  Backtest configuration panel:
+           - Symbol dropdown
+           - Agent type (flowrex_v2 / potential)
+           - Date range (start / end)
+           - Sizing mode (Risk % / Max Lots)
+           - Risk parameters
+           - Filter toggles (news, session, MTF)
+     •  Run button  —  runs backtest against Dukascopy historical data
+     •  Results panel  —  Grade, Sharpe, WR, drawdown, trades, return %
+     •  Equity curve chart
+     •  Trade list  —  every simulated trade with entry/exit/P&L
+
+   FEATURES
+     •  Compare multiple backtests side-by-side
+     •  Export results to CSV
+     •  Uses Dukascopy M5 tick data (same source as training)
+
+   (Full details in Section 7)
+
+
+─── NEWS ─────────────────────────────────────────────────────────────────────
+URL:  /news
+
+   WHAT'S SHOWN
+     •  Economic calendar  —  upcoming high-impact events (NFP, FOMC, CPI)
+           Columns:  Date, Time UTC, Event, Country, Impact, Actual,
+                     Estimate, Previous
+     •  Filters:  country, impact level, date range
+     •  Market headlines  —  Finnhub news feed (forex, crypto, general)
+
+   FEATURES
+     •  Manual refresh button
+     •  Auto-refresh every 5 min
+     •  Links to full article on source site
+     •  The News Filter on agents uses the same data — automatically
+       skips trading 30 min before high-impact events
+
+
+─── AI CHAT ──────────────────────────────────────────────────────────────────
+URL:  /ai
+
+   WHAT'S SHOWN
+     •  Left sidebar  —  list of your chat sessions (auto-titled)
+     •  Chat area  —  conversation with Claude, renders markdown
+                      (tables, headers, code)
+     •  "New Chat" button  —  start a fresh topic
+     •  Delete per-session (hover to reveal)
+     •  Monthly cost badge in top-right
+
+   FEATURES
+     •  Settings modal (gear icon):
+           - Anthropic API key
+           - Model choice (Haiku / Sonnet / Opus)
+           - Autonomous mode toggle
+           - Telegram Connect
+     •  Telegram Connect  —  click to generate binding code, then
+       send  /start <code>  to  @FlowrexAgent_bot
+     •  Auto-generated "AI Monitoring" session — all event-driven
+       AI analyses land here (trade closes, hourly summaries)
+     •  Chat persists across restarts — nothing is lost
+
+
+─── SETTINGS ─────────────────────────────────────────────────────────────────
+URL:  /settings
+
+   TABS
+     •  Account        —  email, password, 2FA, delete account
+     •  Trading        —  default risk, default filters, brokers
+     •  Security       —  2FA status, sessions, recovery codes
+     •  Providers      —  Finnhub, AlphaVantage, Databento, Polygon keys
+     •  Feedback       —  report a bug / request a feature
+     •  Privacy & Data —  GDPR: export data, delete account
+     •  AI Supervisor  —  same settings as the AI page modal
+
+   FEATURES
+     •  Auto-refresh broker balance/uptime every 30s
+     •  Provider API keys encrypted per-user
+     •  Broker Connect button opens a modal with credential fields
+
+
+─── ADMIN ────────────────────────────────────────────────────────────────────
+URL:  /admin   (admin users only)
+
+   WHAT'S SHOWN
+     •  Invite codes  —  generate / revoke beta invite codes
+     •  Users  —  all users, last login, disable account
+     •  Access requests  —  pending signups, approve/reject
+     •  Feedback  —  user-submitted bug reports
+     •  System  —  health status, Docker stats, DB size
+
+   FEATURES
+     •  Create invite code with expiry + single-use toggle
+     •  Search/filter users
+     •  Export data for GDPR compliance
+
+
+
+
+════════════════════════════════════════════════════════════════════════════════
+ 6.  HOW THE MODELS PAGE WORKS
+════════════════════════════════════════════════════════════════════════════════
+
+─── 6.1  UNDERSTANDING THE MODEL LIST ────────────────────────────────────────
+
+Each row = one trained ML model for a specific (symbol, algorithm) pair.
+
+   ┌──────────────┬──────────────────────────────────────────────────────┐
+   │  COLUMN      │  MEANING                                             │
+   ├──────────────┼──────────────────────────────────────────────────────┤
+   │  Symbol      │  Trading pair (XAUUSD, US30, etc.)                   │
+   │  Type        │  Algorithm: xgboost / lightgbm / catboost            │
+   │  Grade       │  A (excellent) / B (good) / C (marginal)             │
+   │              │  D (poor) / F (unusable)                             │
+   │  Sharpe      │  Risk-adjusted return — higher = better              │
+   │              │    >2  = good                                        │
+   │              │    >4  = great                                       │
+   │              │    >10 = exceptional                                 │
+   │  WR          │  Win rate % on out-of-sample data                    │
+   │  Trades      │  Number of trades in the OOS evaluation              │
+   │  Last        │  Timestamp the model was created                     │
+   │  Trained     │                                                      │
+   └──────────────┴──────────────────────────────────────────────────────┘
+
+ENSEMBLE BEHAVIOR:
+A live agent loads all 3 model types (xgboost + lightgbm + catboost)
+and requires 2-of-3 majority agreement on direction before generating
+a signal. All-3 agreement gets +5% confidence bonus.
+
+
+─── 6.2  WHEN TO RETRAIN ────────────────────────────────────────────────────
+
+     •  After 4-6 weeks of live trading (market regimes drift)
+     •  After a major feature pipeline change
+     •  When live WR drops significantly below backtest WR
+     •  When a new symbol is added
+
+
+─── 6.3  HOW TO RETRAIN ─────────────────────────────────────────────────────
+
+   1.  ONE SYMBOL — click the Retrain button next to the symbol.
+       Runs in background (~1-2h). Progress visible in retrain history.
+
+   2.  ALL SYMBOLS — click Retrain All. Runs sequentially (~8-12h total).
+
+   3.  SCHEDULED — enable monthly auto-retrain. Runs on 1st of each
+       month at 00:00 UTC.
+
+
+─── 6.4  WHAT HAPPENS DURING RETRAINING ─────────────────────────────────────
+
+   1.  Load historical data (up to 500k bars of M5)
+   2.  Compute 120 features per bar
+   3.  Create triple-barrier labels (TP hit / SL hit / timeout)
+   4.  Walk-forward validation — 4 folds
+   5.  Hyperparameter search (Optuna, 15 trials per fold per model)
+   6.  Train final models on 100% of training data
+   7.  Evaluate on out-of-sample (OOS) data
+   8.  Only save if Grade >= B  (quality gate)
+   9.  Archive old models before overwrite (safety)
+  10.  Hot-reload in live agents (no restart needed)
+
+
+─── 6.5  THE RETRAIN GATE ───────────────────────────────────────────────────
+
+Models only get deployed if they pass automatically:
+
+     •  Grade must be  A  or  B
+     •  OOS Sharpe must be  > 2.0
+     •  No fold worse than Grade D  (walk-forward consistency)
+     •  OOS trade count  > 50  (statistical significance)
+
+If a retrain fails the gate, the OLD MODEL STAYS in place and the
+retrain history shows the failure reason. Your production never
+breaks from a bad retrain.
+
+
+
+
+════════════════════════════════════════════════════════════════════════════════
+ 7.  HOW THE BACKTEST PAGE WORKS
+════════════════════════════════════════════════════════════════════════════════
+
+─── 7.1  PURPOSE ────────────────────────────────────────────────────────────
+
+Backtest a strategy against historical data BEFORE deploying an agent
+or changing config. The engine uses the same feature pipeline + models
+as the live agent, so results reflect what would have happened historically.
+
+
+─── 7.2  CONFIGURATION ──────────────────────────────────────────────────────
+
+   ┌─────────────────────┬────────────────────────────────────────────────┐
+   │  SETTING            │  MEANING                                       │
+   ├─────────────────────┼────────────────────────────────────────────────┤
+   │  Symbol             │  Which pair to test                            │
+   │  Agent type         │  flowrex_v2 (3-model ensemble)                 │
+   │                     │  or potential (institutional features)         │
+   │  Date range         │  Historical window (default: last 2 years)     │
+   │  Sizing mode        │  Risk %  or  Max Lots                          │
+   │  Risk per trade     │  % of account risked per trade (default 0.10%) │
+   │  Max daily loss     │  Stop trading for the day if exceeded          │
+   │  Cooldown bars      │  M5 bars to wait after a trade                 │
+   │  News filter        │  Skip trades 30min before high-impact news     │
+   │  Session filter     │  Only trade during prime hours for the symbol  │
+   └─────────────────────┴────────────────────────────────────────────────┘
+
+
+─── 7.3  RUNNING A BACKTEST ─────────────────────────────────────────────────
+
+   1.  Pick symbol, agent type, date range
+   2.  Adjust risk parameters (or leave defaults)
+   3.  Click Run
+   4.  Watch progress in real-time
+   5.  Results appear in 30-60 seconds for a 2-year window
+
+
+─── 7.4  READING RESULTS ────────────────────────────────────────────────────
+
+   ┌──────────────────┬────────────────────────────────────────────────┐
+   │  METRIC          │  INTERPRETATION                                │
+   ├──────────────────┼────────────────────────────────────────────────┤
+   │  Grade           │  A/B/C/D/F overall quality                     │
+   │  Sharpe          │  Risk-adjusted return  —  >2 is good           │
+   │  Win Rate        │  % of winning trades                           │
+   │  Total Trades    │  More = more statistical confidence            │
+   │  Total Return    │  Absolute % return over the period             │
+   │  Max Drawdown    │  Biggest equity dip                            │
+   │                  │  Lower = better; <10% acceptable               │
+   │  Profit Factor   │  Gross profit / gross loss; >1.5 is good       │
+   └──────────────────┴────────────────────────────────────────────────┘
+
+
+─── 7.5  READING THE EQUITY CURVE ───────────────────────────────────────────
+
+Look for:
+
+     •  Smooth upward slope  =  consistent strategy  (GOOD)
+     •  Step pattern         =  a few big wins dominate  (RISKY)
+     •  Choppy / sideways    =  strategy isn't adding edge
+     •  Big drawdowns        =  risk management needs tightening
+
+
+─── 7.6  COMMON EXPERIMENTS ─────────────────────────────────────────────────
+
+Try running the same symbol with different configs:
+
+     •  Change risk:  0.1% → 0.5% → 1%  →  see how Sharpe changes
+     •  Toggle news filter on/off       →  measure impact
+     •  Adjust SL multiplier:
+            ATR×0.8  →  ATR×1.2  →  trade-off win rate vs avg loss
+
+
+
+
+════════════════════════════════════════════════════════════════════════════════
+ 8.  DEFAULT TRADING CONFIGURATION
+════════════════════════════════════════════════════════════════════════════════
+
+Located at:  Settings → Trading
+
+These defaults apply when you create a new agent. You can override
+per-agent in the wizard.
+
+
+─── 8.1  CORE RISK SETTINGS ─────────────────────────────────────────────────
+
+   ┌─────────────────────┬──────────┬─────────────────────────────────────┐
+   │  SETTING            │  DEFAULT │  WHAT IT DOES                       │
+   ├─────────────────────┼──────────┼─────────────────────────────────────┤
+   │  Risk per Trade     │  0.10%   │  % of balance risked per trade.     │
+   │                     │          │  Position size is calculated so     │
+   │                     │          │  that if SL is hit, you lose        │
+   │                     │          │  exactly this %.                    │
+   │                     │          │                                     │
+   │  Max Daily Loss     │  3.00%   │  If today's cumulative loss hits    │
+   │                     │          │  this, all agents pause until       │
+   │                     │          │  midnight UTC.                      │
+   │                     │          │                                     │
+   │  Max Open Positions │  4       │  Total simultaneous open trades     │
+   │                     │          │  per agent.                         │
+   │                     │          │                                     │
+   │  Cooldown Bars      │  3       │  Minimum M5 bars between trades     │
+   │                     │          │  (15 min). Prevents overtrading.    │
+   └─────────────────────┴──────────┴─────────────────────────────────────┘
+
+
+─── 8.2  DEFAULT AGENT FILTERS ──────────────────────────────────────────────
+
+   ┌──────────────────────┬──────────┬────────────────────────────────────┐
+   │  FILTER              │  DEFAULT │  WHAT IT DOES                      │
+   ├──────────────────────┼──────────┼────────────────────────────────────┤
+   │  News Filter         │  ON      │  Skip trades 30 min before / 15    │
+   │                      │          │  min after high-impact news (NFP,  │
+   │                      │          │  FOMC, CPI). Needs Finnhub key.    │
+   │                      │          │                                    │
+   │  Session Filter      │  ON      │  Only trade during symbol's prime  │
+   │                      │          │  session. E.g. US30 trades only    │
+   │                      │          │  13:00-21:00 UTC (NY session).     │
+   │                      │          │                                    │
+   │  External Macro      │  OFF     │  Adds VIX, TIPS yield, BTC         │
+   │  Features            │          │  dominance as features. Requires   │
+   │                      │          │  API keys. Keep OFF if no keys.    │
+   └──────────────────────┴──────────┴────────────────────────────────────┘
+
+
+─── 8.3  WHEN TO CHANGE DEFAULTS ────────────────────────────────────────────
+
+     •  PROP FIRM CHALLENGE
+          Lower Risk per Trade to 0.25%, Max Daily Loss to 2%
+
+     •  LIVE REAL MONEY
+          Start at 0.10%. Scale up only after 2 weeks of positive
+          live performance.
+
+     •  PAPER TRADING
+          1-2% is fine for faster learning
+
+     •  CRYPTO (BTCUSD)
+          Cooldown can be higher (10-15) since sessions are 24/7
+
+Defaults are saved per-user. Every new agent you create inherits
+them as starting values.
+
+
+
+
+════════════════════════════════════════════════════════════════════════════════
+ 9.  READING AGENT ANALYTICS
+════════════════════════════════════════════════════════════════════════════════
+
+Open any agent → Analytics tab.
+
+
+─── 9.1  TOP STAT CARDS ─────────────────────────────────────────────────────
+
+   ┌──────────────────┬────────────────────────────────────────────────┐
+   │  METRIC          │  WHAT IT MEANS                                 │
+   ├──────────────────┼────────────────────────────────────────────────┤
+   │  Trades          │  Total closed trades for this agent            │
+   │  Win Rate        │  % profitable. >50% is good.                   │
+   │                  │  Prop firm target is 55%+                      │
+   │  Profit Factor   │  Gross wins / gross losses                     │
+   │                  │    1.5+ is solid                               │
+   │                  │    2.0+ is excellent                           │
+   │  Total P&L       │  Cumulative P&L in account currency            │
+   │  Avg P&L         │  Per-trade average. Should be positive.        │
+   └──────────────────┴────────────────────────────────────────────────┘
+
+
+─── 9.2  STREAK TRACKER ─────────────────────────────────────────────────────
+
+     •  Current         —  "3 winning" or "2 losing" — ongoing streak
+     •  Max Win Streak  —  best consecutive winners ever
+     •  Max Loss Streak —  worst consecutive losers ever
+
+   ⚠  If Max Loss Streak is very high (8+), the model has occasional
+      bad regimes. Consider reducing risk % or adding a regime filter.
+
+
+─── 9.3  BY SESSION ─────────────────────────────────────────────────────────
+
+Shows win rate + avg P&L for each trading session:
+
+   ┌───────────┬───────────┬────────────────────────────────────────┐
+   │  SESSION  │  UTC HRS  │  BEST FOR                              │
+   ├───────────┼───────────┼────────────────────────────────────────┤
+   │  asian    │  00-08    │  Low volatility, XAUUSD can trend      │
+   │  london   │  08-13    │  High volatility, forex active         │
+   │  ny_open  │  13-17    │  Highest volatility, indices active    │
+   │  ny_close │  17-21    │  Moderate, positioning                 │
+   │  off_hours│  21-24    │  Very low, avoid                       │
+   └───────────┴───────────┴────────────────────────────────────────┘
+
+   ACTIONABLE:  If one session has >70% WR and another <40%, turn on
+   the Session Filter and restrict to the good session.
+
+
+─── 9.4  BY CONFIDENCE ──────────────────────────────────────────────────────
+
+Shows win rate for each confidence bucket (0.50-1.00):
+
+   ┌────────────┬────────────────────────────────────────────────┐
+   │  BUCKET    │  WHAT TO EXPECT                                │
+   ├────────────┼────────────────────────────────────────────────┤
+   │  0.50-0.60 │  Weak signals, typically low WR                │
+   │  0.60-0.70 │  Borderline                                    │
+   │  0.70-0.80 │  Good  —  most trades should be here           │
+   │  0.80-0.90 │  Strong conviction                             │
+   │  0.90-1.00 │  High conviction, usually the best WR          │
+   └────────────┴────────────────────────────────────────────────┘
+
+   CHECK CALIBRATION:  If 0.90+ confidence is only winning 55%,
+   the model is OVERCONFIDENT. Consider retraining.
+
+
+─── 9.5  BY MTF SCORE ───────────────────────────────────────────────────────
+
+Multi-timeframe alignment:
+     •  2/3  =  two of [D1 bias, H4 momentum, H1 setup] agree
+     •  3/3  =  all three agree (strongest setup)
+
+   EXPECTED:  3/3 should have higher WR than 2/3. If they're equal,
+   the MTF filter isn't adding edge and you could simplify.
+
+
+─── 9.6  BY DIRECTION ───────────────────────────────────────────────────────
+
+Win rate + P&L split between BUY and SELL.
+
+   ACTIONABLE:  If BUY is 65% WR and SELL is 35%, the model has a
+   directional bias (common in trending markets). Consider disabling
+   the losing direction.
+
+
+─── 9.7  BY EXIT REASON ─────────────────────────────────────────────────────
+
+   ┌──────────────────────────┬──────────────────────────────────────┐
+   │  REASON                  │  MEANING                             │
+   ├──────────────────────────┼──────────────────────────────────────┤
+   │  TP_HIT                  │  Take-profit reached  —  clean win   │
+   │  SL_HIT                  │  Stop-loss reached  —  loss          │
+   │  MAX_HOLD_TIME           │  Trade closed after 24h timeout      │
+   │                          │  Usually small win/loss              │
+   │  MAX_HOLD_RECONCILED     │  Max-hold close failed on broker,    │
+   │                          │  DB reconciled after broker closed   │
+   │  RECONCILED              │  Trade found missing on broker       │
+   │                          │  (manual close or error)             │
+   │  CANCELLED               │  Order rejected/cancelled before     │
+   │                          │  filling                             │
+   └──────────────────────────┴──────────────────────────────────────┘
+
+   HEALTHY RATIO:  ~60-70% TP_HIT, 30-40% SL_HIT, <5% others.
+   If MAX_HOLD_TIME or RECONCILED is high, something's wrong.
+
+
+─── 9.8  RECENT TRADES LIST ─────────────────────────────────────────────────
+
+Last 20 closed trades with enriched data:
+     •  Direction, P&L, confidence, session, MTF score, model name
+     •  Entry / exit times
+     •  Time to exit (how long the trade lasted)
+     •  Top features (when available — shows which feature drove
+        the prediction)
+
+
+
+
+════════════════════════════════════════════════════════════════════════════════
+ 10.  QUICK START CHECKLIST
+════════════════════════════════════════════════════════════════════════════════
+
+For a new user, in order:
+
+   [ ]  1.  Register with invite code
+            →  Accept terms  →  Verify age
+
+   [ ]  2.  Go to Settings → Trading
+            →  Review defaults, adjust if needed
+
+   [ ]  3.  Go to Settings → Broker Connections
+            →  Add Oanda (practice account for safety)
+
+   [ ]  4.  Go to Agents → New Agent
+            →  Create one agent
+            →  XAUUSD recommended first, paper mode
+
+   [ ]  5.  Click the agent → Logs tab
+            →  Watch for "Eval #1" confirming it's polling
+
+   [ ]  6.  Wait 1-2 hours for first trade
+            (or backtest first to preview behavior)
+
+   [ ]  7.  Go to AI Chat → Settings
+            →  Add Anthropic API key
+            →  Enable Supervisor
+
+   [ ]  8.  Connect Telegram (optional but recommended)
+            →  Get live alerts
+
+   [ ]  9.  After 2 weeks on paper, switch ONE agent to LIVE mode
+            with SMALL size
+
+
+SUPPORT:  Submit feedback via Settings → Feedback tab.
+          For bugs, include logs from Agents → Logs tab.
+
+
+
+
+════════════════════════════════════════════════════════════════════════════════
+ 11.  GLOSSARY
+════════════════════════════════════════════════════════════════════════════════
+
+   ┌──────────────────┬────────────────────────────────────────────────┐
+   │  TERM            │  MEANING                                       │
+   ├──────────────────┼────────────────────────────────────────────────┤
+   │  Agent           │  A running bot for one symbol. You can have    │
+   │                  │  many agents simultaneously.                   │
+   │                  │                                                │
+   │  Agent Type      │  flowrex_v2  =  3-model ensemble + 4-layer     │
+   │                  │                 MTF filter                     │
+   │                  │  potential   =  institutional features,        │
+   │                  │                 VWAP/ORB heavy                 │
+   │                  │                                                │
+   │  Backtest        │  Simulated trading against historical data     │
+   │                  │                                                │
+   │  Ensemble        │  Multiple ML models voting on direction        │
+   │                  │  (2-of-3 majority)                             │
+   │                  │                                                │
+   │  Feature         │  A numerical input to the ML model             │
+   │                  │  (e.g. RSI, EMA distance, volume profile)      │
+   │                  │                                                │
+   │  Grade (A-F)     │  Automatic backtest quality rating based on    │
+   │                  │  Sharpe + WR + drawdown                        │
+   │                  │                                                │
+   │  M5              │  5-minute candlestick timeframe                │
+   │                  │                                                │
+   │  MTF             │  Multi-Timeframe — using D1/H4/H1 context      │
+   │                  │  when deciding on M5                           │
+   │                  │                                                │
+   │  OOS             │  Out-of-Sample — data the model never saw      │
+   │                  │  during training                               │
+   │                  │                                                │
+   │  Paper mode      │  Simulated trades, no real money               │
+   │                  │                                                │
+   │  Potential       │  Alternative agent type using institutional    │
+   │  Agent           │  strategies (VWAP, Volume Profile, anchored    │
+   │                  │  indicators)                                   │
+   │                  │                                                │
+   │  Prop Firm Mode  │  Strict tiered drawdown limits for             │
+   │                  │  FTMO-style challenges                         │
+   │                  │                                                │
+   │  Sharpe Ratio    │  Risk-adjusted return:                         │
+   │                  │    >1  =  acceptable                           │
+   │                  │    >2  =  good                                 │
+   │                  │    >4  =  excellent                            │
+   │                  │                                                │
+   │  SL / TP         │  Stop-Loss / Take-Profit                       │
+   │                  │  (automatic exit prices)                       │
+   │                  │                                                │
+   │  Walk-forward    │  Training validation method — model trained    │
+   │                  │  on past, tested on future                     │
+   │                  │                                                │
+   │  Win Rate (WR)   │  % of trades that made money                   │
+   └──────────────────┴────────────────────────────────────────────────┘
+
+
+
+                                    —  END  —
+

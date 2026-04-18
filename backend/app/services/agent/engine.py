@@ -3,6 +3,7 @@ AlgoEngine (singleton) — manages multiple AgentRunner asyncio tasks.
 AgentRunner (per-agent) — polling loop that evaluates signals and executes trades.
 """
 import asyncio
+import logging
 from datetime import datetime, timezone, timedelta
 from typing import Optional
 from sqlalchemy.orm import Session
@@ -12,6 +13,8 @@ from app.core.websocket import get_ws_manager
 from app.models.agent import TradingAgent, AgentLog, AgentTrade
 from app.services.broker.manager import get_broker_manager
 from app.services.agent.flowrex_agent import FlowrexAgent
+
+logger = logging.getLogger("flowrex.engine")
 
 
 POLL_INTERVAL = 60  # seconds (was 30 — increased to reduce Oanda rate limiting with 5 agents)
@@ -862,11 +865,11 @@ class AgentRunner:
                 ))
             except Exception:
                 pass
-            # If the broker confirmed but we crashed before DB commit, log the
-            # ticket to stdout so it can be found in docker logs for manual recovery.
+            # If the broker confirmed but we crashed before DB commit, log
+            # CRITICAL so Sentry + log aggregators surface it as an alert.
             if broker_ticket:
-                print(
-                    f"CRITICAL: Broker confirmed ticket={broker_ticket} for "
+                logger.critical(
+                    f"Broker confirmed ticket={broker_ticket} for "
                     f"{direction} {agent_record.symbol} but DB commit may have failed. "
                     f"Check broker for orphaned position."
                 )
@@ -1034,7 +1037,7 @@ class AlgoEngine:
                 )
             return True
         except Exception as e:
-            print(f"[engine] Failed to reload config for agent {agent_id}: {e}")
+            logger.warning(f"Failed to reload config for agent {agent_id}: {e}", exc_info=True)
             return False
         finally:
             db.close()
@@ -1072,7 +1075,7 @@ class AlgoEngine:
                     agent._ensemble_expert.load_models()
                     reloaded += 1
             except Exception as e:
-                print(f"[engine] reload_models_for_symbol failed for agent {runner.agent_id}: {e}")
+                logger.warning(f"reload_models_for_symbol failed for agent {runner.agent_id}: {e}", exc_info=True)
         return reloaded
 
 
