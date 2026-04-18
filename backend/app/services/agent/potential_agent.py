@@ -61,6 +61,13 @@ class PotentialAgent:
         self.session_filter = self.config.get("session_filter", False)
         self.news_filter = self.config.get("news_filter_enabled", False)
 
+        # Allowed sessions: subset of {asian, london, ny_open, ny_close, off_hours}
+        # Empty list = all allowed. Only applies when session_filter=True.
+        self.allowed_sessions: list[str] = self.config.get("allowed_sessions") or []
+        # Direction gates
+        self.allow_buy: bool = self.config.get("allow_buy", True)
+        self.allow_sell: bool = self.config.get("allow_sell", True)
+
         # Optional prop-firm RiskManager (tiered DD + anti-martingale).
         self.prop_firm_enabled = self.config.get("prop_firm_enabled", False)
         self._risk_manager = None
@@ -249,6 +256,26 @@ class PotentialAgent:
         if signal is None or signal.direction == 0:
             self._log_reject("No signal")
             return None
+
+        # Direction filter — user can disable BUY or SELL.
+        if signal.direction == 1 and not self.allow_buy:
+            self._log_reject("BUY direction disabled for this agent")
+            return None
+        if signal.direction == -1 and not self.allow_sell:
+            self._log_reject("SELL direction disabled for this agent")
+            return None
+
+        # Session filter — only trade during user-selected sessions.
+        if self.session_filter and self.allowed_sessions:
+            _hour = datetime.now(timezone.utc).hour
+            if _hour < 8:         _sess = "asian"
+            elif _hour < 13:      _sess = "london"
+            elif _hour < 17:      _sess = "ny_open"
+            elif _hour < 21:      _sess = "ny_close"
+            else:                 _sess = "off_hours"
+            if _sess not in self.allowed_sessions:
+                self._log_reject(f"Session '{_sess}' not in allowed {self.allowed_sessions}")
+                return None
 
         # 7. ATR-based SL/TP — compute ATR directly from bars (not from features)
         from app.services.backtest.indicators import atr as compute_atr

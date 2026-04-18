@@ -995,6 +995,13 @@ class AlgoEngine:
             agent.cooldown_bars = new_config.get("cooldown_bars", 3)
             agent.session_filter = new_config.get("session_filter", False)
             agent.news_filter = new_config.get("news_filter_enabled", False)
+            # Session + direction filters — hot-reload user-selected subsets.
+            if hasattr(agent, "allowed_sessions"):
+                agent.allowed_sessions = new_config.get("allowed_sessions") or []
+            if hasattr(agent, "allow_buy"):
+                agent.allow_buy = new_config.get("allow_buy", True)
+            if hasattr(agent, "allow_sell"):
+                agent.allow_sell = new_config.get("allow_sell", True)
 
             # Reset peak equity so the new drawdown limit applies fresh from current
             # balance, not from a pre-config-change high-water mark.

@@ -51,6 +51,12 @@ export default function AgentWizard({
   const [sessionFilter, setSessionFilter] = useState(true);
   const [regimeFilter, setRegimeFilter] = useState(true);
   const [newsFilter, setNewsFilter] = useState(true);
+  const [propFirmEnabled, setPropFirmEnabled] = useState(false);
+  const [allowBuy, setAllowBuy] = useState(true);
+  const [allowSell, setAllowSell] = useState(true);
+  const [allowedSessions, setAllowedSessions] = useState<string[]>([
+    "london", "ny_open", "ny_close",
+  ]);
   const [loading, setLoading] = useState(false);
 
   // Fetch user's trading defaults from settings when wizard opens
@@ -76,6 +82,8 @@ export default function AgentWizard({
     setRiskPerTrade(FALLBACK_RISK); setMaxLotSize(5);
     setMaxDailyLoss(FALLBACK_LOSS); setCooldownBars(FALLBACK_COOLDOWN); setMode("paper");
     setSessionFilter(true); setRegimeFilter(true); setNewsFilter(true);
+    setPropFirmEnabled(false); setAllowBuy(true); setAllowSell(true);
+    setAllowedSessions(["london", "ny_open", "ny_close"]);
   };
 
   const agentName = customName || `${symbol} Flowrex`;
@@ -99,6 +107,10 @@ export default function AgentWizard({
           session_filter: sessionFilter,
           regime_filter: regimeFilter,
           news_filter_enabled: newsFilter,
+          prop_firm_enabled: propFirmEnabled,
+          allow_buy: allowBuy,
+          allow_sell: allowSell,
+          allowed_sessions: sessionFilter ? allowedSessions : [],
         },
       });
       toast.success(`Agent "${agentName}" created`);

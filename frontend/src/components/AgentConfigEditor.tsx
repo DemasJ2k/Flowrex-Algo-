@@ -7,6 +7,14 @@ import { toast } from "sonner";
 import { getErrorMessage } from "@/lib/errors";
 import type { Agent } from "@/types";
 
+const ALL_SESSIONS = [
+  { id: "asian",    label: "Asian",    hours: "00-08 UTC" },
+  { id: "london",   label: "London",   hours: "08-13 UTC" },
+  { id: "ny_open",  label: "NY Open",  hours: "13-17 UTC" },
+  { id: "ny_close", label: "NY Close", hours: "17-21 UTC" },
+  { id: "off_hours",label: "Off Hours",hours: "21-24 UTC" },
+];
+
 export default function AgentConfigEditor({
   agent,
   open,
@@ -29,11 +37,14 @@ export default function AgentConfigEditor({
   const [sessionFilter, setSessionFilter] = useState(cfg.session_filter !== false);
   const [regimeFilter, setRegimeFilter] = useState(cfg.regime_filter !== false);
   const [newsFilter, setNewsFilter] = useState(cfg.news_filter_enabled !== false);
+  const [propFirmEnabled, setPropFirmEnabled] = useState(cfg.prop_firm_enabled === true);
+  const [allowBuy, setAllowBuy] = useState(cfg.allow_buy !== false);
+  const [allowSell, setAllowSell] = useState(cfg.allow_sell !== false);
+  const [allowedSessions, setAllowedSessions] = useState<string[]>(
+    (cfg.allowed_sessions as string[]) || ["london", "ny_open", "ny_close"]
+  );
   const [loading, setLoading] = useState(false);
 
-  // Reset state when agent changes (or when modal reopens for a different agent).
-  // FIX (Batch 8 / audit H15+H16): depend on `agent` directly so reference changes
-  // also reset, and reset filter checkboxes alongside other fields.
   useEffect(() => {
     if (!agent || loading) return;
     const c = (agent.risk_config || {}) as Record<string, unknown>;
@@ -47,12 +58,30 @@ export default function AgentConfigEditor({
     setSessionFilter(c.session_filter !== false);
     setRegimeFilter(c.regime_filter !== false);
     setNewsFilter(c.news_filter_enabled !== false);
+    setPropFirmEnabled(c.prop_firm_enabled === true);
+    setAllowBuy(c.allow_buy !== false);
+    setAllowSell(c.allow_sell !== false);
+    setAllowedSessions((c.allowed_sessions as string[]) || ["london", "ny_open", "ny_close"]);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [agent]);
 
   if (!agent) return null;
 
+  const toggleSession = (id: string) => {
+    setAllowedSessions((prev) =>
+      prev.includes(id) ? prev.filter((s) => s !== id) : [...prev, id]
+    );
+  };
+
   const handleSave = async () => {
+    if (!allowBuy && !allowSell) {
+      toast.error("At least one direction (BUY or SELL) must be enabled");
+      return;
+    }
+    if (sessionFilter && allowedSessions.length === 0) {
+      toast.error("Session filter is ON but no sessions are selected — agent would never trade");
+      return;
+    }
     setLoading(true);
     try {
       await api.put(`/api/agents/${agent.id}`, {
@@ -67,6 +96,10 @@ export default function AgentConfigEditor({
           session_filter: sessionFilter,
           regime_filter: regimeFilter,
           news_filter_enabled: newsFilter,
+          prop_firm_enabled: propFirmEnabled,
+          allow_buy: allowBuy,
+          allow_sell: allowSell,
+          allowed_sessions: sessionFilter ? allowedSessions : [],
         },
       });
       toast.success("Agent configuration updated");
@@ -80,7 +113,7 @@ export default function AgentConfigEditor({
   };
 
   return (
-    <Modal open={open} onClose={onClose} title={"Edit " + agent.name} width="max-w-md">
+    <Modal open={open} onClose={onClose} title={"Edit " + agent.name} width="max-w-lg">
       <div className="space-y-4">
         <div>
           <label className="block text-xs font-medium mb-1" style={{ color: "var(--muted)" }}>Agent Name</label>
@@ -172,20 +205,87 @@ export default function AgentConfigEditor({
           </div>
         </div>
 
-        <div className="space-y-2 pt-2 border-t" style={{ borderColor: "var(--border)" }}>
-          <p className="text-xs font-medium" style={{ color: "var(--muted)" }}>Agent Filters</p>
+        {/* Trade Direction Gate */}
+        <div className="pt-3 border-t" style={{ borderColor: "var(--border)" }}>
+          <p className="text-xs font-medium mb-2" style={{ color: "var(--muted)" }}>Allowed Trade Directions</p>
+          <p className="text-[10px] mb-2" style={{ color: "var(--muted)" }}>
+            Disable one to trade only longs or only shorts. Useful if analytics show a strong directional bias.
+          </p>
+          <div className="grid grid-cols-2 gap-2">
+            <button type="button" onClick={() => setAllowBuy(!allowBuy)}
+              className={`p-2 text-center rounded-lg border text-sm font-medium transition-colors ${allowBuy ? "border-emerald-500 bg-emerald-500/10 text-emerald-400" : "hover:bg-white/5 opacity-50"}`}
+              style={{ borderColor: allowBuy ? undefined : "var(--border)" }}>
+              {allowBuy ? "✓ " : ""}BUY (Longs)
+            </button>
+            <button type="button" onClick={() => setAllowSell(!allowSell)}
+              className={`p-2 text-center rounded-lg border text-sm font-medium transition-colors ${allowSell ? "border-red-500 bg-red-500/10 text-red-400" : "hover:bg-white/5 opacity-50"}`}
+              style={{ borderColor: allowSell ? undefined : "var(--border)" }}>
+              {allowSell ? "✓ " : ""}SELL (Shorts)
+            </button>
+          </div>
+        </div>
+
+        {/* Session Selection */}
+        <div className="pt-3 border-t" style={{ borderColor: "var(--border)" }}>
+          <div className="flex items-center justify-between mb-2">
+            <p className="text-xs font-medium" style={{ color: "var(--muted)" }}>Trading Sessions</p>
+            <label className="flex items-center gap-2 text-xs cursor-pointer">
+              <input type="checkbox" checked={sessionFilter} onChange={(e) => setSessionFilter(e.target.checked)} className="rounded" />
+              Restrict to selected sessions
+            </label>
+          </div>
+          <p className="text-[10px] mb-2" style={{ color: "var(--muted)" }}>
+            {sessionFilter
+              ? "Agent only trades during checked sessions. Uncheck sessions with poor WR in Analytics."
+              : "All sessions allowed (filter disabled — enable checkbox to restrict)."}
+          </p>
+          <div className={`grid grid-cols-1 gap-1.5 ${!sessionFilter ? "opacity-40 pointer-events-none" : ""}`}>
+            {ALL_SESSIONS.map((s) => {
+              const checked = allowedSessions.includes(s.id);
+              return (
+                <label key={s.id} className={`flex items-center justify-between px-3 py-2 rounded-lg border cursor-pointer text-xs hover:bg-white/5 ${checked ? "border-blue-500 bg-blue-500/5" : ""}`}
+                  style={{ borderColor: checked ? undefined : "var(--border)" }}>
+                  <span className="flex items-center gap-2">
+                    <input type="checkbox" checked={checked} onChange={() => toggleSession(s.id)} className="rounded" />
+                    <span className="font-medium">{s.label}</span>
+                  </span>
+                  <span style={{ color: "var(--muted)" }}>{s.hours}</span>
+                </label>
+              );
+            })}
+          </div>
+        </div>
+
+        {/* Agent Filters */}
+        <div className="space-y-2 pt-3 border-t" style={{ borderColor: "var(--border)" }}>
+          <p className="text-xs font-medium" style={{ color: "var(--muted)" }}>Other Filters</p>
           <label className="flex items-center gap-2 text-sm cursor-pointer">
-            <input type="checkbox" checked={sessionFilter} onChange={(e) => setSessionFilter(e.target.checked)} className="rounded" />
-            Session filter
+            <input type="checkbox" checked={newsFilter} onChange={(e) => setNewsFilter(e.target.checked)} className="rounded" />
+            News filter <span className="text-[10px]" style={{ color: "var(--muted)" }}>(skip 30min before high-impact events)</span>
           </label>
           <label className="flex items-center gap-2 text-sm cursor-pointer">
             <input type="checkbox" checked={regimeFilter} onChange={(e) => setRegimeFilter(e.target.checked)} className="rounded" />
             Regime filter
           </label>
-          <label className="flex items-center gap-2 text-sm cursor-pointer">
-            <input type="checkbox" checked={newsFilter} onChange={(e) => setNewsFilter(e.target.checked)} className="rounded" />
-            News filter
+        </div>
+
+        {/* Prop Firm Mode */}
+        <div className="pt-3 border-t" style={{ borderColor: "var(--border)" }}>
+          <label className="flex items-center justify-between cursor-pointer">
+            <div>
+              <p className="text-sm font-medium">Prop Firm Mode</p>
+              <p className="text-[10px]" style={{ color: "var(--muted)" }}>
+                FTMO-style tiered DD: yellow −1.5% (size↓), red −2.5% (pause), hard −3% (close all).
+              </p>
+            </div>
+            <input type="checkbox" checked={propFirmEnabled} onChange={(e) => setPropFirmEnabled(e.target.checked)} className="rounded" />
           </label>
+          {propFirmEnabled && (
+            <div className="mt-2 p-2 rounded-lg text-[11px]" style={{ background: "rgba(139,92,246,0.1)", border: "1px solid rgba(139,92,246,0.3)", color: "#c4b5fd" }}>
+              Prop Firm Mode applies FTMO-grade risk limits. Intended for funded/challenge accounts.
+              RiskManager tiered drawdown gates every trade.
+            </div>
+          )}
         </div>
 
         <div className="flex justify-end gap-2 pt-2">

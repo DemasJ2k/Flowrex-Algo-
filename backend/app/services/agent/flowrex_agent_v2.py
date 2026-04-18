@@ -79,6 +79,14 @@ class FlowrexAgentV2:
         self.session_filter = self.config.get("session_filter", False)
         self.news_filter = self.config.get("news_filter_enabled", False)
 
+        # Allowed sessions: subset of {asian, london, ny_open, ny_close, off_hours}
+        # Empty list or None = all sessions allowed. Only applies when session_filter=True.
+        self.allowed_sessions: list[str] = self.config.get("allowed_sessions") or []
+
+        # Allowed directions: "BUY", "SELL", or both. Default both enabled.
+        self.allow_buy: bool = self.config.get("allow_buy", True)
+        self.allow_sell: bool = self.config.get("allow_sell", True)
+
         # Prop-firm tiered risk manager (opt-in via config).
         # When enabled, approve_trade() gates every signal with FTMO-grade
         # drawdown tiers, anti-martingale sizing, and session windows.
@@ -277,6 +285,28 @@ class FlowrexAgentV2:
         if signal is None or signal.direction == 0:
             self._log_reject("No signal")
             return None
+
+        # Direction filter — user can disable BUY or SELL independently.
+        # signal.direction: 1=BUY, -1=SELL
+        if signal.direction == 1 and not self.allow_buy:
+            self._log_reject("BUY direction disabled for this agent")
+            return None
+        if signal.direction == -1 and not self.allow_sell:
+            self._log_reject("SELL direction disabled for this agent")
+            return None
+
+        # Session filter — only trade during user-selected sessions.
+        # session_filter=True + allowed_sessions list → restrict; empty list = all allowed.
+        if self.session_filter and self.allowed_sessions:
+            _hour = datetime.now(timezone.utc).hour
+            if _hour < 8:         _sess = "asian"
+            elif _hour < 13:      _sess = "london"
+            elif _hour < 17:      _sess = "ny_open"
+            elif _hour < 21:      _sess = "ny_close"
+            else:                 _sess = "off_hours"
+            if _sess not in self.allowed_sessions:
+                self._log_reject(f"Session '{_sess}' not in allowed {self.allowed_sessions}")
+                return None
 
         # 9. (Gate B removed 2026-04-15) The D1-hard-veto was double-filtering because
         # fx_d1_bias is already a feature the model trains on, and the MTF score check
