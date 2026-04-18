@@ -72,4 +72,19 @@ class AgentTrade(Base):
     entry_time = Column(DateTime(timezone=True), nullable=False)
     exit_time = Column(DateTime(timezone=True), nullable=True)
 
+    # Execution quality tracking (Batch M — V4 audit)
+    requested_price = Column(Float, nullable=True)
+    fill_price = Column(Float, nullable=True)
+    slippage_pips = Column(Float, nullable=True)
+
+    # Analytics columns (migration 007)
+    mtf_score = Column(Integer, nullable=True)
+    mtf_layers = Column(JSON, nullable=True)
+    session_name = Column(String(20), nullable=True)
+    top_features = Column(JSON, nullable=True)
+    atr_at_entry = Column(Float, nullable=True)
+    model_name = Column(String(50), nullable=True)
+    time_to_exit_seconds = Column(Integer, nullable=True)
+    bars_to_exit = Column(Integer, nullable=True)
+
     agent = relationship("TradingAgent", back_populates="trades")
