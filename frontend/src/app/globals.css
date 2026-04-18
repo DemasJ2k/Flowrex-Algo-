@@ -5,11 +5,7 @@
   --foreground: #e4e4e7;
   --card: #111318;
   --card-foreground: #e4e4e7;
-  /* Border lightened from #1e2028 (1.5:1 contrast — fails WCAG 1.4.11)
-     to #333840 (~3.0:1) for visible UI element borders. */
   --border: #333840;
-  /* Muted lightened from #71717a (3.0:1 contrast — fails WCAG AA 4.5:1)
-     to #9ca3af (~5.1:1) so muted text is legible. */
   --muted: #9ca3af;
   --accent: #3b82f6;
   --accent-green: #22c55e;
@@ -17,6 +13,26 @@
   --sidebar-bg: #0d0e12;
   --sidebar-hover: #1a1b22;
   --sidebar-active: #1e2028;
+
+  /* ── Design tokens (glass + accents + motion) ─────────── */
+  --glass-bg: rgba(20, 18, 33, 0.55);
+  --glass-border-from: rgba(139, 92, 246, 0.35);
+  --glass-border-to:   rgba(59, 130, 246, 0.1);
+  --glass-shadow: 0 1px 0 rgba(255,255,255,0.04) inset,
+                  0 8px 24px -12px rgba(0, 0, 0, 0.5),
+                  0 0 48px -24px rgba(139, 92, 246, 0.3);
+
+  --accent-primary:   #8b5cf6;  /* violet */
+  --accent-secondary: #3b82f6;  /* blue */
+
+  --status-live:    #10b981;
+  --status-paused:  #f59e0b;
+  --status-stopped: #6b7280;
+  --pnl-up:         #10b981;
+  --pnl-down:       #ef4444;
+
+  --transition-fast:   150ms cubic-bezier(0.4, 0, 0.2, 1);
+  --transition-smooth: 300ms cubic-bezier(0.32, 0.72, 0, 1);
 }
 
 html[data-theme="light"], html[data-theme="light"] :root {
@@ -242,3 +258,94 @@ body {
 }
 .ai-md a { color: #8b5cf6; text-decoration: underline; }
 .ai-md hr { border: none; border-top: 1px solid var(--border); margin: 0.75rem 0; }
+
+/* ── Glass morphism panels ───────────────────────────────────── */
+.glass {
+  background: var(--glass-bg);
+  backdrop-filter: blur(16px) saturate(1.2);
+  -webkit-backdrop-filter: blur(16px) saturate(1.2);
+  border: 1px solid var(--border);
+  position: relative;
+  border-radius: 14px;
+  box-shadow: var(--glass-shadow);
+}
+.glass::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  padding: 1px;
+  background: linear-gradient(135deg, var(--glass-border-from), transparent 40%, var(--glass-border-to));
+  -webkit-mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
+  -webkit-mask-composite: xor;
+          mask-composite: exclude;
+  pointer-events: none;
+}
+.glass-hover { transition: background var(--transition-fast), transform var(--transition-fast); }
+.glass-hover:hover {
+  background: rgba(26, 24, 42, 0.7);
+  transform: translateY(-1px);
+}
+
+/* ── Tabular numerics (price/P&L alignment) ──────────────────── */
+.tabular {
+  font-variant-numeric: tabular-nums;
+  font-feature-settings: "tnum";
+}
+
+/* ── Pulse dot (live status) ─────────────────────────────────── */
+.pulse-dot {
+  position: relative;
+  display: inline-block;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+}
+.pulse-dot::after {
+  content: "";
+  position: absolute;
+  inset: -4px;
+  border-radius: 50%;
+  background: inherit;
+  opacity: 0.4;
+  animation: pulse 1.8s ease-in-out infinite;
+}
+@keyframes pulse {
+  0%, 100% { transform: scale(0.9); opacity: 0.4; }
+  50%      { transform: scale(1.5); opacity: 0; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .pulse-dot::after { animation: none; opacity: 0.5; }
+}
+
+/* ── Gradient text accent ────────────────────────────────────── */
+.text-gradient {
+  background: linear-gradient(135deg, var(--accent-primary), var(--accent-secondary));
+  -webkit-background-clip: text;
+          background-clip: text;
+  -webkit-text-fill-color: transparent;
+          color: transparent;
+}
+
+/* ── Skeleton shimmer ────────────────────────────────────────── */
+.skeleton {
+  background: linear-gradient(90deg,
+    rgba(255,255,255,0.03) 0%,
+    rgba(255,255,255,0.08) 50%,
+    rgba(255,255,255,0.03) 100%);
+  background-size: 200% 100%;
+  animation: shimmer 1.4s infinite;
+  border-radius: 6px;
+}
+@keyframes shimmer {
+  0%   { background-position: 200% 0; }
+  100% { background-position: -200% 0; }
+}
+
+/* ── Subtle grid background (for hero sections) ──────────────── */
+.grid-bg {
+  background-image:
+    linear-gradient(to right, rgba(139,92,246,0.04) 1px, transparent 1px),
+    linear-gradient(to bottom, rgba(139,92,246,0.04) 1px, transparent 1px);
+  background-size: 32px 32px;
+}

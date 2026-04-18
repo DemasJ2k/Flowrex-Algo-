@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import { usePathname } from "next/navigation";
 import Sidebar from "./Sidebar";
+import BottomNav from "./BottomNav";
 import ProfileDropdown from "./ProfileDropdown";
 
 const PUBLIC_PATHS = ["/login", "/register"];
@@ -43,20 +44,21 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
     return <>{children}</>;
   }
 
-  // Authenticated pages: sidebar + profile dropdown
+  // Authenticated pages: sidebar (desktop) + bottom nav (mobile) + profile dropdown
   return (
     <>
-      {/* Skip-to-content link for keyboard users — bypasses the sidebar nav */}
       <a href="#main-content" className="skip-link">Skip to main content</a>
       <Sidebar />
       <div className={`min-h-screen transition-all duration-200 ${sidebarPinned ? "md:ml-56" : "md:ml-16"}`}>
         <header className="flex items-center justify-end px-4 py-3 md:px-6">
           <ProfileDropdown />
         </header>
-        <main id="main-content" className="px-4 pb-6 md:px-6 pt-0" tabIndex={-1}>
+        {/* pb-20 on mobile leaves room for BottomNav (72px tall). Desktop keeps pb-6. */}
+        <main id="main-content" className="px-4 pb-20 md:px-6 md:pb-6 pt-0" tabIndex={-1}>
           {children}
         </main>
       </div>
+      <BottomNav />
     </>
   );
 }
