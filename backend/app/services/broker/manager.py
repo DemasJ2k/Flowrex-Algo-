@@ -31,6 +31,30 @@ class BrokerManager:
     def __init__(self):
         self._adapters: dict[tuple[int, str], BrokerAdapter] = {}
         self._connect_times: dict[tuple[int, str], float] = {}
+        # The FastAPI / uvicorn main event loop. Adapter httpx clients are
+        # created on this loop during `connect()`; anything calling their
+        # async methods from a different thread MUST use `run_coroutine_on_loop`
+        # below rather than a fresh loop — otherwise httpx raises
+        # "asyncio.locks.Event is bound to a different event loop".
+        self._main_loop = None
+
+    def set_main_loop(self, loop) -> None:
+        """Called once from app startup to capture the main event loop."""
+        self._main_loop = loop
+
+    def run_coroutine_on_loop(self, coro, timeout: float = 30.0):
+        """
+        Run an async broker method from a sync worker thread without breaking
+        httpx's loop affinity. Returns the coroutine's result or raises.
+
+        If the main loop hasn't been captured yet (e.g. unit tests), falls
+        back to `asyncio.run` — fine for adapters with no loop-bound state.
+        """
+        import asyncio as _asyncio
+        if self._main_loop is not None and self._main_loop.is_running():
+            fut = _asyncio.run_coroutine_threadsafe(coro, self._main_loop)
+            return fut.result(timeout=timeout)
+        return _asyncio.run(coro)
 
     def _create_adapter(self, broker_name: str) -> BrokerAdapter:
         cls = _ADAPTER_CLASSES.get(broker_name)

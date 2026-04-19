@@ -70,9 +70,19 @@ async def lifespan(app: FastAPI):
 
     # Auto-reconnect brokers for running agents + orphan check.
     try:
+        import asyncio as _asyncio
         from app.services.broker.manager import get_broker_manager
         from app.core.database import SessionLocal
         from app.models.agent import TradingAgent
+        # Capture the main loop so sync worker threads (BackgroundTasks,
+        # APScheduler) can dispatch broker coroutines onto it via
+        # `manager.run_coroutine_on_loop(...)`. Fixes the "asyncio.locks.Event
+        # is bound to a different event loop" error seen from the backtest
+        # broker-live path.
+        try:
+            get_broker_manager().set_main_loop(_asyncio.get_running_loop())
+        except RuntimeError:
+            pass
         db = SessionLocal()
         running = db.query(TradingAgent).filter(
             TradingAgent.status == "running",

@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import Card, { StatCard } from "@/components/ui/Card";
 import Glass from "@/components/ui/Glass";
 import DataTable, { Column } from "@/components/ui/DataTable";
@@ -42,6 +42,32 @@ interface TradeRow {
   bars_held: number;
 }
 
+interface DataWindow {
+  source: string;
+  broker: string | null;
+  first_bar_ts: number | null;
+  last_bar_ts: number | null;
+  m5_bars_in_window: number;
+  requested_start: string | null;
+  requested_end: string | null;
+  broker_cap: number | null;
+}
+
+interface BreakdownEntry {
+  trades: number;
+  win_rate: number;
+  total_pnl: number;
+  avg_pnl: number;
+}
+
+interface Breakdowns {
+  direction?: Record<string, BreakdownEntry>;
+  exit_type?: Record<string, BreakdownEntry>;
+  session?: Record<string, BreakdownEntry>;
+  confidence?: Record<string, BreakdownEntry>;
+  oos_split?: Record<string, BreakdownEntry>;
+}
+
 interface BacktestResult {
   symbol: string;
   model: string;
@@ -63,13 +89,35 @@ interface BacktestResult {
   monthly_breakdown: MonthlyRow[];
   equity_curve: { time: number; value: number }[];
   trades: TradeRow[];
+  data_window?: DataWindow;
+  oos_start_ts?: number;
+  breakdowns?: Breakdowns;
   error?: string;
 }
+
+// Keep this in sync with BROKER_MAX_CANDLES in backend/app/api/backtest.py.
+const BROKER_M5_CAP: Record<string, number> = {
+  oanda: 5000,
+  ctrader: 5000,
+  mt5: 50000,
+  tradovate: 5000,
+  interactive_brokers: 1000,
+};
+
+const BROKER_LABEL: Record<string, string> = {
+  oanda: "OANDA",
+  ctrader: "cTrader",
+  mt5: "MT5",
+  tradovate: "Tradovate",
+  interactive_brokers: "Interactive Brokers",
+};
 
 export default function BacktestPage() {
   const [symbol, setSymbol] = useState<string>("US30");
   const [agentType, setAgentType] = useState<"potential" | "flowrex_v2">("potential");
   const [dataSource, setDataSource] = useState<"history" | "broker" | "dukascopy">("dukascopy");
+  const [connectedBrokers, setConnectedBrokers] = useState<string[]>([]);
+  const [selectedBroker, setSelectedBroker] = useState<string>("");
   const [datePreset, setDatePreset] = useState<DatePreset>("6m");
   const [customStart, setCustomStart] = useState("");
   const [customEnd, setCustomEnd] = useState("");
@@ -80,6 +128,21 @@ export default function BacktestPage() {
   const [loading, setLoading] = useState(false);
   const [progress, setProgress] = useState("");
   const [result, setResult] = useState<BacktestResult | null>(null);
+  const [analyzing, setAnalyzing] = useState(false);
+  const [aiMarkdown, setAiMarkdown] = useState<string | null>(null);
+  const [resultId, setResultId] = useState<number | null>(null);
+
+  // Load the user's currently-connected brokers so the broker-live picker
+  // shows real options (and hides itself if nothing is connected).
+  useEffect(() => {
+    api.get("/api/broker/status").then((r) => {
+      const list: string[] = Array.isArray(r.data?.brokers)
+        ? r.data.brokers
+        : r.data?.broker ? [r.data.broker] : [];
+      setConnectedBrokers(list);
+      if (list.length > 0 && !selectedBroker) setSelectedBroker(list[0]);
+    }).catch(() => setConnectedBrokers([]));
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   const fmt = (v: number | undefined) =>
     v !== undefined
@@ -102,6 +165,23 @@ export default function BacktestPage() {
     return { start_date: start.toISOString().slice(0, 10) };
   };
 
+  const analyzeWithAI = async () => {
+    if (!result) return;
+    setAnalyzing(true);
+    setAiMarkdown(null);
+    try {
+      const body: Record<string, unknown> = {};
+      if (resultId) body.result_id = resultId;
+      if (result.symbol) body.symbol = result.symbol;
+      const res = await api.post("/api/backtest/analyze", body, { timeout: 60000 });
+      setAiMarkdown(res.data?.markdown || "_No response._");
+    } catch (e: unknown) {
+      toast.error(getErrorMessage(e));
+    } finally {
+      setAnalyzing(false);
+    }
+  };
+
   const runBacktest = async () => {
     if (balance < 100) { toast.error("Balance must be at least $100"); return; }
     if (sizingMode === "risk_pct" && (riskPct <= 0 || riskPct > 3)) { toast.error("Risk % must be between 0.01 and 3"); return; }
@@ -111,7 +191,9 @@ export default function BacktestPage() {
     setProgress("Starting...");
     try {
       const dates = getDateRange();
-      await api.post("/api/backtest/potential", {
+      setAiMarkdown(null);
+      setResultId(null);
+      const res = await api.post("/api/backtest/potential", {
         symbol,
         agent_type: agentType,
         balance,
@@ -119,8 +201,10 @@ export default function BacktestPage() {
         risk_pct: sizingMode === "risk_pct" ? riskPct / 100 : 0.01,
         sizing_mode: sizingMode,
         data_source: dataSource,
+        broker: dataSource === "broker" ? (selectedBroker || undefined) : undefined,
         ...dates,
       });
+      if (res.data?.result_id) setResultId(res.data.result_id);
       toast.success("Backtest started for " + symbol);
 
       let graceCycles = 0;
@@ -316,7 +400,11 @@ export default function BacktestPage() {
               className={`p-2.5 text-center rounded-lg border transition-colors ${dataSource === "broker" ? "border-blue-500 bg-blue-500/10" : "hover:bg-white/5"}`}
               style={{ borderColor: dataSource === "broker" ? undefined : "var(--border)" }}>
               <p className="font-medium text-sm">Broker (Live)</p>
-              <p className="text-xs" style={{ color: "var(--muted)" }}>Latest 5000 bars from Oanda</p>
+              <p className="text-xs" style={{ color: "var(--muted)" }}>
+                {connectedBrokers.length === 0
+                  ? "No broker connected"
+                  : `Up to ${(BROKER_M5_CAP[selectedBroker || connectedBrokers[0]] || 5000).toLocaleString()} M5 bars`}
+              </p>
             </button>
             <button onClick={() => setDataSource("dukascopy")}
               className={`p-2.5 text-center rounded-lg border transition-colors ${dataSource === "dukascopy" ? "border-violet-500 bg-violet-500/10" : "hover:bg-white/5"}`}
@@ -331,6 +419,41 @@ export default function BacktestPage() {
               <p className="text-xs" style={{ color: "var(--muted)" }}>Local CSV files on server</p>
             </button>
           </div>
+
+          {/* Broker picker + honest coverage note — only when Broker (Live) is chosen. */}
+          {dataSource === "broker" && (
+            <div className="mt-2 p-2.5 rounded-lg border" style={{ borderColor: "var(--border)", background: "var(--card)" }}>
+              {connectedBrokers.length === 0 ? (
+                <p className="text-xs" style={{ color: "var(--muted)" }}>
+                  No broker connected. Go to Settings → Broker Connections to connect one.
+                </p>
+              ) : (
+                <div className="flex items-center gap-2 flex-wrap">
+                  <label className="text-xs" style={{ color: "var(--muted)" }}>Broker:</label>
+                  <select
+                    value={selectedBroker}
+                    onChange={(e) => setSelectedBroker(e.target.value)}
+                    className="px-2 py-1 text-xs rounded border bg-transparent"
+                    style={{ borderColor: "var(--border)", background: "var(--background)" }}
+                  >
+                    {connectedBrokers.map((b) => (
+                      <option key={b} value={b}>{BROKER_LABEL[b] || b}</option>
+                    ))}
+                  </select>
+                  <span className="text-[11px]" style={{ color: "var(--muted)" }}>
+                    cap: {(BROKER_M5_CAP[selectedBroker] || 5000).toLocaleString()} M5 bars
+                    {" \u00b7 "}
+                    ~{Math.round(((BROKER_M5_CAP[selectedBroker] || 5000) * 5) / 60 / 24)} days
+                  </span>
+                </div>
+              )}
+              <p className="text-[11px] mt-1" style={{ color: "var(--muted)" }}>
+                Broker-live is bounded by each broker&apos;s per-request cap. If your date
+                range is longer, the backtest uses the earliest bar the broker returned —
+                check &quot;Data coverage&quot; after the run.
+              </p>
+            </div>
+          )}
         </div>
 
         {/* Date Range */}
@@ -511,6 +634,50 @@ export default function BacktestPage() {
             </div>
           </Glass>
 
+          {/* Data coverage — honest bounds of what was actually fetched */}
+          {result.data_window && (
+            <Glass padding="md">
+              <h4 className="text-xs font-semibold mb-1" style={{ color: "var(--muted)" }}>
+                Data coverage
+              </h4>
+              <div className="text-xs grid grid-cols-2 md:grid-cols-4 gap-y-1 gap-x-4">
+                <div>
+                  <span style={{ color: "var(--muted)" }}>Source: </span>
+                  <span className="font-medium">
+                    {result.data_window.source}
+                    {result.data_window.broker ? ` · ${BROKER_LABEL[result.data_window.broker] || result.data_window.broker}` : ""}
+                  </span>
+                </div>
+                <div>
+                  <span style={{ color: "var(--muted)" }}>Window bars: </span>
+                  <span className="font-medium">{result.data_window.m5_bars_in_window.toLocaleString()}</span>
+                </div>
+                <div>
+                  <span style={{ color: "var(--muted)" }}>First: </span>
+                  <span className="font-medium">
+                    {result.data_window.first_bar_ts
+                      ? new Date(result.data_window.first_bar_ts * 1000).toISOString().slice(0, 16).replace("T", " ")
+                      : "—"}
+                  </span>
+                </div>
+                <div>
+                  <span style={{ color: "var(--muted)" }}>Last: </span>
+                  <span className="font-medium">
+                    {result.data_window.last_bar_ts
+                      ? new Date(result.data_window.last_bar_ts * 1000).toISOString().slice(0, 16).replace("T", " ")
+                      : "—"}
+                  </span>
+                </div>
+              </div>
+              {result.data_window.source === "broker" && result.data_window.broker_cap && (
+                <p className="text-[11px] mt-1" style={{ color: "var(--muted)" }}>
+                  Broker per-request cap: {result.data_window.broker_cap.toLocaleString()} M5 bars.
+                  Requests past that are silently truncated to the earliest bar the broker returned.
+                </p>
+              )}
+            </Glass>
+          )}
+
           {/* Summary Stats */}
           <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-3">
             {[
@@ -565,10 +732,105 @@ export default function BacktestPage() {
                 <h3 className="text-sm font-medium mb-2 flex items-center gap-2">
                   <TrendingUp size={14} style={{ color: "var(--muted)" }} /> Equity Curve
                 </h3>
+                {result.oos_start_ts && (
+                  <p className="text-[11px] mb-1" style={{ color: "var(--muted)" }}>
+                    Training OOS cutoff:{" "}
+                    <span className="font-medium" style={{ color: "var(--foreground)" }}>
+                      {new Date(result.oos_start_ts * 1000).toISOString().slice(0, 10)}
+                    </span>
+                    {" · "}results before this date are in-sample (the model saw them during training).
+                  </p>
+                )}
                 <EquityCurveChart data={eqCurve} height={220} />
               </Glass>
             </div>
           )}
+
+          {/* In-sample vs OOS split — the bit that matters for overfitting */}
+          {result.breakdowns?.oos_split && (
+            <Glass padding="md">
+              <h3 className="text-sm font-medium mb-2">In-sample vs True OOS</h3>
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                {(["in_sample", "oos"] as const).map((k) => {
+                  const e = result.breakdowns?.oos_split?.[k];
+                  if (!e) return null;
+                  const label = k === "oos" ? "True OOS (after training cutoff)" : "In-sample (during training)";
+                  return (
+                    <div key={k} className="rounded-lg p-3 border" style={{ borderColor: "var(--border)" }}>
+                      <div className="text-[11px] mb-1" style={{ color: "var(--muted)" }}>{label}</div>
+                      <div className="text-lg font-semibold tabular-nums" style={{ color: e.total_pnl >= 0 ? "#10b981" : "#ef4444" }}>
+                        ${fmt(e.total_pnl)}
+                      </div>
+                      <div className="text-xs" style={{ color: "var(--muted)" }}>
+                        {e.trades} trades · WR {e.win_rate}% · avg ${fmt(e.avg_pnl)}
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            </Glass>
+          )}
+
+          {/* Breakdown cards — direction / exit_type / session / confidence */}
+          {result.breakdowns && (
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+              {(
+                [
+                  ["direction", "By direction"],
+                  ["exit_type", "By exit type"],
+                  ["session", "By session (UTC)"],
+                  ["confidence", "By confidence bucket"],
+                ] as const
+              ).map(([key, label]) => {
+                const group = (result.breakdowns as unknown as Record<string, Record<string, BreakdownEntry>>)?.[key] || {};
+                const nonEmpty = Object.entries(group).filter(([, v]) => (v?.trades || 0) > 0);
+                if (nonEmpty.length === 0) return null;
+                return (
+                  <Glass key={key} padding="md">
+                    <h4 className="text-xs font-semibold mb-2" style={{ color: "var(--muted)" }}>{label}</h4>
+                    <div className="space-y-1.5">
+                      {nonEmpty.map(([k, v]) => (
+                        <div key={k} className="flex items-baseline justify-between text-xs">
+                          <span className="font-medium">{k}</span>
+                          <span className="tabular-nums" style={{ color: v.total_pnl >= 0 ? "#10b981" : "#ef4444" }}>
+                            ${fmt(v.total_pnl)} · {v.trades}t · WR {v.win_rate}%
+                          </span>
+                        </div>
+                      ))}
+                    </div>
+                  </Glass>
+                );
+              })}
+            </div>
+          )}
+
+          {/* Analyse with AI */}
+          <Glass padding="md">
+            <div className="flex items-center justify-between gap-2">
+              <div>
+                <h3 className="text-sm font-medium">AI analysis</h3>
+                <p className="text-[11px]" style={{ color: "var(--muted)" }}>
+                  Sends the stats + breakdowns to your configured Claude supervisor for a
+                  written review. Requires the AI Supervisor to be enabled in Settings.
+                </p>
+              </div>
+              <button
+                onClick={analyzeWithAI}
+                disabled={analyzing}
+                className="px-3 py-2 text-xs font-medium rounded-lg bg-violet-600 hover:bg-violet-500 text-white disabled:opacity-50 whitespace-nowrap"
+              >
+                {analyzing ? "Analysing..." : (aiMarkdown ? "Re-run analysis" : "Analyse with AI")}
+              </button>
+            </div>
+            {aiMarkdown && (
+              <div
+                className="mt-3 max-h-[400px] overflow-y-auto text-sm whitespace-pre-wrap leading-relaxed"
+                style={{ color: "var(--foreground)" }}
+              >
+                {aiMarkdown}
+              </div>
+            )}
+          </Glass>
 
           {/* Monthly Breakdown Table */}
           {result.monthly_breakdown && result.monthly_breakdown.length > 0 && (
