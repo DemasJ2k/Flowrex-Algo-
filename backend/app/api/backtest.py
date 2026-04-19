@@ -55,7 +55,7 @@ def run_backtest(
     if _status["active"]:
         return {"status": "busy", "message": f"Backtest running for {_status['symbol']}"}
 
-    _status.update({"active": True, "symbol": body.symbol, "progress": "fetching dukascopy data"})
+    _status.update({"active": True, "symbol": body.symbol, "progress": "updating Dukascopy data..."})
 
     def _run():
         bundle_run_id = None
@@ -269,11 +269,17 @@ def _run_potential_backtest(body: PotentialBacktestRequest, result_id: int = Non
                     _update_backtest_record(result_id, status="error", error_message=err)
                 return
         elif body.data_source == "dukascopy":
-            # Fresh Dukascopy fetch into a tempdir, loaded into memory, tempdir deleted.
-            _potential_status["progress"] = "fetching fresh Dukascopy data"
+            # Delta-merge against persistent History Data CSV. First fetch for
+            # a symbol bootstraps ~2500 days (few minutes); subsequent fetches
+            # only download bars since the newest stored bar (seconds).
+            _potential_status["progress"] = "updating Dukascopy data..."
             try:
                 from app.services.backtest.data_fetcher import get_backtest_fetcher
                 bundle = get_backtest_fetcher().fetch(symbol, days=2500)
+                if bundle.bootstrap:
+                    _potential_status["progress"] = f"Dukascopy bootstrap complete ({bundle.new_rows:,} bars)"
+                else:
+                    _potential_status["progress"] = f"Dukascopy updated (+{bundle.new_rows:,} new bars)"
                 m5 = _normalize_ohlcv(bundle.m5) if bundle.m5 is not None else None
                 h1 = _normalize_ohlcv(bundle.h1) if bundle.h1 is not None else None
                 h4 = _normalize_ohlcv(bundle.h4) if bundle.h4 is not None else None

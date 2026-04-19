@@ -55,7 +55,7 @@ async function fetchChunk(instrument, tf, from, to, attempt = 1) {
   }
 }
 
-async function fetchSymbol(symbol, tf, days) {
+async function fetchSymbol(symbol, tf, days, sinceTs = null) {
   const instrument = SYMBOL_MAP[symbol];
   if (!instrument) {
     console.log(`  Unknown symbol: ${symbol}`);
@@ -63,8 +63,20 @@ async function fetchSymbol(symbol, tf, days) {
   }
 
   const end = new Date();
-  const start = new Date();
+  let start = new Date();
   start.setDate(start.getDate() - days);
+
+  // Incremental mode: if --since was provided and is more recent than
+  // the days-window start, fetch only from that point. Reduces a 14-chunk
+  // M5 download to 1-2 chunks for most realistic catch-ups.
+  if (sinceTs) {
+    const sinceDate = new Date(sinceTs * 1000);
+    if (sinceDate > start) start = sinceDate;
+    if (sinceDate >= end) {
+      console.log(`  ${symbol} ${tf}: --since ${sinceDate.toISOString()} is >= now, nothing to fetch`);
+      return [];
+    }
+  }
 
   const label = TF_LABELS[tf] || tf;
   console.log(
@@ -202,11 +214,26 @@ function saveCSV(symbol, tf, rows, outDirOverride = null) {
 }
 
 async function main() {
-  const args = process.argv.slice(2);
-  const symbolArg = (args[0] || "US30").toUpperCase();
-  const days = parseInt(args[1] || "2500");
+  // Back-compat positional args: <symbol> <days> [outDir]
+  // Plus keyword flags: --since=<unix_ts> (incremental fetches)
+  //
+  // Example (full):   node fetch_dukascopy_node.js US30 2500
+  // Example (inc.):   node fetch_dukascopy_node.js US30 2500 /tmp/out --since=1745000000
+  const rawArgs = process.argv.slice(2);
+  const positional = [];
+  let sinceTs = null;
+  for (const a of rawArgs) {
+    if (a.startsWith("--since=")) {
+      const v = parseInt(a.slice("--since=".length));
+      if (!isNaN(v) && v > 1e9) sinceTs = v;
+    } else {
+      positional.push(a);
+    }
+  }
+  const symbolArg = (positional[0] || "US30").toUpperCase();
+  const days = parseInt(positional[1] || "2500");
   // Optional: fetch to a specific directory (used by backtest data fetcher)
-  const outDirOverride = args[2] || null;
+  const outDirOverride = positional[2] || null;
 
   const symbols =
     symbolArg === "ALL" ? Object.keys(SYMBOL_MAP) : [symbolArg];
@@ -215,6 +242,9 @@ async function main() {
   console.log("  Dukascopy Data Fetcher (Node.js — fast)");
   console.log(`  Symbols: ${symbols.join(", ")}`);
   console.log(`  Days: ${days}`);
+  if (sinceTs) {
+    console.log(`  Since: ${new Date(sinceTs * 1000).toISOString()} (incremental mode)`);
+  }
   if (outDirOverride) console.log(`  Output dir: ${outDirOverride}`);
   console.log("=".repeat(60));
 
@@ -226,10 +256,13 @@ async function main() {
     report[sym] = {};
     for (const tf of TIMEFRAMES) {
       try {
-        const data = await fetchSymbol(sym, tf, days);
+        const data = await fetchSymbol(sym, tf, days, sinceTs);
         if (data && data.length > 0) {
           saveCSV(sym, tf, data, outDirOverride);
           report[sym][tf] = { status: "ok", rows: data.length };
+        } else if (sinceTs && data !== null) {
+          // Incremental mode returning 0 bars = already up-to-date, not a failure.
+          report[sym][tf] = { status: "ok", rows: 0 };
         } else {
           report[sym][tf] = { status: "fail", rows: 0 };
         }
