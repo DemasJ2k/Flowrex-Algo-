@@ -38,14 +38,18 @@ SYMBOL_CONFIGS: dict[str, dict] = {
     },
     "US30": {
         "asset_class": "index",
-        "label_atr_mult": 1.2,
+        # TP/SL widened from 1.2/0.8 to 1.5/1.0 after 2026-04-19 backtest showed
+        # 1.5/1.0 produced PF 2.75 vs 2.30 (old wider stops survive US30 noise
+        # better than the tight 1.2/0.8 the original config prescribed). Label
+        # thresholds follow runtime so training and inference agree.
+        "label_atr_mult": 1.5,
         "label_forward_bars": 10,
         "prime_hours_utc": (13, 21),
         "spread_pips": 2.0,
         "cost_bps": 1.0,        # tight spread (~2 pts on 40k = 0.005%) × 2
         "slippage_bps": 0.5,    # minimal slippage (highly liquid)
-        "tp_atr_mult": 1.2,     # matches label_atr_mult
-        "sl_atr_mult": 0.8,
+        "tp_atr_mult": 1.5,
+        "sl_atr_mult": 1.0,
         "bars_per_day": 102,    # ~8.5h session
         "description": "Dow Jones — macro/earnings driven, NY session dominant",
     },
@@ -66,14 +70,16 @@ SYMBOL_CONFIGS: dict[str, dict] = {
     },
     "NAS100": {
         "asset_class": "index",
-        "label_atr_mult": 1.2,
+        # Widened TP/SL to 1.5/1.0 (same rationale as US30 — indices with tight
+        # 1.2/0.8 stops get chopped; empirical PF parity at 1.5/1.0 on both).
+        "label_atr_mult": 1.5,
         "label_forward_bars": 10,
         "prime_hours_utc": (13, 21),
         "spread_pips": 0.5,
         "cost_bps": 0.5,
         "slippage_bps": 0.3,
-        "tp_atr_mult": 1.2,
-        "sl_atr_mult": 0.8,
+        "tp_atr_mult": 1.5,
+        "sl_atr_mult": 1.0,
         "bars_per_day": 102,
         "hold_bars": 10,
         "trend_filter": False,

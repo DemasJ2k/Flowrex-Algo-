@@ -315,10 +315,14 @@ def run_potential_training(symbol="US30", n_trials=15, n_folds=4):
     cfg = get_symbol_config(symbol)
     cost_bps = cfg.get("cost_bps", 5.0)
     slippage_bps = cfg.get("slippage_bps", 1.0)
-    tp_mult = 1.2
-    sl_mult = 0.8
+    # Read per-symbol barriers from the config. Until 2026-04-19 these were
+    # hardcoded (tp=1.2, sl=0.8, hold=10), which meant every potential model
+    # was trained on one barrier structure while the runtime traded a
+    # different one per symbol. Now training labels match runtime TP/SL.
+    tp_mult = float(cfg.get("tp_atr_mult", 1.5))
+    sl_mult = float(cfg.get("sl_atr_mult", 1.0))
     bpd = cfg.get("bars_per_day", 288)
-    hold_bars = 10
+    hold_bars = int(cfg.get("hold_bars", 10))
 
     print(f"\n{'='*65}")
     print(f"  POTENTIAL AGENT: {symbol}  |  {n_folds} folds  |  {n_trials} trials/fold")

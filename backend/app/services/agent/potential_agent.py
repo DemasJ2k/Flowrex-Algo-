@@ -29,9 +29,22 @@ class PotentialAgent:
     Uses XGBoost + LightGBM ensemble with best-confidence voting.
     """
 
+    # Fallback if nothing is configured per-symbol or per-agent.
     CONFIDENCE_THRESHOLD = 0.52
     MIN_BARS = 300
     EXPECTED_FEATURE_COUNT = 85
+
+    # Per-asset-class default confidence thresholds. Previously everything
+    # used 0.52, which for a 3-class problem is barely above chance. Gold's
+    # signal is strong enough that 0.52 worked; indices and crypto need a
+    # higher bar to avoid low-edge trades (observed live: XAUUSD +$5k/14d,
+    # BTC/US30/NAS100 negative-to-marginal at 0.52).
+    DEFAULT_CONFIDENCE_BY_CLASS = {
+        "commodity": 0.52,
+        "forex":     0.53,
+        "index":     0.55,
+        "crypto":    0.55,
+    }
 
     def __init__(self, agent_id: int, symbol: str, broker_name: str, config: dict = None):
         self.agent_id = agent_id
@@ -67,6 +80,30 @@ class PotentialAgent:
         # Direction gates
         self.allow_buy: bool = self.config.get("allow_buy", True)
         self.allow_sell: bool = self.config.get("allow_sell", True)
+
+        # Per-agent confidence threshold override; else per-asset-class default;
+        # else the class-level fallback (0.52).
+        try:
+            from app.services.ml.symbol_config import get_symbol_config
+            _sym_cfg = get_symbol_config(symbol)
+        except Exception:
+            _sym_cfg = {}
+        _asset_class = _sym_cfg.get("asset_class", "index")
+        _conf_override = self.config.get("min_confidence")
+        if _conf_override is not None:
+            self.min_confidence = float(_conf_override)
+        else:
+            self.min_confidence = self.DEFAULT_CONFIDENCE_BY_CLASS.get(
+                _asset_class, self.CONFIDENCE_THRESHOLD,
+            )
+        # TP/SL multipliers sourced from symbol_config (was hardcoded 1.5/1.0).
+        # config override > symbol_config > generic default.
+        self.tp_atr_mult: float = float(
+            self.config.get("tp_atr_mult") or _sym_cfg.get("tp_atr_mult", 1.5)
+        )
+        self.sl_atr_mult: float = float(
+            self.config.get("sl_atr_mult") or _sym_cfg.get("sl_atr_mult", 1.0)
+        )
 
         # Optional prop-firm RiskManager (tiered DD + anti-martingale).
         self.prop_firm_enabled = self.config.get("prop_firm_enabled", False)
@@ -295,9 +332,10 @@ class PotentialAgent:
         entry_price = float(last_bar["close"])
         spec = get_spec(self.symbol)
 
-        # Use 1.5x ATR for TP, 1.0x ATR for SL (wider to avoid spread rejection)
-        sl_distance = atr_value * 1.0
-        tp_distance = atr_value * 1.5
+        # Per-symbol TP/SL from symbol_config (was hardcoded 1.5/1.0, which
+        # only matched XAUUSD by luck — BTC/indices got wrong-sized stops).
+        sl_distance = atr_value * self.sl_atr_mult
+        tp_distance = atr_value * self.tp_atr_mult
 
         # Ensure minimum distance using symbol-specific spread (3x spread for safety)
         from app.services.ml.symbol_config import get_symbol_config
@@ -459,7 +497,7 @@ class PotentialAgent:
                 prob_count += 1
 
             # Only consider directional predictions above threshold
-            if direction != 0 and conf >= self.CONFIDENCE_THRESHOLD and conf > best_conf:
+            if direction != 0 and conf >= self.min_confidence and conf > best_conf:
                 best_conf = conf
                 best_signal = PotentialSignal(
                     direction=direction,
