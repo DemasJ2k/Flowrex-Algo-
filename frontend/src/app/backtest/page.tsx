@@ -28,6 +28,9 @@ interface MonthlyRow {
   trades: number;
   win_rate: number;
   cumulative_pnl: number;
+  phase?: "in_sample" | "oos" | "boundary";
+  oos_trades?: number;
+  in_sample_trades?: number;
 }
 
 interface TradeRow {
@@ -259,6 +262,23 @@ export default function BacktestPage() {
 
   const monthlyCols: Column<MonthlyRow>[] = [
     { header: "Month", key: "month" },
+    {
+      header: "Phase",
+      key: "phase",
+      align: "left",
+      render: (r) => {
+        const p = r.phase;
+        if (!p) return "";
+        const cls =
+          p === "oos"
+            ? "text-emerald-400 border-emerald-500/40"
+            : p === "in_sample"
+              ? "text-amber-400 border-amber-500/40"
+              : "text-blue-400 border-blue-500/40";
+        const label = p === "oos" ? "OOS" : p === "in_sample" ? "IS" : "BND";
+        return <span className={`text-[10px] px-1.5 py-0.5 rounded-full border ${cls}`}>{label}</span>;
+      },
+    },
     {
       header: "P&L",
       key: "pnl",
