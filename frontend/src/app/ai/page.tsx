@@ -67,6 +67,23 @@ export default function AIPage() {
   const [enabled, setEnabled] = useState(false);
   const [autonomous, setAutonomous] = useState(false);
 
+  type Frequency = "off" | "1h" | "4h" | "12h" | "daily";
+  const [monitoring, setMonitoring] = useState<{
+    enabled: boolean;
+    frequency: Frequency;
+    quiet_hours_start: string | null;
+    quiet_hours_end: string | null;
+    skip_when_markets_closed: boolean;
+    skip_when_unchanged: boolean;
+  }>({
+    enabled: true,
+    frequency: "1h",
+    quiet_hours_start: null,
+    quiet_hours_end: null,
+    skip_when_markets_closed: true,
+    skip_when_unchanged: true,
+  });
+
   const loadSessions = useCallback(async () => {
     try {
       const r = await api.get("/api/llm/sessions");
@@ -103,6 +120,17 @@ export default function AIPage() {
 
     loadSessions();
     api.get("/api/llm/usage").then((r) => setUsage(r.data)).catch(() => {});
+    api.get("/api/llm/monitoring").then((r) => {
+      const d = r.data || {};
+      setMonitoring({
+        enabled: d.enabled ?? true,
+        frequency: (d.frequency as Frequency) ?? "1h",
+        quiet_hours_start: d.quiet_hours_start ?? null,
+        quiet_hours_end:   d.quiet_hours_end ?? null,
+        skip_when_markets_closed: d.skip_when_markets_closed ?? true,
+        skip_when_unchanged:      d.skip_when_unchanged ?? true,
+      });
+    }).catch(() => {});
   }, [loadSessions]);
 
   // Auto-load most recent session
@@ -126,6 +154,7 @@ export default function AIPage() {
       const body: Record<string, unknown> = { model, enabled, autonomous };
       if (apiKey) body.api_key = apiKey;
       await api.post("/api/llm/config", body);
+      await api.put("/api/llm/monitoring", monitoring);
       toast.success("AI Supervisor settings saved");
       setApiKey("");
       const r = await api.get("/api/llm/config");
@@ -291,6 +320,77 @@ export default function AIPage() {
                   <div className={`w-4 h-4 rounded-full bg-white absolute top-0.5 transition-transform ${autonomous ? "translate-x-5" : "translate-x-0.5"}`} />
                 </button>
               </div>
+              <div className="md:col-span-2 pt-3 mt-1" style={{ borderTop: "1px solid var(--border)" }}>
+                <p className="text-xs font-semibold mb-2" style={{ color: "var(--muted)" }}>
+                  Monitoring (scheduled reports)
+                </p>
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                  <div>
+                    <label className="block text-[11px] mb-1" style={{ color: "var(--muted)" }}>Frequency</label>
+                    <select
+                      value={monitoring.frequency}
+                      onChange={(e) => setMonitoring({ ...monitoring, frequency: e.target.value as Frequency })}
+                      className="w-full px-3 py-2 text-sm rounded-lg border bg-transparent"
+                      style={{ borderColor: "var(--border)", background: "var(--background)" }}
+                    >
+                      <option value="off">Off</option>
+                      <option value="1h">Every hour</option>
+                      <option value="4h">Every 4 hours</option>
+                      <option value="12h">Every 12 hours</option>
+                      <option value="daily">Daily</option>
+                    </select>
+                  </div>
+                  <div className="grid grid-cols-2 gap-2">
+                    <div>
+                      <label className="block text-[11px] mb-1" style={{ color: "var(--muted)" }}>
+                        Quiet from
+                      </label>
+                      <input
+                        type="time"
+                        value={monitoring.quiet_hours_start ?? ""}
+                        onChange={(e) => setMonitoring({
+                          ...monitoring,
+                          quiet_hours_start: e.target.value || null,
+                        })}
+                        className="w-full px-2 py-2 text-sm rounded-lg border bg-transparent"
+                        style={{ borderColor: "var(--border)", background: "var(--background)" }}
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-[11px] mb-1" style={{ color: "var(--muted)" }}>
+                        Quiet until
+                      </label>
+                      <input
+                        type="time"
+                        value={monitoring.quiet_hours_end ?? ""}
+                        onChange={(e) => setMonitoring({
+                          ...monitoring,
+                          quiet_hours_end: e.target.value || null,
+                        })}
+                        className="w-full px-2 py-2 text-sm rounded-lg border bg-transparent"
+                        style={{ borderColor: "var(--border)", background: "var(--background)" }}
+                      />
+                    </div>
+                  </div>
+                  <label className="flex items-center justify-between p-2 rounded-lg text-sm cursor-pointer"
+                    style={{ background: "var(--background)" }}>
+                    <span>Skip when markets closed</span>
+                    <input type="checkbox" checked={monitoring.skip_when_markets_closed}
+                      onChange={(e) => setMonitoring({ ...monitoring, skip_when_markets_closed: e.target.checked })} />
+                  </label>
+                  <label className="flex items-center justify-between p-2 rounded-lg text-sm cursor-pointer"
+                    style={{ background: "var(--background)" }}>
+                    <span>Skip when unchanged</span>
+                    <input type="checkbox" checked={monitoring.skip_when_unchanged}
+                      onChange={(e) => setMonitoring({ ...monitoring, skip_when_unchanged: e.target.checked })} />
+                  </label>
+                </div>
+                <p className="text-[10px] mt-2 leading-tight" style={{ color: "var(--muted)" }}>
+                  Reports are sent in your timezone. Quiet hours suppress sends in that local window.
+                  The AI will not duplicate reports when nothing has changed.
+                </p>
+              </div>
+
               <div className="md:col-span-2 pt-3 mt-1" style={{ borderTop: "1px solid var(--border)" }}>
                 <p className="text-xs font-semibold mb-2" style={{ color: "var(--muted)" }}>Telegram Notifications</p>
                 <TelegramConnectCard />

@@ -11,6 +11,8 @@ from app.services.market_hours import (
     is_market_open,
     next_open,
     seconds_until_open,
+    get_asset_class_status,
+    any_market_open_for_symbols,
     ASSET_CLASS,
 )
 
@@ -126,3 +128,36 @@ class TestAssetClassDefault:
         valid_classes = {"crypto", "forex", "us_index", "asia_index"}
         for sym, cls in ASSET_CLASS.items():
             assert cls in valid_classes, f"{sym} has invalid class {cls}"
+
+
+class TestAssetClassStatusHelper:
+    """Consumed by the AI supervisor prompt — must not regress."""
+
+    def test_weekend_only_crypto_open(self):
+        status = get_asset_class_status(SATURDAY)
+        assert status["crypto"]["open"] is True
+        assert status["forex"]["open"] is False
+        assert status["us_index"]["open"] is False
+        assert status["asia_index"]["open"] is False
+
+    def test_weekday_all_open(self):
+        status = get_asset_class_status(MONDAY)
+        assert all(s["open"] for s in status.values())
+
+    def test_cme_halt_window(self):
+        status = get_asset_class_status(WED_HALT)
+        # Forex stays open, us_index halts
+        assert status["forex"]["open"] is True
+        assert status["us_index"]["open"] is False
+
+
+class TestAnyMarketOpenForSymbols:
+    def test_mixed_returns_true_if_any_open(self):
+        # Saturday: BTC open, XAU closed
+        assert any_market_open_for_symbols(["BTCUSD", "XAUUSD"], SATURDAY) is True
+
+    def test_all_closed_returns_false(self):
+        assert any_market_open_for_symbols(["XAUUSD", "US30"], SATURDAY) is False
+
+    def test_empty_list_returns_false(self):
+        assert any_market_open_for_symbols([], MONDAY) is False

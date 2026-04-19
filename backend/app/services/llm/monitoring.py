@@ -3,7 +3,7 @@ AI-powered monitoring service.
 
 Bridges three layers:
   1. Trade events (engine.py → on_trade_opened / on_trade_closed)
-  2. Hourly health check (APScheduler cron)
+  2. Scheduled status reports (APScheduler cron, per-user cadence)
   3. Immediate alerts (loss streaks, drawdown, errors)
 
 All paths funnel AI analysis into the user's Telegram chat (via global bot)
@@ -14,11 +14,16 @@ Design principles:
 - If user hasn't configured an API key, silently skip (no errors).
 - If user hasn't connected Telegram, AI analysis still logs to DB for their chat view.
 - Token usage is bounded: haiku for event hooks, sonnet for hourly deep dives.
+- Scheduled reports respect per-user frequency, quiet hours, market status,
+  and a state-change hash so we never spam identical reports.
 """
 import asyncio
+import hashlib
+import json
 import logging
 from datetime import datetime, timezone, timedelta
 from typing import Optional
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from sqlalchemy.orm import Session
 
@@ -75,6 +80,7 @@ def _build_user_context(db: Session, user_id: int, lookback_trades: int = 50) ->
         ],
         "recent_trades": [
             {
+                "id": t.id,
                 "symbol": t.symbol,
                 "direction": t.direction,
                 "pnl": t.pnl or 0,
@@ -96,9 +102,112 @@ def _build_user_context(db: Session, user_id: int, lookback_trades: int = 50) ->
 
 # ── User config loaders ────────────────────────────────────────────────
 
+# Monitoring frequency → minimum interval (minutes) between reports for that user.
+# "off" disables scheduled reports entirely. Custom/unknown values fall back to 1h.
+_FREQUENCY_MINUTES = {
+    "off":   None,
+    "1h":    60,
+    "4h":    4 * 60,
+    "12h":   12 * 60,
+    "daily": 24 * 60,
+}
+
+
+_MONITORING_DEFAULTS = {
+    "enabled":                  True,
+    "frequency":                "1h",
+    "quiet_hours_start":        None,   # "HH:MM" in user TZ, optional
+    "quiet_hours_end":          None,
+    "skip_when_markets_closed": True,
+    "skip_when_unchanged":      True,
+}
+
+
 def _load_user_settings(db: Session, user_id: int) -> dict:
     sr = db.query(UserSettings).filter(UserSettings.user_id == user_id).first()
     return (sr.settings_json if sr else None) or {}
+
+
+def _load_monitoring_config(data: dict) -> dict:
+    """Return user's monitoring config merged over defaults."""
+    cfg = dict(_MONITORING_DEFAULTS)
+    cfg.update((data.get("monitoring") or {}))
+    return cfg
+
+
+def _user_timezone(data: dict) -> ZoneInfo:
+    """Resolve the user's tz from settings, falling back to UTC."""
+    tz_name = (data.get("timezone") or "UTC").strip() or "UTC"
+    try:
+        return ZoneInfo(tz_name)
+    except ZoneInfoNotFoundError:
+        return ZoneInfo("UTC")
+
+
+def _is_within_quiet_hours(now_local: datetime, start: Optional[str], end: Optional[str]) -> bool:
+    """
+    True if `now_local` falls inside [start, end) where both are "HH:MM" strings
+    in the user's timezone. Ranges that cross midnight (e.g. 22:00→07:00) are
+    handled by OR-ing the two halves.
+    """
+    if not start or not end:
+        return False
+    try:
+        sh, sm = (int(x) for x in start.split(":"))
+        eh, em = (int(x) for x in end.split(":"))
+    except (ValueError, AttributeError):
+        return False
+    now_mins = now_local.hour * 60 + now_local.minute
+    start_mins = sh * 60 + sm
+    end_mins = eh * 60 + em
+    if start_mins == end_mins:
+        return False
+    if start_mins < end_mins:
+        return start_mins <= now_mins < end_mins
+    # wraps midnight
+    return now_mins >= start_mins or now_mins < end_mins
+
+
+def _frequency_minutes(freq: str) -> Optional[int]:
+    """Minutes between reports for a frequency preset, or None if 'off'."""
+    return _FREQUENCY_MINUTES.get(freq, 60)
+
+
+def _compute_state_hash(ctx: dict) -> str:
+    """
+    Hash the user-visible state we report on. If this matches the previous
+    send, we can skip calling Claude. We round P&L so tiny unrealised swings
+    don't invalidate the hash.
+    """
+    daily = ctx.get("daily_summary") or {}
+    pieces = {
+        "pnl":       round(float(daily.get("total_pnl") or 0.0), 2),
+        "trades":    int(daily.get("trade_count") or 0),
+        "open_pos":  ctx.get("open_positions") or 0,
+        "running":   sum(1 for a in ctx.get("agents", []) if a.get("status") == "running"),
+        "last_id":   (ctx.get("recent_trades") or [{}])[0].get("id") if ctx.get("recent_trades") else None,
+    }
+    return hashlib.sha1(json.dumps(pieces, sort_keys=True).encode()).hexdigest()[:12]
+
+
+def _get_monitoring_state(data: dict) -> dict:
+    """Read the mutable monitoring state blob from settings_json."""
+    return dict(data.get("monitoring_state") or {})
+
+
+def _write_monitoring_state(db: Session, user_id: int, updates: dict) -> None:
+    """Merge updates into settings_json.monitoring_state and persist."""
+    from sqlalchemy.orm.attributes import flag_modified
+    sr = db.query(UserSettings).filter(UserSettings.user_id == user_id).first()
+    if not sr:
+        return
+    data = dict(sr.settings_json or {})
+    state = dict(data.get("monitoring_state") or {})
+    state.update(updates)
+    data["monitoring_state"] = state
+    sr.settings_json = data
+    flag_modified(sr, "settings_json")
+    db.commit()
 
 
 def _ensure_supervisor_configured(db: Session, user_id: int) -> bool:
@@ -393,12 +502,11 @@ async def send_alert(user_id: int, title: str, detail: str):
 
 async def hourly_check_all_users():
     """
-    APScheduler-invoked hourly job. Loops users with LLM enabled + Telegram connected,
-    runs a health check, sends summary.
+    APScheduler top-of-hour tick. Fans out to each eligible user and lets
+    `_run_hourly_for_user` apply per-user cadence + quiet-hours + skip logic.
     """
     db = SessionLocal()
     try:
-        # Find users with LLM enabled AND Telegram connected
         candidates = db.query(UserSettings).all()
         for sr in candidates:
             data = sr.settings_json or {}
@@ -406,33 +514,135 @@ async def hourly_check_all_users():
                 continue
             if not data.get("telegram_chat_id"):
                 continue  # no point running AI if we can't deliver the message
+            mon = _load_monitoring_config(data)
+            if not mon.get("enabled", True):
+                continue
             try:
                 await _run_hourly_for_user(db, sr.user_id)
             except Exception as e:
-                logger.warning(f"Hourly check failed for user {sr.user_id}: {e}", exc_info=True)
+                logger.warning(
+                    f"Hourly check failed for user {sr.user_id}: {e}", exc_info=True
+                )
     finally:
         db.close()
 
 
 async def _run_hourly_for_user(db: Session, user_id: int):
-    """Single-user hourly health check."""
+    """
+    Scheduled status report for one user. Applies the user's monitoring config:
+      - frequency preset gates how often we fire
+      - quiet hours suppress sends in their local window
+      - skip_when_markets_closed holds reports during weekends etc.
+      - skip_when_unchanged suppresses duplicates unless 24h have passed
+    """
+    from app.services.market_hours import (
+        get_asset_class_status,
+        any_market_open_for_symbols,
+    )
+
     if not _ensure_supervisor_configured(db, user_id):
         return
-    supervisor = get_supervisor()
-    ctx = _build_user_context(db, user_id, lookback_trades=50)
 
-    # Only send hourly if there's activity (open agents OR recent trades)
-    if not ctx["agents"] and not ctx["recent_trades"]:
+    data = _load_user_settings(db, user_id)
+    mon = _load_monitoring_config(data)
+    if not mon.get("enabled", True):
         return
 
-    # Include extra stats for hourly
+    # 1. Frequency gate — skip unless enough minutes have elapsed.
+    now_utc = datetime.now(timezone.utc)
+    freq_min = _frequency_minutes(mon.get("frequency", "1h"))
+    if freq_min is None:
+        return  # "off"
+
+    state = _get_monitoring_state(data)
+    last_sent_iso = state.get("last_sent_at")
+    if last_sent_iso:
+        try:
+            last_sent = datetime.fromisoformat(last_sent_iso)
+            if last_sent.tzinfo is None:
+                last_sent = last_sent.replace(tzinfo=timezone.utc)
+            if (now_utc - last_sent).total_seconds() < freq_min * 60 - 30:
+                return  # too soon
+        except ValueError:
+            pass
+
+    # 2. Quiet-hours gate — evaluated in user's timezone.
+    tz = _user_timezone(data)
+    now_local = now_utc.astimezone(tz)
+    if _is_within_quiet_hours(now_local, mon.get("quiet_hours_start"),
+                              mon.get("quiet_hours_end")):
+        return
+
+    # 3. Build context + market-aware skip.
+    ctx = _build_user_context(db, user_id, lookback_trades=50)
+    if not ctx["agents"] and not ctx["recent_trades"]:
+        return  # nothing to report on
+
+    user_symbols = [a.get("symbol") for a in ctx["agents"] if a.get("symbol")]
+    any_open = any_market_open_for_symbols(user_symbols, now_utc) if user_symbols else False
+
+    if mon.get("skip_when_markets_closed", True) and user_symbols and not any_open:
+        # Send a one-shot "markets closed" heads-up, then stay silent until
+        # a market opens again. The flag resets itself the next time any
+        # market is open.
+        if not state.get("markets_closed_notified"):
+            chat_id, user_token = _user_telegram(db, user_id)
+            if chat_id:
+                notifier = get_telegram_notifier()
+                local_str = now_local.strftime("%H:%M %Z")
+                msg = (
+                    f"🕑 <b>Markets closed</b> · {local_str}\n\n"
+                    f"All of your agents' markets are closed right now. "
+                    f"I'll resume status reports as soon as one reopens."
+                )
+                await notifier.send_to_user(chat_id, msg, user_token)
+            _write_monitoring_state(db, user_id, {
+                "markets_closed_notified": True,
+                "last_sent_at": now_utc.isoformat(),
+            })
+        return
+
+    # Markets are open again (or crypto user) — clear the flag so next closure notifies.
+    if state.get("markets_closed_notified"):
+        _write_monitoring_state(db, user_id, {"markets_closed_notified": False})
+
+    # 4. Extra context for hourly + state-hash.
     ctx["open_positions"] = sum(1 for t in ctx["recent_trades"] if t["status"] == "open")
     ctx["daily_pnl"] = ctx["daily_summary"]["total_pnl"]
+    ctx["asset_class_status"] = get_asset_class_status(now_utc)
+    ctx["user_timezone"] = str(tz)
+    ctx["local_time_display"] = now_local.strftime("%Y-%m-%d %H:%M %Z")
+    ctx["report_cadence"] = mon.get("frequency", "1h")
 
-    reply = await supervisor.hourly_health_check(user_id, ctx)
+    state_hash = _compute_state_hash(ctx)
+    last_hash = state.get("last_state_hash")
+    last_liveness_iso = state.get("last_liveness_at") or last_sent_iso
+    liveness_due = True
+    if last_liveness_iso:
+        try:
+            last_live = datetime.fromisoformat(last_liveness_iso)
+            if last_live.tzinfo is None:
+                last_live = last_live.replace(tzinfo=timezone.utc)
+            liveness_due = (now_utc - last_live).total_seconds() >= 24 * 3600
+        except ValueError:
+            pass
+
+    state_changed = (state_hash != last_hash)
+    ctx["state_changed"] = state_changed
+
+    if (
+        mon.get("skip_when_unchanged", True)
+        and not state_changed
+        and not liveness_due
+    ):
+        return
+
+    # 5. Ask the supervisor.
+    reply = await supervisor_hourly(user_id, ctx)
     if not reply:
         return
 
+    supervisor = get_supervisor()
     _append_to_monitoring_session(db, user_id, "assistant", reply,
                                   model=supervisor.get_session(user_id).model)
 
@@ -442,15 +652,33 @@ async def _run_hourly_for_user(db: Session, user_id: int):
     except Exception as e:
         logger.warning(f"Hourly autonomous action error: {e}", exc_info=True)
 
+    # 6. Deliver to Telegram with local-time header.
     chat_id, user_token = _user_telegram(db, user_id)
     if chat_id:
         notifier = get_telegram_notifier()
+        cadence_label = {
+            "1h": "Hourly", "4h": "4-Hour", "12h": "12-Hour", "daily": "Daily",
+        }.get(mon.get("frequency", "1h"), "Report")
         header = (
-            f"📊 <b>Hourly Report</b> · {datetime.now(timezone.utc).strftime('%H:%M UTC')}\n"
+            f"📊 <b>{cadence_label} Report</b> · {now_local.strftime('%H:%M %Z')}\n"
             f"P&L: ${ctx['daily_pnl']:.2f} · Trades: {ctx['daily_summary']['trade_count']} · "
             f"WR: {ctx['daily_summary']['win_rate']:.1f}%\n\n"
         )
         await notifier.send_to_user(chat_id, header + reply, user_token)
+
+    # 7. Persist state.
+    updates = {
+        "last_sent_at":    now_utc.isoformat(),
+        "last_state_hash": state_hash,
+    }
+    if state_changed or liveness_due:
+        updates["last_liveness_at"] = now_utc.isoformat()
+    _write_monitoring_state(db, user_id, updates)
+
+
+async def supervisor_hourly(user_id: int, ctx: dict) -> Optional[str]:
+    """Thin wrapper so tests can monkeypatch the Claude call."""
+    return await get_supervisor().hourly_health_check(user_id, ctx)
 
 
 # ── Alert detection (called from engine after each trade close) ────────

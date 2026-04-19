@@ -11,6 +11,83 @@ _Chronological record of all changes. Read this before starting any task._
 
 ---
 
+## 2026-04-19 — Reporting fixes · Interactive Brokers · Multi-broker · Help page · PWA
+
+Five-part change set addressing user-reported AI report defects and rolling in
+the broker + nav + packaging work queued for the beta.
+
+### Part 1 — AI reports (root cause of "SYSTEM FAILURE" hallucinations)
+- `app/services/llm/monitoring.py`: per-user report scheduler. Each user now
+  has a `monitoring` config in `settings_json` with frequency preset (off,
+  1h, 4h, 12h, daily), optional quiet-hours window, skip-when-markets-closed,
+  and skip-when-unchanged toggles. The cron still fires hourly but only
+  delivers when the user's cadence + gates allow it.
+- Market-aware skip: when all of the user's agent symbols are closed, sends
+  one "markets closed" heads-up and then stays silent until a market opens.
+- State-change hash: SHA-1 over `(rounded pnl, trade count, open positions,
+  running agents, last trade id)`. Unchanged + no liveness due → skip the
+  Claude call entirely. 24h liveness ping still fires if state is idle.
+- User timezone: new `UserSettings.settings_json.timezone` field. Frontend
+  autodetects via `Intl.DateTimeFormat().resolvedOptions().timeZone` on first
+  load and prompts the user to keep or change. Report headers now render in
+  the user's local time, not UTC.
+- `supervisor.py` system prompt: explicit asset-class hours section +
+  reporting-discipline section that instructs the model to reply
+  "No material change since last report." when nothing has shifted and to
+  never claim "system failure" just because agents are stopped.
+- `market_hours.py` gained `get_asset_class_status()` + `any_market_open_for_symbols()`.
+- New endpoints: `GET/PUT /api/llm/monitoring` and `GET/PUT /api/llm/timezone`.
+- Tests: 19 new (market-hours helpers, quiet-hours edge cases, state-hash
+  stability, monitoring config defaults).
+
+### Part 2 — Interactive Brokers adapter (Client Portal REST)
+- New `app/services/broker/interactive_brokers.py` — 14-method REST adapter
+  against IBKR Client Portal. Paper + live environments. Native bracket
+  orders so SL/TP live broker-side.
+- Registered in `BrokerManager`; symbol registry gained IB contract mapping
+  for all 18 canonical symbols.
+- Frontend `BrokerModal` got an Interactive Brokers option with
+  account_id / consumer_key / base_url / paper-vs-live toggle.
+
+### Part 3 — Multi-broker simultaneous connections
+- Removed auto-disconnect-on-connect in `BrokerManager.connect()` — users can
+  now keep multiple brokers connected at once. Each agent already targets a
+  specific broker, and cache/account models are keyed by (user, broker), so
+  no engine-side changes were needed.
+- Added `BrokerManager.get_connected_brokers()` (plural) and exposed
+  `brokers: [...]` in `/api/broker/status`.
+- Settings UI broker panel calls out the multi-broker capability.
+
+### Part 4 — Help & Support page (replaces Feedback tab)
+- New `/help` route with five tabs: Quick Start, Broker Setup (5 brokers
+  including IBKR), Prop Firms (compatibility table with `last_verified`
+  dates and per-row "Report update" buttons), FAQ (covers VPS, timezone,
+  reports, retraining, PWA), Contact & Feedback (form moved from Settings).
+- Nav: Help added to desktop sidebar between Settings and Admin; bottom tab
+  bar on mobile now has Help where AI used to be (AI stays in the sidebar).
+
+### Part 5 — PWA support
+- `public/manifest.webmanifest` + `public/sw.js` (network-first, never caches
+  `/api/*` or `/ws`). `PwaRegister` client component registers the worker in
+  production only. Layout metadata now advertises the manifest and sets
+  theme color + apple-web-app flags.
+
+### Files touched (highlights)
+- Backend: `services/llm/monitoring.py`, `services/llm/supervisor.py`,
+  `services/market_hours.py`, `api/llm.py`, `api/broker.py`,
+  `services/broker/manager.py`, `services/broker/symbol_registry.py`,
+  new `services/broker/interactive_brokers.py`
+- Frontend: new `app/help/page.tsx`, `components/TimezoneBanner.tsx`,
+  `components/PwaRegister.tsx`, `public/manifest.webmanifest`, `public/sw.js`;
+  updates to `app/ai/page.tsx` (Monitoring section), `app/settings/page.tsx`
+  (Timezone row + multi-broker note, Feedback tab removed),
+  `components/BrokerModal.tsx`, `components/Sidebar.tsx`,
+  `components/BottomNav.tsx`, `components/AppShell.tsx`,
+  `app/layout.tsx`, `lib/timezone.ts`
+- Plan file: `/home/flowrex/.claude/plans/joyful-yawning-twilight.md`
+
+---
+
 ## 2026-04-18 — Code-review fixes + Telegram + market hours + debug-logging cleanup + user guide
 
 Post-merge review-driven improvements + new user-facing docs.

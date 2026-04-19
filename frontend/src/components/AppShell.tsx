@@ -5,6 +5,7 @@ import { usePathname } from "next/navigation";
 import Sidebar from "./Sidebar";
 import BottomNav from "./BottomNav";
 import ProfileDropdown from "./ProfileDropdown";
+import TimezoneBanner from "./TimezoneBanner";
 
 const PUBLIC_PATHS = ["/login", "/register"];
 
@@ -48,6 +49,7 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
   return (
     <>
       <a href="#main-content" className="skip-link">Skip to main content</a>
+      <TimezoneBanner />
       <Sidebar />
       <div className={`min-h-screen transition-all duration-200 ${sidebarPinned ? "md:ml-56" : "md:ml-16"}`}>
         <header className="flex items-center justify-end px-4 py-3 md:px-6">

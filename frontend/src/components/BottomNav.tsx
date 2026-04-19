@@ -6,20 +6,21 @@ import {
   LayoutDashboard,
   LineChart,
   Bot,
-  MessageSquare,
+  LifeBuoy,
   Settings,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 
 /**
  * Mobile bottom tab bar. 5 primary destinations, thumb-friendly.
+ * AI Chat lives in the sidebar; Help replaces it here since it's tapped more.
  * Desktop hides this (sidebar handles nav).
  */
 const TABS = [
   { href: "/", label: "Home", icon: LayoutDashboard },
   { href: "/trading", label: "Trading", icon: LineChart },
   { href: "/agents", label: "Agents", icon: Bot },
-  { href: "/ai", label: "AI", icon: MessageSquare },
+  { href: "/help", label: "Help", icon: LifeBuoy },
   { href: "/settings", label: "Settings", icon: Settings },
 ] as const;
 

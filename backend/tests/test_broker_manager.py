@@ -114,3 +114,30 @@ async def test_credentials_decrypt_on_reconnect(manager, db_session, test_user):
         call_args = fake2.connect.call_args[0][0]
         assert call_args["api_key"] == "my-key"
         assert call_args["account_id"] == "acc-1"
+
+
+@pytest.mark.asyncio
+async def test_multi_broker_coexist(manager, db_session, test_user):
+    """
+    User should be able to keep two brokers connected at once. We previously
+    auto-disconnected any existing broker on connect — that's removed.
+    """
+    with patch.object(manager, "_create_adapter") as mock_create:
+        fake_oanda = AsyncMock()
+        fake_oanda.connect = AsyncMock(return_value=True)
+        fake_tradovate = AsyncMock()
+        fake_tradovate.connect = AsyncMock(return_value=True)
+
+        def _factory(name):
+            return {"oanda": fake_oanda, "tradovate": fake_tradovate}[name]
+        mock_create.side_effect = _factory
+
+        await manager.connect(test_user.id, "oanda", {"api_key": "a"}, db_session)
+        await manager.connect(test_user.id, "tradovate", {"api_key": "b"}, db_session)
+
+        # Both stay connected — no auto-disconnect
+        connected = manager.get_connected_brokers(test_user.id)
+        assert set(connected) == {"oanda", "tradovate"}
+        # get_adapter works for each independently
+        assert manager.get_adapter(test_user.id, "oanda") is fake_oanda
+        assert manager.get_adapter(test_user.id, "tradovate") is fake_tradovate

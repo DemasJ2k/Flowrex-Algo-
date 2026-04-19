@@ -965,3 +965,58 @@ _Updated at the end of each phase. Read this to understand what has been built._
 ### Live state
 - 1 active: GOLD XAUUSD flowrex_v2 (weekend sleep, auto-resume Sun 22:00 UTC)
 - 5 stopped: potential-type agents need retrain before re-enabling
+
+---
+
+## Phase 22 — Reporting Fixes + Interactive Brokers + Multi-Broker + Help Page + PWA (2026-04-19)
+
+Direct response to three hourly-report defect screenshots (AI hallucinating
+"SYSTEM FAILURE", duplicate reports, UTC-only headers) plus queued beta asks.
+
+### AI reports — root cause + fix
+- Per-user `UserSettings.settings_json.monitoring`: frequency preset
+  (off/1h/4h/12h/daily), quiet-hours window, skip-when-markets-closed,
+  skip-when-unchanged
+- `_run_hourly_for_user` rewritten: frequency gate, quiet-hours gate,
+  market-aware skip (one-shot "markets closed" heads-up then silent until
+  open), state-change SHA-1 hash, 24h liveness ping
+- User timezone: `settings_json.timezone` + `tz_confirmed`; frontend
+  autodetects via `Intl.DateTimeFormat()` and shows confirm banner once
+- Report headers render in user's local time (was hardcoded UTC)
+- Supervisor prompt: explicit asset-class hours + reporting discipline +
+  anti-hallucination rule ("do NOT conclude 'system failure' because
+  agents are stopped on weekends")
+
+### Interactive Brokers (new broker)
+- `services/broker/interactive_brokers.py` — 14-method Client Portal REST
+  adapter, paper + live, native bracket orders, conid resolution cached
+- IB contract mapping added to `symbol_registry.py` for all 18 canonical
+  symbols
+- `BrokerManager._ADAPTER_CLASSES` registered
+- `BrokerModal` frontend option (account_id, consumer_key, base_url,
+  paper/live toggle)
+
+### Multi-broker simultaneous
+- `BrokerManager.connect()` no longer force-disconnects other brokers
+- `get_connected_brokers()` helper + `brokers: [...]` in /api/broker/status
+- `test_multi_broker_coexist` added
+
+### Help & support page
+- `/help` with 5 tabs: Quick Start, Broker Setup (5 brokers incl IBKR),
+  Prop Firms (compatibility table with `last_verified` + per-row "Report
+  update" prefill), FAQ, Contact & Feedback
+- Feedback tab removed from Settings (moved to /help)
+- Nav: Help in desktop sidebar between Settings and Admin; mobile bottom-
+  tab swapped AI → Help (AI still in sidebar)
+
+### PWA
+- `public/manifest.webmanifest` + `public/sw.js` (network-first, never
+  caches `/api/*` or `/ws`)
+- `PwaRegister` registers SW in production only
+- `layout.tsx` metadata announces manifest + apple-web-app flags
+
+### Tests
+- +17 monitoring (quiet-hours, frequency presets, state hash, defaults)
+- +9 market_hours (asset-class status, any-open-for-symbols)
+- +1 broker_manager (multi-broker coexist)
+- 59/59 targeted pass

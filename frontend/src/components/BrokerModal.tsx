@@ -31,6 +31,20 @@ const BROKER_FIELDS: Record<string, { label: string; key: string; type?: string 
     { label: "Secret", key: "sec" },
     { label: "Demo Account", key: "demo", type: "toggle" },
   ],
+  interactive_brokers: [
+    { label: "Account ID (e.g. DU1234567)", key: "account_id" },
+    { label: "Client Portal Consumer Key", key: "consumer_key" },
+    { label: "Gateway URL (leave blank for default)", key: "base_url" },
+    { label: "Live Account (off = paper)", key: "environment_live", type: "toggle" },
+  ],
+};
+
+const BROKER_LABELS: Record<string, string> = {
+  oanda: "OANDA",
+  ctrader: "cTrader",
+  mt5: "MT5",
+  tradovate: "Tradovate",
+  interactive_brokers: "Interactive Brokers",
 };
 
 export default function BrokerModal({
@@ -51,9 +65,19 @@ export default function BrokerModal({
     setLoading(true);
     setError("");
     try {
-      const res = await api.post("/api/broker/connect", { broker_name: broker, credentials: creds }, { timeout: 30000 });
+      // Normalise IBKR toggle → backend expects string "paper" | "live".
+      let payload: Record<string, string | boolean> = { ...creds };
+      if (broker === "interactive_brokers") {
+        payload = {
+          account_id: (creds.account_id as string) || "",
+          consumer_key: (creds.consumer_key as string) || "",
+          environment: creds.environment_live === true ? "live" : "paper",
+        };
+        if (creds.base_url) payload.base_url = creds.base_url as string;
+      }
+      const res = await api.post("/api/broker/connect", { broker_name: broker, credentials: payload }, { timeout: 30000 });
       if (res.data.status === "connected") {
-        toast.success(`Connected to ${broker.toUpperCase()}`);
+        toast.success(`Connected to ${BROKER_LABELS[broker] || broker}`);
         onConnected();
         onClose();
       } else {
@@ -69,17 +93,26 @@ export default function BrokerModal({
   return (
     <Modal open={open} onClose={onClose} title="Connect Broker">
       {/* Broker Selection */}
-      <div className="flex gap-2 mb-4">
-        {["oanda", "tradovate", "ctrader", "mt5"].map((b) => (
+      <div className="flex flex-wrap gap-2 mb-4">
+        {["oanda", "tradovate", "ctrader", "mt5", "interactive_brokers"].map((b) => (
           <button
             key={b}
-            onClick={() => { setBroker(b); setCreds(b === "oanda" ? { practice: true } : b === "tradovate" ? { demo: true } : {}); }}
-            className={`px-4 py-2 text-sm font-medium rounded-lg border transition-colors ${
+            onClick={() => {
+              setBroker(b);
+              const defaults: Record<string, string | boolean> =
+                b === "oanda" ? { practice: true }
+                : b === "tradovate" ? { demo: true }
+                : b === "interactive_brokers" ? { environment_live: false }
+                : {};
+              setCreds(defaults);
+              setError("");
+            }}
+            className={`px-3 py-1.5 text-xs md:text-sm font-medium rounded-lg border transition-colors ${
               broker === b ? "border-blue-500 bg-blue-500/10 text-blue-400" : "hover:bg-white/5"
             }`}
             style={{ borderColor: broker === b ? undefined : "var(--border)" }}
           >
-            {b.toUpperCase()}
+            {BROKER_LABELS[b] || b.toUpperCase()}
           </button>
         ))}
       </div>

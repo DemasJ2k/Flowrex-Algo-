@@ -4,6 +4,7 @@ import { Toaster } from "sonner";
 import "./globals.css";
 import AppShell from "@/components/AppShell";
 import ErrorBoundary from "@/components/ErrorBoundary";
+import PwaRegister from "@/components/PwaRegister";
 
 const geistSans = Geist({
   variable: "--font-geist-sans",
@@ -18,6 +19,17 @@ const geistMono = Geist_Mono({
 export const metadata: Metadata = {
   title: "FlowrexAlgo — Autonomous Trading Platform",
   description: "Deploy ML-powered trading agents on US30, BTCUSD, and XAUUSD. Institutional-grade algorithms with real-time monitoring.",
+  manifest: "/manifest.webmanifest",
+  themeColor: "#7c3aed",
+  appleWebApp: {
+    capable: true,
+    title: "Flowrex",
+    statusBarStyle: "black-translucent",
+  },
+  icons: {
+    icon: "/logo-icon.png",
+    apple: "/logo-icon.png",
+  },
 };
 
 export default function RootLayout({
@@ -34,6 +46,7 @@ export default function RootLayout({
         className={`${geistSans.variable} ${geistMono.variable} antialiased min-h-screen`}
         style={{ background: "var(--background)", color: "var(--foreground)" }}
       >
+        <PwaRegister />
         <ErrorBoundary><AppShell>{children}</AppShell></ErrorBoundary>
         <Toaster
           theme="dark"

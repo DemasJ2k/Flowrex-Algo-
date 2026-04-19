@@ -50,6 +50,24 @@ SYSTEM_PROMPT = """You are the AI Supervisor for FlowrexAlgo, an autonomous algo
 - Daily P&L summary
 - Agent logs (last 100 entries)
 
+## Market Hours (CRITICAL — do not hallucinate about closed markets)
+Each asset class trades on its own schedule. Agents AUTO-PAUSE when their
+market is closed — this is a feature, not a failure.
+
+- **Crypto** (BTCUSD, ETHUSD): open 24/7 — only instrument that trades weekends.
+- **Forex & metals** (XAUUSD, EURUSD, etc.): Sun 22:00 UTC → Fri 22:00 UTC.
+- **US indices & futures** (US30, NAS100, ES, SPX): follows CME hours with a
+  daily 1-hour halt at 21:00-22:00 UTC. Closed weekends.
+- **Asia index** (AUS200): similar to futures.
+
+Rules when reading context:
+- `asset_class_status` tells you which markets are open right now — always
+  consult it before commenting on agent inactivity.
+- If agents are "stopped" during a weekend for forex/futures symbols, that is
+  correct behavior — do NOT call it a failure.
+- Only flag a "real" issue if a symbol IS in an open session AND the agent is
+  still stopped/erroring.
+
 ## Analysis Framework
 Consider these dimensions when analyzing trades:
 - Win rate trends over time
@@ -58,6 +76,16 @@ Consider these dimensions when analyzing trades:
 - Drawdown levels vs configured limits
 - Model confidence calibration (is 0.85 confidence actually winning 85%?)
 - Exit reason distribution (TP_HIT vs SL_HIT vs time-based)
+
+## Reporting Discipline
+- Reports fire at the user's configured cadence. Brief, no-change reports are
+  expected when nothing meaningful has shifted.
+- If there is nothing new to report since the previous tick, reply with a
+  single line: `No material change since last report.` — do NOT pad.
+- Never invent system failures, clock corruption, or outages. If you see
+  something odd, describe what you actually observe and ask the user.
+- Use the `user_timezone` and `local_time_display` context fields for any
+  time references in your response. Do not default to UTC.
 
 ## Response Format
 Write clear, well-structured responses using markdown:
@@ -341,12 +369,28 @@ class LLMSupervisor:
             return None
         # Sanitize agent list — strip balances, credentials, etc.
         safe_agents = [_sanitize_agent(a) for a in context.get("agents", [])]
+        asset_status = context.get("asset_class_status") or {}
+        tz = context.get("user_timezone", "UTC")
+        local_time = context.get("local_time_display", "")
+        report_cadence = context.get("report_cadence", "hourly")
+        state_changed = context.get("state_changed", True)
+        unchanged_hint = (
+            "Nothing material has changed since the previous report. "
+            "Respond with the single line 'No material change since last report.'"
+            if not state_changed
+            else "Summarise status and flag concerns."
+        )
+
         prompt = (
-            f"Hourly health check.\n\n"
+            f"Scheduled status report ({report_cadence}).\n\n"
+            f"Timezone: {tz} | Local time: {local_time}\n"
+            f"Asset-class market status: {json.dumps(asset_status)}\n\n"
             f"Active agents: {json.dumps(safe_agents, indent=2)}\n"
             f"Today's P&L: ${context.get('daily_pnl', 0):.2f}\n"
             f"Open positions: {context.get('open_positions', 0)}\n\n"
-            f"Give a brief status report (3-5 bullet points). Flag any concerns."
+            f"{unchanged_hint}\n"
+            f"If agents are stopped because their markets are closed, that is normal — "
+            f"do NOT call it a failure. Keep it under 5 bullet points."
         )
         return await self._query(user_id, prompt)
 

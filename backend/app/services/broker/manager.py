@@ -10,6 +10,7 @@ from app.services.broker.oanda import OandaAdapter
 from app.services.broker.ctrader import CTraderAdapter
 from app.services.broker.mt5 import MT5Adapter
 from app.services.broker.tradovate import TradovateAdapter
+from app.services.broker.interactive_brokers import InteractiveBrokersAdapter
 
 
 _ADAPTER_CLASSES = {
@@ -17,6 +18,7 @@ _ADAPTER_CLASSES = {
     "ctrader": CTraderAdapter,
     "mt5": MT5Adapter,
     "tradovate": TradovateAdapter,
+    "interactive_brokers": InteractiveBrokersAdapter,
 }
 
 
@@ -53,10 +55,10 @@ class BrokerManager:
         if key in self._adapters:
             return True
 
-        # One-active-broker: disconnect any other broker for this user first
-        existing_broker = self.get_connected_broker(user_id)
-        if existing_broker and existing_broker != broker_name:
-            await self.disconnect(user_id, existing_broker)
+        # Multi-broker is allowed: agents are each pinned to a specific broker
+        # (TradingAgent.broker_name), cache/state is keyed by (user, broker),
+        # and the account model is a composite key. We no longer force-disconnect
+        # other brokers when a user connects a new one.
 
         # Store or load credentials
         broker_account = (
@@ -119,11 +121,19 @@ class BrokerManager:
         return self._adapters.get((user_id, broker_name))
 
     def get_connected_broker(self, user_id: int) -> Optional[str]:
-        """Return the first connected broker name for a user, or None."""
+        """Return the first connected broker name for a user, or None.
+
+        Kept for backwards-compat in single-broker code paths; new code that
+        needs the full list should call `get_connected_brokers()`.
+        """
         for (uid, bname), _ in self._adapters.items():
             if uid == user_id:
                 return bname
         return None
+
+    def get_connected_brokers(self, user_id: int) -> list[str]:
+        """Return all connected broker names for a user."""
+        return [bname for (uid, bname) in self._adapters.keys() if uid == user_id]
 
     def get_connected_since(self, user_id: int, broker_name: str) -> Optional[float]:
         """Return connection timestamp (epoch) or None."""

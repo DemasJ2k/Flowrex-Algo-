@@ -1,0 +1,17 @@
+{
+  "name": "Flowrex Algo",
+  "short_name": "Flowrex",
+  "description": "Autonomous ML-powered trading platform. Run, monitor, and chat with your agents from any device.",
+  "start_url": "/",
+  "scope": "/",
+  "display": "standalone",
+  "orientation": "portrait-primary",
+  "background_color": "#0a0a0f",
+  "theme_color": "#7c3aed",
+  "icons": [
+    { "src": "/logo-icon.png", "sizes": "192x192", "type": "image/png", "purpose": "any" },
+    { "src": "/logo-icon.png", "sizes": "512x512", "type": "image/png", "purpose": "any maskable" }
+  ],
+  "categories": ["finance", "productivity"],
+  "lang": "en"
+}

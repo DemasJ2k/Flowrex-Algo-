@@ -12,7 +12,8 @@ import ConfirmDialog from "@/components/ui/ConfirmDialog";
 import { toast } from "sonner";
 import { getErrorMessage } from "@/lib/errors";
 import type { UserSettings } from "@/types";
-import { Download, Shield, ShieldCheck, Key, Eye, EyeOff, Trash2, Loader2, Database, Plus, CheckCircle, XCircle, MessageSquare } from "lucide-react";
+import { detectBrowserTimezone, getUserTimezone, setUserTimezone } from "@/lib/timezone";
+import { Download, Shield, ShieldCheck, Key, Eye, EyeOff, Trash2, Loader2, Database, Plus, CheckCircle, XCircle } from "lucide-react";
 
 interface UserProfile { id: number; email: string; is_admin: boolean; created_at: string | null; has_2fa: boolean; }
 interface BrokerConnection { broker_name: string; stored: boolean; is_active: boolean; connected: boolean; balance: number | null; currency: string | null; account_id: string | null; server: string | null; connected_since: number | null; }
@@ -53,11 +54,6 @@ export default function SettingsPage() {
   const [providers, setProviders] = useState<DataProvider[]>([]);
   const [newProvider, setNewProvider] = useState({ name: "databento", key: "", type: "ohlcv" });
   const [providerTesting, setProviderTesting] = useState<number | null>(null);
-
-  // Feedback
-  const [feedbackType, setFeedbackType] = useState("bug");
-  const [feedbackMsg, setFeedbackMsg] = useState("");
-  const [feedbackSending, setFeedbackSending] = useState(false);
 
   // Data
   const [clearLogsConfirm, setClearLogsConfirm] = useState(false);
@@ -158,6 +154,17 @@ export default function SettingsPage() {
     const iv = setInterval(() => setUptimeTick((t) => t + 1), 1000);
     return () => clearInterval(iv);
   }, [connections]);
+
+  const prettyBroker = (name: string) => {
+    const map: Record<string, string> = {
+      oanda: "OANDA",
+      tradovate: "Tradovate",
+      ctrader: "cTrader",
+      mt5: "MT5",
+      interactive_brokers: "Interactive Brokers",
+    };
+    return map[name] || name.toUpperCase();
+  };
 
   const fmtUptime = (since: number | null) => {
     if (!since) return "";
@@ -352,6 +359,7 @@ export default function SettingsPage() {
                     <input type="checkbox" checked={settings.notifications_enabled} onChange={(e) => setSettings({ ...settings, notifications_enabled: e.target.checked })} className="rounded" />
                     Enable notifications
                   </label>
+                  <TimezoneRow />
                   <button onClick={handleSaveSettings} className="px-4 py-2 text-sm font-medium rounded-lg bg-blue-600 hover:bg-blue-500 text-white">Save Preferences</button>
                 </div>
               </Glass>
@@ -496,7 +504,12 @@ export default function SettingsPage() {
               {/* Broker Connections */}
               <Glass padding="md">
                 <div className="flex items-center justify-between mb-3">
-                  <h3 className="text-sm font-medium">Broker Connections</h3>
+                  <div>
+                    <h3 className="text-sm font-medium">Broker Connections</h3>
+                    <p className="text-[11px] mt-0.5" style={{ color: "var(--muted)" }}>
+                      Connect multiple brokers at once. Each agent targets one specific broker.
+                    </p>
+                  </div>
                   <button onClick={() => setBrokerModal(true)} className="text-xs text-blue-400 hover:text-blue-300">+ Add Connection</button>
                 </div>
                 <div className="space-y-2">
@@ -505,7 +518,7 @@ export default function SettingsPage() {
                       {/* Header Row */}
                       <div className="flex items-center justify-between px-4 py-3" style={{ background: c.connected ? "rgba(16, 185, 129, 0.05)" : "transparent" }}>
                         <div className="flex items-center gap-3">
-                          <span className="text-sm font-semibold uppercase">{c.broker_name}</span>
+                          <span className="text-sm font-semibold">{prettyBroker(c.broker_name)}</span>
                           {c.connected ? (
                             <span className="flex items-center gap-1.5 text-xs font-medium text-emerald-400">
                               <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
@@ -779,51 +792,6 @@ export default function SettingsPage() {
           ),
         },
         {
-          label: "Feedback",
-          content: (
-            <div className="space-y-4">
-              <Glass padding="md">
-                <h3 className="text-sm font-medium mb-3 flex items-center gap-2"><MessageSquare size={14} /> Submit Feedback</h3>
-                <div className="space-y-3">
-                  <div>
-                    <label className="block text-xs mb-1" style={{ color: "var(--muted)" }}>Type</label>
-                    <select value={feedbackType} onChange={(e) => setFeedbackType(e.target.value)}
-                      className="w-full px-3 py-2 text-sm rounded-lg border bg-transparent" style={{ borderColor: "var(--border)", background: "var(--card)" }}>
-                      <option value="bug">Bug Report</option>
-                      <option value="feature">Feature Request</option>
-                      <option value="provider_request">Provider Request</option>
-                      <option value="other">Other</option>
-                    </select>
-                  </div>
-                  <div>
-                    <label className="block text-xs mb-1" style={{ color: "var(--muted)" }}>Message</label>
-                    <textarea value={feedbackMsg} onChange={(e) => setFeedbackMsg(e.target.value)} rows={4}
-                      className="w-full px-3 py-2 text-sm rounded-lg border bg-transparent outline-none focus:border-blue-500 resize-none"
-                      style={{ borderColor: "var(--border)" }}
-                      placeholder="Describe the issue or feature you'd like..." />
-                  </div>
-                  <button
-                    disabled={!feedbackMsg.trim() || feedbackSending}
-                    onClick={async () => {
-                      setFeedbackSending(true);
-                      try {
-                        await api.post("/api/feedback", { feedback_type: feedbackType, message: feedbackMsg });
-                        toast.success("Feedback submitted!");
-                        setFeedbackMsg("");
-                      } catch (e) { toast.error(getErrorMessage(e)); }
-                      setFeedbackSending(false);
-                    }}
-                    className="px-4 py-2 text-sm font-medium rounded-lg bg-blue-600 hover:bg-blue-500 text-white disabled:opacity-50 flex items-center gap-2"
-                  >
-                    {feedbackSending ? <Loader2 size={14} className="animate-spin" /> : null}
-                    Submit Feedback
-                  </button>
-                </div>
-              </Glass>
-            </div>
-          ),
-        },
-        {
           label: "Privacy & Data",
           content: (
             <div className="space-y-4">
@@ -998,6 +966,88 @@ export default function SettingsPage() {
       ]} />
 
       <BrokerModal open={brokerModal} onClose={() => setBrokerModal(false)} onConnected={fetchData} />
+    </div>
+  );
+}
+
+
+/**
+ * Timezone selector row. Persists to backend + localStorage; sets the
+ * `confirmed` flag so the TimezoneBanner stops nagging.
+ */
+function TimezoneRow() {
+  const [tz, setTz] = useState<string>(getUserTimezone());
+  const [saving, setSaving] = useState(false);
+  const detected = typeof window === "undefined" ? "UTC" : detectBrowserTimezone();
+
+  useEffect(() => {
+    api.get("/api/llm/timezone").then((r) => {
+      if (r.data?.timezone) setTz(r.data.timezone);
+    }).catch(() => {});
+  }, []);
+
+  const save = async () => {
+    setSaving(true);
+    try {
+      await api.put("/api/llm/timezone", { timezone: tz, confirmed: true });
+      setUserTimezone(tz, true);
+      toast.success("Timezone saved");
+    } catch (err) {
+      toast.error(getErrorMessage(err));
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  // Popular zones, plus the detected one so it's always reachable.
+  const options = Array.from(new Set([
+    detected,
+    "UTC",
+    "Australia/Sydney",
+    "Australia/Melbourne",
+    "Australia/Perth",
+    "Pacific/Auckland",
+    "Asia/Tokyo",
+    "Asia/Singapore",
+    "Asia/Hong_Kong",
+    "Asia/Dubai",
+    "Europe/London",
+    "Europe/Paris",
+    "Europe/Berlin",
+    "America/New_York",
+    "America/Chicago",
+    "America/Denver",
+    "America/Los_Angeles",
+    "America/Sao_Paulo",
+  ])).filter(Boolean);
+
+  return (
+    <div id="timezone" className="space-y-2">
+      <label className="block text-xs" style={{ color: "var(--muted)" }}>
+        Timezone <span className="opacity-60">· detected {detected}</span>
+      </label>
+      <div className="flex gap-2">
+        <select
+          value={tz}
+          onChange={(e) => setTz(e.target.value)}
+          className="flex-1 px-3 py-2 text-sm rounded-lg border bg-transparent"
+          style={{ borderColor: "var(--border)", background: "var(--card)" }}
+        >
+          {options.map((z) => (
+            <option key={z} value={z}>{z}</option>
+          ))}
+        </select>
+        <button
+          onClick={save}
+          disabled={saving}
+          className="px-3 py-2 text-xs font-medium rounded-lg bg-blue-600 hover:bg-blue-500 text-white disabled:opacity-50"
+        >
+          {saving ? "Saving..." : "Save"}
+        </button>
+      </div>
+      <p className="text-[11px] leading-tight" style={{ color: "var(--muted)" }}>
+        Report headers and quiet-hours windows use this zone.
+      </p>
     </div>
   );
 }

@@ -27,6 +27,20 @@ class LLMConfigRequest(BaseModel):
     telegram_chat_id: Optional[str] = Field(None, max_length=100)
 
 
+class MonitoringConfig(BaseModel):
+    enabled: bool = True
+    frequency: Literal["off", "1h", "4h", "12h", "daily"] = "1h"
+    quiet_hours_start: Optional[str] = Field(None, pattern=r"^\d{2}:\d{2}$")
+    quiet_hours_end:   Optional[str] = Field(None, pattern=r"^\d{2}:\d{2}$")
+    skip_when_markets_closed: bool = True
+    skip_when_unchanged:      bool = True
+
+
+class TimezoneConfig(BaseModel):
+    timezone: str = Field(..., min_length=1, max_length=64)
+    confirmed: bool = True
+
+
 class ChatRequest(BaseModel):
     message: str = Field(..., min_length=1, max_length=4000)
     session_id: Optional[int] = None
@@ -143,6 +157,95 @@ async def save_llm_config(
         notifier.configure(bot_token, chat_id)
 
     return {"status": "ok", "enabled": body.enabled, "model": body.model}
+
+
+@router.get("/monitoring")
+async def get_monitoring_config(
+    user=Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """Return the user's report scheduling config merged over defaults."""
+    from app.services.llm.monitoring import _load_monitoring_config
+    from app.models.user import UserSettings
+
+    sr = db.query(UserSettings).filter(UserSettings.user_id == user.id).first()
+    data = (sr.settings_json if sr else None) or {}
+    cfg = _load_monitoring_config(data)
+
+    state = data.get("monitoring_state") or {}
+    return {
+        **cfg,
+        "timezone": data.get("timezone") or "UTC",
+        "tz_confirmed": bool(data.get("tz_confirmed")),
+        "last_sent_at": state.get("last_sent_at"),
+        "markets_closed_notified": bool(state.get("markets_closed_notified")),
+    }
+
+
+@router.put("/monitoring")
+async def update_monitoring_config(
+    body: MonitoringConfig,
+    user=Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """Persist the user's report scheduling preferences."""
+    from sqlalchemy.orm.attributes import flag_modified
+    from app.models.user import UserSettings
+
+    sr = db.query(UserSettings).filter(UserSettings.user_id == user.id).first()
+    if not sr:
+        sr = UserSettings(user_id=user.id, settings_json={})
+        db.add(sr)
+    data = dict(sr.settings_json or {})
+    data["monitoring"] = body.model_dump()
+    sr.settings_json = data
+    flag_modified(sr, "settings_json")
+    db.commit()
+    return {"status": "ok", "monitoring": body.model_dump()}
+
+
+@router.get("/timezone")
+async def get_user_timezone(
+    user=Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """Return the user's saved timezone + confirmation flag."""
+    from app.models.user import UserSettings
+    sr = db.query(UserSettings).filter(UserSettings.user_id == user.id).first()
+    data = (sr.settings_json if sr else None) or {}
+    return {
+        "timezone": data.get("timezone") or "UTC",
+        "confirmed": bool(data.get("tz_confirmed")),
+    }
+
+
+@router.put("/timezone")
+async def set_user_timezone(
+    body: TimezoneConfig,
+    user=Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """Persist the user's timezone (validated against zoneinfo)."""
+    from sqlalchemy.orm.attributes import flag_modified
+    from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
+    from app.models.user import UserSettings
+
+    try:
+        ZoneInfo(body.timezone)
+    except ZoneInfoNotFoundError:
+        raise HTTPException(400, f"Unknown timezone: {body.timezone}")
+
+    sr = db.query(UserSettings).filter(UserSettings.user_id == user.id).first()
+    if not sr:
+        sr = UserSettings(user_id=user.id, settings_json={})
+        db.add(sr)
+    data = dict(sr.settings_json or {})
+    data["timezone"] = body.timezone
+    data["tz_confirmed"] = bool(body.confirmed)
+    sr.settings_json = data
+    flag_modified(sr, "settings_json")
+    db.commit()
+    return {"status": "ok", "timezone": body.timezone, "confirmed": body.confirmed}
 
 
 @router.get("/config")

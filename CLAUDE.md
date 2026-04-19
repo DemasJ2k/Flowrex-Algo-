@@ -5,10 +5,26 @@
 - **Description:** Autonomous algorithmic trading platform with ML-powered agents
 - **Tech Stack:** FastAPI + Next.js 14 (App Router) + PostgreSQL + TypeScript + Tailwind CSS
 - **Starting Symbols:** BTCUSD, XAUUSD, US30 (expand to ES, NAS100 in Phase 7)
-- **Brokers:** Oanda, cTrader, MT5
+- **Brokers:** Oanda, cTrader, MT5, Tradovate, Interactive Brokers (Client Portal REST)
 
 ## Current Phase
-**ENGINE WIRING + AI AUTONOMY + LABEL-LEAKAGE FIX COMPLETE** (2026-04-18)
+**REPORTING FIXES + IB + MULTI-BROKER + HELP PAGE + PWA** (2026-04-19)
+- AI reports: per-user frequency (off/1h/4h/12h/daily), quiet hours, skip when
+  markets closed, skip when unchanged (state-change hash), 24h liveness ping
+- User timezone autodetect + confirm banner; report headers now in local time
+- Supervisor system prompt hardened with asset-class hours + no-change rule
+  (fixes "SYSTEM FAILURE clock corrupted" hallucinations)
+- Interactive Brokers adapter (Client Portal REST) — paper + live, native
+  bracket orders, IB contract mapping in symbol registry
+- Multi-broker simultaneous connections (removed auto-disconnect enforcement);
+  `/api/broker/status` now returns `brokers: [...]`
+- /help page replacing Settings Feedback tab — broker setup, prop firm
+  compatibility table, FAQ, feedback form; Help replaces AI on mobile
+  bottom-nav (AI stays in sidebar)
+- PWA: manifest.webmanifest + minimal SW (network-first, never caches /api or /ws)
+- Tests: 59/59 targeted green (market_hours +9, monitoring +17, broker_manager +1)
+
+### 2026-04-18 — Engine wiring + AI autonomy + label-leakage fix
 - 25+ wiring gaps closed (on_error, parse_actions, RiskManager, feature drift,
   margin check, symbol validation, cooldown persistence, broker reconcile,
   max hold, stale-data hash, broker 5XX retry, feature cache invalidation)

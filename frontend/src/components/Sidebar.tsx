@@ -14,6 +14,7 @@ import {
   Settings,
   ShieldCheck,
   MessageSquare,
+  LifeBuoy,
   Menu,
   X,
   PanelLeftOpen,
@@ -28,6 +29,7 @@ const navItems = [
   { label: "Backtest", href: "/backtest", icon: FlaskConical },
   { label: "News", href: "/news", icon: Newspaper },
   { label: "AI Chat", href: "/ai", icon: MessageSquare },
+  { label: "Help", href: "/help", icon: LifeBuoy },
   { label: "Settings", href: "/settings", icon: Settings },
   { label: "Admin", href: "/admin", icon: ShieldCheck, adminOnly: true },
 ] as const;

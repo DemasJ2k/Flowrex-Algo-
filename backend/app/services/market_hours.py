@@ -120,3 +120,40 @@ def seconds_until_open(symbol: str, now: Optional[datetime] = None) -> int:
         return 0
     delta = (nxt - now).total_seconds()
     return max(0, int(delta))
+
+
+_ASSET_CLASS_SAMPLE = {
+    "crypto":     "BTCUSD",
+    "forex":      "EURUSD",
+    "us_index":   "US30",
+    "asia_index": "AUS200",
+}
+
+
+def get_asset_class_status(now: Optional[datetime] = None) -> dict[str, dict]:
+    """
+    Return a short human-readable open/closed summary keyed by asset class.
+    Consumed by the AI supervisor prompt so the model stops hallucinating
+    "system failure" when forex is closed but crypto is open.
+
+    Shape: {"crypto": {"open": True, "reason": "open"}, "forex": {...}, ...}
+    """
+    if now is None:
+        now = datetime.now(timezone.utc)
+    status = {}
+    for cls, sample in _ASSET_CLASS_SAMPLE.items():
+        is_open, reason = is_market_open(sample, now)
+        status[cls] = {"open": is_open, "reason": reason}
+    return status
+
+
+def any_market_open_for_symbols(symbols: list[str],
+                                now: Optional[datetime] = None) -> bool:
+    """True if at least one of the given symbols' markets is currently open."""
+    if not symbols:
+        return False
+    for sym in symbols:
+        open_, _ = is_market_open(sym, now)
+        if open_:
+            return True
+    return False

@@ -47,7 +47,7 @@ async def list_connections(
         brokers[acct.broker_name] = {"broker_name": acct.broker_name, "stored": True, "is_active": acct.is_active}
 
     # Add known brokers even if no stored credentials
-    for name in ["oanda", "tradovate", "ctrader", "mt5"]:
+    for name in ["oanda", "tradovate", "ctrader", "mt5", "interactive_brokers"]:
         if name not in brokers:
             brokers[name] = {"broker_name": name, "stored": False, "is_active": False}
 
@@ -76,10 +76,12 @@ def broker_status(
     current_user: User = Depends(get_current_user),
     manager: BrokerManager = Depends(get_broker_manager),
 ):
-    connected_broker = manager.get_connected_broker(current_user.id)
+    """Multi-broker status. `broker` is the first for back-compat with older UI."""
+    connected = manager.get_connected_brokers(current_user.id)
     return {
-        "connected": connected_broker is not None,
-        "broker": connected_broker,
+        "connected": bool(connected),
+        "broker": connected[0] if connected else None,
+        "brokers": connected,
     }
 
 
