@@ -1,7 +1,7 @@
 "use client";
 
-import { useEffect, useRef, useCallback } from "react";
-import { createChart, IChartApi, ISeriesApi, CandlestickData, HistogramData, LineData, Time, SeriesMarker } from "lightweight-charts";
+import { useEffect, useRef, useCallback, useState } from "react";
+import { createChart, IChartApi, ISeriesApi, CandlestickData, HistogramData, LineData, Time, SeriesMarker, MouseEventParams } from "lightweight-charts";
 import type { CandleData } from "@/types";
 import { ema, sma, rsi, bollingerBands } from "@/lib/indicators";
 
@@ -41,6 +41,13 @@ export default function CandlestickChart({
   const volumeSeriesRef = useRef<ISeriesApi<"Histogram"> | null>(null);
   const indicatorSeriesRef = useRef<ISeriesApi<"Line">[]>([]);
   const disposedRef = useRef(false);
+  // Tracks whether the user has panned/zoomed. Once true we stop forcing
+  // the view back to fitContent() on each data refresh — the old behaviour
+  // made zooming pointless because every new candle tick reset it.
+  const userInteractedRef = useRef(false);
+  const [ohlcHover, setOhlcHover] = useState<{
+    time: number; open: number; high: number; low: number; close: number;
+  } | null>(null);
 
   const initChart = useCallback(() => {
     if (!containerRef.current) return;
@@ -69,12 +76,40 @@ export default function CandlestickChart({
       },
       rightPriceScale: {
         borderColor: "#1e2028",
-        scaleMargins: { top: 0.05, bottom: 0.2 },
+        scaleMargins: { top: 0.08, bottom: 0.22 },
+        autoScale: true,
       },
       timeScale: {
         borderColor: "#1e2028",
         timeVisible: true,
         secondsVisible: false,
+        // TradingView-style interactions: right-side room for new bars,
+        // bars follow only if you're already at the right edge, and you
+        // can freely scroll past the last bar.
+        rightOffset: 12,
+        barSpacing: 8,
+        minBarSpacing: 1,
+        shiftVisibleRangeOnNewBar: true,
+        lockVisibleTimeRangeOnResize: true,
+      },
+      // Explicit pan / zoom enablement. lightweight-charts defaults MOST
+      // of these to true but not all — spelling them out so future readers
+      // know what's on and nothing surprises us on a library upgrade.
+      handleScroll: {
+        mouseWheel: true,          // scroll wheel = horizontal pan
+        pressedMouseMove: true,    // click-drag = pan
+        horzTouchDrag: true,
+        vertTouchDrag: true,
+      },
+      handleScale: {
+        mouseWheel: true,          // wheel + modifier = zoom
+        pinch: true,               // touch pinch zoom
+        axisPressedMouseMove: { time: true, price: true },
+        axisDoubleClickReset: { time: true, price: true },
+      },
+      kineticScroll: {
+        mouse: true,
+        touch: true,
       },
     });
 
@@ -100,6 +135,30 @@ export default function CandlestickChart({
     chartRef.current = chart;
     candleSeriesRef.current = candleSeries;
     volumeSeriesRef.current = volumeSeries;
+
+    // Mark the user as "touched the chart" on any pan/zoom. The data-update
+    // effect checks this flag — once true, we stop calling fitContent() on
+    // each refresh so the user's zoom/pan survives live tick updates.
+    chart.timeScale().subscribeVisibleLogicalRangeChange(() => {
+      userInteractedRef.current = true;
+    });
+
+    // Crosshair OHLC readout for the top-left overlay.
+    chart.subscribeCrosshairMove((param: MouseEventParams) => {
+      if (!param || !param.time || !param.seriesData) {
+        setOhlcHover(null);
+        return;
+      }
+      const series = candleSeriesRef.current;
+      if (!series) return;
+      const bar = param.seriesData.get(series) as CandlestickData | undefined;
+      if (bar && typeof bar.open === "number") {
+        setOhlcHover({
+          time: typeof param.time === "number" ? param.time : 0,
+          open: bar.open, high: bar.high, low: bar.low, close: bar.close,
+        });
+      }
+    });
   }, [height, width]);
 
   // Initialize chart
@@ -215,8 +274,20 @@ export default function CandlestickChart({
       candleSeriesRef.current.setMarkers(chartMarkers);
     }
 
-    chart.timeScale().fitContent();
+    // Fit-to-content used to run on EVERY data refresh, which snapped the
+    // view back on every candle tick and made zoom/pan useless. Only fit
+    // if the user hasn't interacted yet. Once they've panned or zoomed,
+    // respect their view forever (Reset button brings fitContent back).
+    if (!userInteractedRef.current) {
+      chart.timeScale().fitContent();
+    }
   }, [candles, indicators, markers]);
+
+  const resetView = useCallback(() => {
+    userInteractedRef.current = false;
+    chartRef.current?.timeScale().fitContent();
+    chartRef.current?.priceScale("right").applyOptions({ autoScale: true });
+  }, []);
 
   // Resize
   useEffect(() => {
@@ -229,5 +300,32 @@ export default function CandlestickChart({
     return () => window.removeEventListener("resize", handleResize);
   }, []);
 
-  return <div ref={containerRef} className="w-full" />;
+  return (
+    <div className="relative w-full">
+      <div ref={containerRef} className="w-full" />
+      {/* OHLC readout + Reset button overlaid on top-left of the chart */}
+      {ohlcHover && (
+        <div
+          className="absolute top-2 left-2 text-[11px] font-mono tabular-nums px-2 py-1 rounded pointer-events-none"
+          style={{ background: "rgba(10,11,15,0.85)", color: "var(--foreground)", border: "1px solid var(--border)" }}
+        >
+          <span style={{ color: "var(--muted)" }}>O </span>{ohlcHover.open.toFixed(2)}
+          <span style={{ color: "var(--muted)" }}>  H </span>{ohlcHover.high.toFixed(2)}
+          <span style={{ color: "var(--muted)" }}>  L </span>{ohlcHover.low.toFixed(2)}
+          <span style={{ color: "var(--muted)" }}>  C </span>
+          <span className={ohlcHover.close >= ohlcHover.open ? "text-emerald-400" : "text-red-400"}>
+            {ohlcHover.close.toFixed(2)}
+          </span>
+        </div>
+      )}
+      <button
+        onClick={resetView}
+        className="absolute top-2 right-2 text-[10px] px-2 py-1 rounded border hover:bg-white/5"
+        style={{ borderColor: "var(--border)", background: "rgba(10,11,15,0.85)", color: "var(--muted)" }}
+        title="Reset view"
+      >
+        Reset
+      </button>
+    </div>
+  );
 }

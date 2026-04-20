@@ -204,7 +204,7 @@ export default function TradingPage() {
   const fetchCandles = useCallback(async () => {
     if (!backendAlive.current) return;
     try {
-      const res = await api.get(`/api/broker/candles/${symbol}?timeframe=${timeframe}&count=200&source=${dataSource}`);
+      const res = await api.get(`/api/broker/candles/${symbol}?timeframe=${timeframe}&count=500&source=${dataSource}`);
       setCandles(res.data);
     } catch {
       // silent — backendAlive handles retry
