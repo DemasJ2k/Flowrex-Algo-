@@ -550,5 +550,38 @@ if __name__ == "__main__":
     parser.add_argument("--symbol", default="US30")
     parser.add_argument("--trials", type=int, default=15)
     parser.add_argument("--folds", type=int, default=4)
+    # Recent-regime-only retrains: override the default training window.
+    # --train-start clips the M5/H1/H4/D1 data so only bars on/after that
+    #   date are used for features + labels. Useful when the 2019→now
+    #   full history spans a regime break (e.g. ES/NAS100 late 2024).
+    # --oos-start shifts the walk-forward OOS cutoff. Defaults to the
+    #   module-level OOS_START = "2026-01-01".
+    parser.add_argument("--train-start", default=None,
+                        help="YYYY-MM-DD — drop all bars before this date")
+    parser.add_argument("--oos-start", default=None,
+                        help="YYYY-MM-DD — override the walk-forward OOS cutoff")
     args = parser.parse_args()
+
+    # Apply overrides before run_potential_training reads them via OOS_START /
+    # load_ohlcv. load_ohlcv doesn't respect --train-start directly, so we
+    # monkey-patch the post-load trimming via a module-level global.
+    if args.oos_start:
+        globals()["OOS_START"] = args.oos_start
+    if args.train_start:
+        import pandas as _pd
+        _cutoff = int(_pd.Timestamp(args.train_start, tz="UTC").timestamp())
+        _orig_load = load_ohlcv
+        def _trimmed_load(symbol):
+            m5, h1, h4, d1 = _orig_load(symbol)
+            if m5 is not None and "time" in m5.columns:
+                m5 = m5[m5["time"] >= _cutoff].reset_index(drop=True)
+            if h1 is not None and "time" in h1.columns:
+                h1 = h1[h1["time"] >= _cutoff].reset_index(drop=True)
+            if h4 is not None and "time" in h4.columns:
+                h4 = h4[h4["time"] >= _cutoff].reset_index(drop=True)
+            if d1 is not None and "time" in d1.columns:
+                d1 = d1[d1["time"] >= _cutoff].reset_index(drop=True)
+            return m5, h1, h4, d1
+        globals()["load_ohlcv"] = _trimmed_load
+
     run_potential_training(args.symbol, args.trials, args.folds)
