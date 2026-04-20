@@ -90,8 +90,11 @@ def run_bolt(
     trail_lock_at: float = 50_100.0,
     consistency_cap: float = 0.40,
     force_flat_hour: int = 21,
-    base_risk_pct: float = 0.0075,
-    max_trades_per_day: int = 5,
+    # Defaults now match BOLT_50K_CONFIG (2026-04-20 tune after the first
+    # mock showed 0.75% risk + 5 trades/day blew the daily cap on 4 losers
+    # and breached 40% consistency on clean winning days).
+    base_risk_pct: float = 0.0035,
+    max_trades_per_day: int = 3,
     hold_bars: int = 10,
 ) -> dict:
     # ── Data ─────────────────────────────────────────────────────────

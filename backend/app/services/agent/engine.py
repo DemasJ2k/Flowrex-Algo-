@@ -238,6 +238,18 @@ class AgentRunner:
 
             try:
                 if not self._paused:
+                    # Bolt-style force-flat: if the agent's risk manager says
+                    # we're past the configured CME-close cutoff, close any
+                    # open positions for this agent and skip evaluation until
+                    # the next day. This enforces "all positions closed
+                    # before market close" without waiting on TP/SL hits.
+                    try:
+                        rm = getattr(self._agent, "_risk_manager", None)
+                        if rm is not None and hasattr(rm, "should_flatten") and rm.should_flatten():
+                            await self._close_on_force_flat()
+                    except Exception as _ff_err:
+                        self._log("warn", f"Force-flat check error (non-fatal): {_ff_err}")
+
                     await self._poll_and_evaluate()
                     self._consecutive_errors = 0
             except asyncio.CancelledError:
@@ -539,6 +551,58 @@ class AgentRunner:
             except Exception as e:
                 self._log_to_db(db, "warn", f"Max-hold close failed for {t.broker_ticket}: {e}")
                 await self._reconcile_closed_trade_from_broker(adapter, t, db, reason="MAX_HOLD_RECONCILED")
+
+    async def _close_on_force_flat(self):
+        """
+        Close every open trade for this agent because we're past the Bolt
+        (or any other prop-firm) force-flat cutoff. One batch per poll tick;
+        subsequent ticks will be no-ops once everything is closed.
+        """
+        db = SessionLocal()
+        try:
+            agent_record = db.query(TradingAgent).filter(TradingAgent.id == self.agent_id).first()
+            if not agent_record:
+                return
+            manager = get_broker_manager()
+            adapter = manager.get_adapter(agent_record.created_by, agent_record.broker_name)
+            if adapter is None:
+                return
+            open_trades = (
+                db.query(AgentTrade)
+                .filter(AgentTrade.agent_id == self.agent_id, AgentTrade.status == "open")
+                .all()
+            )
+            if not open_trades:
+                return
+            self._log_to_db(db, "info",
+                f"Force-flat cutoff reached — closing {len(open_trades)} open position(s)")
+            for t in open_trades:
+                if not t.broker_ticket:
+                    t.status = "closed"
+                    t.exit_time = datetime.now(timezone.utc)
+                    t.exit_reason = "FORCE_FLAT"
+                    continue
+                try:
+                    close_result = await adapter.close_position(t.broker_ticket)
+                    if close_result and getattr(close_result, "success", False):
+                        t.status = "closed"
+                        t.exit_reason = "FORCE_FLAT"
+                        t.exit_time = datetime.now(timezone.utc)
+                        t.pnl = getattr(close_result, "pnl", 0) or 0
+                        t.broker_pnl = t.pnl
+                        self._log_to_db(db, "trade",
+                            f"CLOSED (force-flat) {t.direction} {t.symbol} | "
+                            f"P&L: ${t.pnl:.2f} | Ticket: {t.broker_ticket}")
+                        if self._active_direction == t.direction:
+                            self._active_direction = None
+                    else:
+                        await self._reconcile_closed_trade_from_broker(adapter, t, db, reason="FORCE_FLAT_RECONCILED")
+                except Exception as e:
+                    self._log_to_db(db, "warn", f"Force-flat close failed for {t.broker_ticket}: {e}")
+                    await self._reconcile_closed_trade_from_broker(adapter, t, db, reason="FORCE_FLAT_RECONCILED")
+            db.commit()
+        finally:
+            db.close()
 
     async def _reconcile_closed_trade_from_broker(self, adapter, trade, db, reason: str):
         """

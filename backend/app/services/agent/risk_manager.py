@@ -106,22 +106,28 @@ BOLT_50K_CONFIG: Dict = {
     "total_dd_warning":            0.03,   # $1,500
     "total_dd_critical":           0.035,  # $1,750
     "total_dd_emergency":          0.04,   # $2,000
-    "base_risk_per_trade_pct":     0.0075, # 0.75 % = $375
-    "max_risk_per_trade_pct":      0.01,
-    "min_risk_per_trade_pct":      0.0025,
-    "max_trades_per_day":          5,
-    "max_concurrent_positions":    2,
+    # 0.35 % per trade = $175 risk. Tuned after the 2026-04-20 mock run
+    # showed the default 0.75 % sizing blew the $1k daily cap on 4-loser
+    # days and breached the 40 % consistency rule on clean winning days.
+    # Three losers = $525 (still under $1k); three winners at 1.5 R:R ≈
+    # $790 (under the $1,200 consistency cap).
+    "base_risk_per_trade_pct":     0.0035,
+    "max_risk_per_trade_pct":      0.005,
+    "min_risk_per_trade_pct":      0.002,
+    # Capped at 3/day so the 5-losers-to-daily-limit scenario is impossible
+    # and winning days rarely clear the 40 % cap.
+    "max_trades_per_day":          3,
+    "max_concurrent_positions":    1,   # one futures position at a time
     "consistency_pct_cap":         0.40,   # 40 % consistency rule
     "force_flat_utc_hour":         21,     # CME daily close
     "trail_lock_at_balance":       50_100, # trailing stops at +$100
-    # Bolt-sensible session windows. Bolt accounts trade futures only; the
-    # most efficient window for ES / NQ is the NY cash session.
+    # Bolt accounts trade futures only; NY cash is where ES/NQ edge lives.
     "us30_primary_session":       (13.5, 20.0),
     "xauusd_primary_session":     (13.5, 20.0),
     # Legacy compat
-    "risk_per_trade":              0.0075,
+    "risk_per_trade":              0.0035,
     "max_daily_loss_pct":          0.02,
-    "cooldown_bars":               5,
+    "cooldown_bars":               10,     # space trades out (~50 min M5)
 }
 
 
