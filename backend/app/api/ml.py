@@ -295,37 +295,101 @@ def trigger_retrain(
         busy = _retrain_status.get("symbol") or _training_status.get("symbol")
         return {"status": "busy", "message": f"Already training {busy}"}
 
-    _retrain_status.update({"active": True, "symbol": body.symbol, "progress": "starting", "results": []})
+    _retrain_status.update({"active": True, "symbol": body.symbol, "progress": "starting",
+                            "pipeline": body.pipeline, "results": []})
 
     def _run_retrain():
         try:
-            from scripts.retrain_monthly import retrain_symbol, _record_retrain_run
-            result = retrain_symbol(
-                body.symbol,
-                n_trials=body.n_trials,
-                train_months=body.train_months,
-                holdout_days=body.holdout_days,
-                triggered_by="manual",
-                progress_callback=lambda msg: _retrain_status.update({"progress": msg}),
-            )
-            _record_retrain_run(result)
-            _retrain_status["results"] = [result]
-            _retrain_status["progress"] = "done"
+            # Optional: refresh the persistent CSV via Dukascopy delta-merge
+            # before training. Typical cost ~5-25 s; noticeably more on the
+            # first fetch for a symbol. Skipped by default.
+            if body.refresh_dukascopy:
+                _retrain_status["progress"] = "refreshing Dukascopy data"
+                try:
+                    from app.services.backtest.data_fetcher import get_backtest_fetcher
+                    bundle = get_backtest_fetcher().fetch(
+                        body.symbol, days=2500, timeframes=["M5", "H1", "H4", "D1"],
+                    )
+                    _retrain_status["progress"] = (
+                        f"Dukascopy refresh: +{bundle.new_rows:,} bars"
+                        if not bundle.bootstrap
+                        else f"Dukascopy bootstrap: {bundle.new_rows:,} bars"
+                    )
+                except Exception as _dk_err:
+                    _retrain_status["progress"] = f"Dukascopy refresh failed ({_dk_err}) — using existing CSV"
 
-            # Hot-reload agents
-            if result.get("swapped"):
+            pipeline = (body.pipeline or "flowrex_v2").lower()
+            if pipeline == "potential":
+                # Potential pipeline: walk-forward training with no swap-guard.
+                # Writes directly to potential_{SYMBOL}_M5_*.joblib. Grade is
+                # stamped into the joblib; user checks Models list to verify.
+                _retrain_status["progress"] = f"training potential_{body.symbol}"
+                from scripts.train_potential import run_potential_training
+                from datetime import datetime, timezone, timedelta
+                # Approximate months of training data. Potential runs
+                # walk-forward internally; train_start just trims the
+                # available data before the 4-fold split.
+                train_start = (datetime.now(timezone.utc)
+                               - timedelta(days=int(body.train_months * 30.44))).strftime("%Y-%m-%d")
+                wf_results, oos_results = run_potential_training(
+                    body.symbol, n_trials=body.n_trials, n_folds=4,
+                    train_start=train_start,
+                )
+                # Synthesise a retrain-history record using OOS best-model grade
+                best_grade = "?"
+                best_sharpe = 0.0
+                if oos_results:
+                    best = max(oos_results, key=lambda x: x.get("sharpe", -999))
+                    best_grade = best.get("grade", "?")
+                    best_sharpe = float(best.get("sharpe", 0.0))
+                result = {
+                    "symbol": body.symbol, "triggered_by": "manual",
+                    "status": "completed", "swapped": True,
+                    "swap_reason": "potential pipeline writes unconditionally",
+                    "new_grade": best_grade, "new_sharpe": best_sharpe,
+                    "training_config": {
+                        "pipeline": "potential",
+                        "n_trials": body.n_trials,
+                        "train_months": body.train_months,
+                        "train_start": train_start,
+                    },
+                }
+                from scripts.retrain_monthly import _record_retrain_run as _rec
+                _rec(result)
+                _retrain_status["results"] = [result]
+                _retrain_status["progress"] = f"done (grade {best_grade}, sharpe {best_sharpe:.2f})"
                 try:
                     from app.services.agent.engine import get_algo_engine
                     get_algo_engine().reload_models_for_symbol(body.symbol)
                 except Exception:
                     pass
+            else:
+                # Default: flowrex_v2 retrain_monthly flow with grade-gated swap
+                from scripts.retrain_monthly import retrain_symbol, _record_retrain_run
+                result = retrain_symbol(
+                    body.symbol,
+                    n_trials=body.n_trials,
+                    train_months=body.train_months,
+                    holdout_days=body.holdout_days,
+                    triggered_by="manual",
+                    progress_callback=lambda msg: _retrain_status.update({"progress": msg}),
+                )
+                _record_retrain_run(result)
+                _retrain_status["results"] = [result]
+                _retrain_status["progress"] = "done"
+                if result.get("swapped"):
+                    try:
+                        from app.services.agent.engine import get_algo_engine
+                        get_algo_engine().reload_models_for_symbol(body.symbol)
+                    except Exception:
+                        pass
         except Exception as e:
             _retrain_status["progress"] = f"error: {e}"
         finally:
             _retrain_status["active"] = False
 
     background_tasks.add_task(_run_retrain)
-    return {"status": "started", "symbol": body.symbol}
+    return {"status": "started", "symbol": body.symbol, "pipeline": body.pipeline}
 
 
 @router.post("/retrain/all")

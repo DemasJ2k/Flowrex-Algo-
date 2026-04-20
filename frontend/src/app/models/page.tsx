@@ -75,6 +75,10 @@ export default function ModelsPage() {
   const [retrainProgress, setRetrainProgress] = useState("");
   const [retrainHistory, setRetrainHistory] = useState<RetrainRun[]>([]);
   const [schedule, setSchedule] = useState<RetrainSchedule | null>(null);
+  // Retrain options (shared across all symbol-retrain buttons on this page)
+  const [retrainMonths, setRetrainMonths] = useState<number>(6);
+  const [retrainPipeline, setRetrainPipeline] = useState<"flowrex_v2" | "potential">("flowrex_v2");
+  const [refreshDukascopy, setRefreshDukascopy] = useState<boolean>(false);
 
   const fetchModels = () => {
     api.get("/api/ml/models").then((r) => setModels(r.data)).catch((e) => debugWarn("fetch failed:", e?.message)).finally(() => setLoading(false));
@@ -124,13 +128,20 @@ export default function ModelsPage() {
   const handleRetrain = async (symbol?: string) => {
     try {
       const url = symbol ? "/api/ml/retrain" : "/api/ml/retrain/all";
-      const body = symbol ? { symbol } : undefined;
+      const body = symbol
+        ? {
+            symbol,
+            train_months: retrainMonths,
+            pipeline: retrainPipeline,
+            refresh_dukascopy: refreshDukascopy,
+          }
+        : undefined;
       const res = await api.post(url, body);
       if (res.data.status === "started") {
         setRetraining(true);
         setRetrainSymbol(symbol || "ALL");
         setRetrainProgress("Starting...");
-        toast.success(symbol ? `Retraining ${symbol}` : "Retraining all symbols");
+        toast.success(symbol ? `Retraining ${symbol} (${retrainPipeline}, ${retrainMonths}m)` : "Retraining all symbols");
       } else {
         toast.error(res.data.message || "Busy");
       }
@@ -187,6 +198,57 @@ export default function ModelsPage() {
           <button onClick={() => { fetchModels(); fetchPotentialModels(); }} className="p-2 rounded-lg border hover:bg-white/5" style={{ borderColor: "var(--border)" }} title="Refresh"><RefreshCw size={16} style={{ color: "var(--muted)" }} /></button>
         </div>
       </div>
+
+      {/* Retrain options — shared across all per-symbol Retrain buttons */}
+      <Glass padding="sm">
+        <div className="flex flex-wrap items-center gap-3 text-xs">
+          <span style={{ color: "var(--muted)" }}>Retrain options:</span>
+          <label className="flex items-center gap-1.5">
+            <span style={{ color: "var(--muted)" }}>Window</span>
+            <select
+              value={retrainMonths}
+              onChange={(e) => setRetrainMonths(parseInt(e.target.value))}
+              disabled={retraining}
+              className="px-2 py-1 rounded border bg-transparent"
+              style={{ borderColor: "var(--border)", background: "var(--card)" }}
+            >
+              <option value={3}>3 months</option>
+              <option value={6}>6 months</option>
+              <option value={9}>9 months</option>
+              <option value={12}>12 months</option>
+            </select>
+          </label>
+          <label className="flex items-center gap-1.5">
+            <span style={{ color: "var(--muted)" }}>Pipeline</span>
+            <select
+              value={retrainPipeline}
+              onChange={(e) => setRetrainPipeline(e.target.value as "flowrex_v2" | "potential")}
+              disabled={retraining}
+              className="px-2 py-1 rounded border bg-transparent"
+              style={{ borderColor: "var(--border)", background: "var(--card)" }}
+            >
+              <option value="flowrex_v2">flowrex_v2 (grade-gated swap)</option>
+              <option value="potential">potential (unconditional write)</option>
+            </select>
+          </label>
+          <label className="flex items-center gap-1.5 cursor-pointer">
+            <input
+              type="checkbox"
+              checked={refreshDukascopy}
+              onChange={(e) => setRefreshDukascopy(e.target.checked)}
+              disabled={retraining}
+              className="rounded"
+            />
+            <span>Refresh Dukascopy first</span>
+            <span className="opacity-60">(+5-25 s)</span>
+          </label>
+          {retrainPipeline === "potential" && (
+            <span className="text-amber-400 text-[11px]">
+              ⚠ potential writes unconditionally — verify grade before re-enabling the agent
+            </span>
+          )}
+        </div>
+      </Glass>
 
       {/* ── Potential Agent v2 — Deployed Models ─────────────────────────── */}
       {potentialModels.length > 0 && (

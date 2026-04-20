@@ -311,7 +311,7 @@ def shap_importance_table(model, X, feature_names, top_n=20):
 
 # ── Main ──────────────────────────────────────────────────────────────────
 
-def run_potential_training(symbol="US30", n_trials=15, n_folds=4):
+def run_potential_training(symbol="US30", n_trials=15, n_folds=4, train_start=None):
     cfg = get_symbol_config(symbol)
     cost_bps = cfg.get("cost_bps", 5.0)
     slippage_bps = cfg.get("slippage_bps", 1.0)
@@ -331,6 +331,22 @@ def run_potential_training(symbol="US30", n_trials=15, n_folds=4):
 
     # 1. Load data
     m5, h1, h4, d1 = load_ohlcv(symbol)
+
+    # Optional: trim all timeframes to bars on/after `train_start`. Used when
+    # the full 2019→now history spans a regime break that tanks walk-forward
+    # fold 4 (e.g. ES/NAS100 late 2024). Same effect as the `--train-start`
+    # CLI flag, reusable from library calls (ML page retrain endpoint).
+    if train_start is not None:
+        _cutoff = int(pd.Timestamp(train_start, tz="UTC").timestamp())
+        if m5 is not None and "time" in m5.columns:
+            m5 = m5[m5["time"] >= _cutoff].reset_index(drop=True)
+        if h1 is not None and "time" in h1.columns:
+            h1 = h1[h1["time"] >= _cutoff].reset_index(drop=True)
+        if h4 is not None and "time" in h4.columns:
+            h4 = h4[h4["time"] >= _cutoff].reset_index(drop=True)
+        if d1 is not None and "time" in d1.columns:
+            d1 = d1[d1["time"] >= _cutoff].reset_index(drop=True)
+        print(f"  train_start={train_start} → M5={len(m5):,} bars after trim")
     print(f"  M5={len(m5):,}  H1={len(h1) if h1 is not None else 0:,}  "
           f"H4={len(h4) if h4 is not None else 0:,}  D1={len(d1) if d1 is not None else 0:,}")
 
