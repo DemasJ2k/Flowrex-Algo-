@@ -1,5 +1,6 @@
 from fastapi import APIRouter, Depends, HTTPException, BackgroundTasks, Query
 from sqlalchemy.orm import Session
+from pydantic import BaseModel
 from typing import Optional
 import os
 import glob as glob_mod
@@ -478,3 +479,265 @@ def set_retrain_schedule(
         return update_schedule(body.cron_expression, body.enabled)
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
+
+
+# ── Unified ML dashboard endpoints (2026-04-21 rework) ──────────────────
+
+
+@router.get("/symbols")
+def list_symbols_unified(
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """
+    Symbol-first unified view for the Models page rework.
+
+    Returns one row per symbol. Each row merges:
+      - Every deployed model variant (potential + flowrex_v2, per ensemble
+        member). Sorted by pipeline then model_type.
+      - 14-day live trade performance from agent_trades.
+      - Which trading agents target this symbol (with their current status).
+      - Last retrain run metadata for the symbol.
+
+    UI uses this as the SINGLE source of truth for the Models page grid.
+    Existing /api/ml/potential-models and /api/ml/flowrex-models remain
+    untouched for anything else that depends on them.
+    """
+    import joblib
+    from datetime import datetime, timezone, timedelta
+    from sqlalchemy import and_
+
+    from app.models.agent import TradingAgent, AgentTrade
+
+    model_dir = os.path.abspath(_MODEL_DIR)
+
+    # ── 1. Walk model files and group per-symbol ────────────────────────
+    all_files = glob_mod.glob(os.path.join(model_dir, "*_M5_*.joblib"))
+    per_symbol: dict[str, list[dict]] = {}
+
+    for f in all_files:
+        basename = os.path.basename(f)
+        parts = basename.replace(".joblib", "").split("_")
+        # shape: <pipeline>_<SYMBOL>_M5_<model_type>[_...suffix]
+        if len(parts) < 4:
+            continue
+        pipeline, sym, _tf = parts[0], parts[1], parts[2]
+        model_type = "_".join(parts[3:])  # catch suffixes
+        try:
+            data = joblib.load(f)
+        except Exception:
+            continue
+
+        oos = (data.get("oos_metrics") or {})
+        per_symbol.setdefault(sym, []).append({
+            "pipeline": pipeline,                     # "potential" | "flowrex"
+            "model_type": model_type,                 # xgboost / lightgbm / catboost
+            "grade": data.get("grade", "?"),
+            "sharpe": round(float(oos.get("sharpe", 0) or 0), 2),
+            "win_rate": round(float(oos.get("win_rate", 0) or 0), 1),
+            "max_drawdown": round(float(oos.get("max_drawdown", 0) or 0), 2),
+            "profit_factor": round(float(oos.get("profit_factor", 0) or 0), 2),
+            "total_trades": int(oos.get("total_trades", 0) or 0),
+            "trained_at": data.get("trained_at", ""),
+            "oos_start": data.get("oos_start", ""),
+            "feature_count": len(data.get("feature_names", [])),
+            "pipeline_version": data.get("pipeline_version", ""),
+            "file": basename,
+        })
+
+    # ── 2. 14-day live trade stats per symbol ───────────────────────────
+    cutoff = datetime.now(timezone.utc) - timedelta(days=14)
+    live_trades = (
+        db.query(AgentTrade, TradingAgent)
+        .join(TradingAgent, AgentTrade.agent_id == TradingAgent.id)
+        .filter(
+            TradingAgent.deleted_at.is_(None),
+            AgentTrade.entry_time >= cutoff,
+            AgentTrade.status == "closed",
+        )
+        .all()
+    )
+    per_symbol_live: dict[str, dict] = {}
+    for trade, agent in live_trades:
+        sym = trade.symbol
+        bucket = per_symbol_live.setdefault(sym, {
+            "trades": 0, "wins": 0, "total_pnl": 0.0,
+            "wins_pnl": 0.0, "losses_pnl": 0.0,
+        })
+        bucket["trades"] += 1
+        pnl = float(trade.pnl or 0)
+        bucket["total_pnl"] += pnl
+        if pnl > 0:
+            bucket["wins"] += 1
+            bucket["wins_pnl"] += pnl
+        elif pnl < 0:
+            bucket["losses_pnl"] += pnl
+
+    # ── 3. Agents targeting each symbol ──────────────────────────────────
+    agents = db.query(TradingAgent).filter(TradingAgent.deleted_at.is_(None)).all()
+    per_symbol_agents: dict[str, list[dict]] = {}
+    for a in agents:
+        per_symbol_agents.setdefault(a.symbol, []).append({
+            "id": a.id, "name": a.name, "agent_type": a.agent_type,
+            "status": a.status, "broker": a.broker_name,
+        })
+
+    # ── 4. Last retrain per symbol ──────────────────────────────────────
+    last_retrain: dict[str, dict] = {}
+    recent_retrains = (
+        db.query(RetrainRun)
+        .order_by(RetrainRun.started_at.desc())
+        .limit(200).all()
+    )
+    for r in recent_retrains:
+        if r.symbol in last_retrain:
+            continue
+        last_retrain[r.symbol] = {
+            "id": r.id,
+            "status": r.status,
+            "started_at": r.started_at.isoformat() if r.started_at else None,
+            "finished_at": r.finished_at.isoformat() if r.finished_at else None,
+            "old_grade": r.old_grade, "new_grade": r.new_grade,
+            "old_sharpe": r.old_sharpe, "new_sharpe": r.new_sharpe,
+            "swapped": r.swapped,
+            "error": r.error_message,
+        }
+
+    # ── 5. Merge into one row per symbol ────────────────────────────────
+    rows = []
+    all_syms = set(per_symbol.keys()) | set(per_symbol_agents.keys())
+    for sym in all_syms:
+        models = sorted(
+            per_symbol.get(sym, []),
+            key=lambda m: (m["pipeline"], m["model_type"]),
+        )
+        live = per_symbol_live.get(sym, {})
+        trades_count = live.get("trades", 0)
+        wr = (live.get("wins", 0) / trades_count * 100) if trades_count else 0.0
+        avg_win = (live["wins_pnl"] / live["wins"]) if live.get("wins") else 0.0
+        losses_n = trades_count - live.get("wins", 0) if live else 0
+        avg_loss = (live["losses_pnl"] / losses_n) if losses_n else 0.0
+
+        rows.append({
+            "symbol": sym,
+            "asset_class": _ASSET_CLASS.get(sym, "Unknown"),
+            "models": models,
+            "live_14d": {
+                "trades": trades_count,
+                "win_rate": round(wr, 1),
+                "total_pnl": round(live.get("total_pnl", 0.0), 2),
+                "avg_win":  round(avg_win, 2),
+                "avg_loss": round(avg_loss, 2),
+            },
+            "agents": per_symbol_agents.get(sym, []),
+            "last_retrain": last_retrain.get(sym),
+        })
+
+    # Priority order: symbols with agents first, then alpha
+    priority = {"US30": 0, "BTCUSD": 1, "XAUUSD": 2, "ES": 3, "NAS100": 4, "ETHUSD": 5,
+                "XAGUSD": 6, "AUS200": 7}
+    rows.sort(key=lambda r: (priority.get(r["symbol"], 99), r["symbol"]))
+    return rows
+
+
+class MLAnalyzeRequest(BaseModel):
+    symbol: str
+    pipeline: str = "potential"  # "potential" | "flowrex"
+
+
+def _format_ml_stats_for_ai(sym_row: dict, pipeline: str) -> str:
+    """Pack a symbol row into a compact markdown brief for the supervisor."""
+    out = []
+    out.append(f"# {sym_row.get('symbol', '?')} · {sym_row.get('asset_class', '?')}")
+    out.append("")
+    models = [m for m in sym_row.get("models", []) if m.get("pipeline") == pipeline]
+    if models:
+        out.append(f"## Deployed `{pipeline}` models")
+        for m in models:
+            out.append(
+                f"- {m.get('model_type', '?')}: Grade **{m.get('grade', '?')}**, "
+                f"Sharpe {m.get('sharpe', 0)}, WR {m.get('win_rate', 0)}%, "
+                f"PF {m.get('profit_factor', 0)}, MaxDD {m.get('max_drawdown', 0)}%, "
+                f"trained {str(m.get('trained_at', ''))[:16]} ({m.get('feature_count', 0)} features, "
+                f"OOS from {m.get('oos_start', 'n/a')[:10]})"
+            )
+    else:
+        out.append(f"_No `{pipeline}` model deployed for this symbol._")
+    out.append("")
+
+    live = sym_row.get("live_14d") or {}
+    if live.get("trades"):
+        out.append("## Live performance (14 days)")
+        out.append(
+            f"- {live['trades']} trades · WR {live['win_rate']}% · "
+            f"P&L ${live['total_pnl']:,.2f} · "
+            f"avg win ${live['avg_win']:,.2f} · avg loss ${live['avg_loss']:,.2f}"
+        )
+        rr = abs(live["avg_win"] / live["avg_loss"]) if live.get("avg_loss") else 0
+        out.append(f"- Risk/reward ratio: {rr:.2f}")
+    else:
+        out.append("_No live trades in the last 14 days._")
+    out.append("")
+
+    agents = sym_row.get("agents", [])
+    if agents:
+        out.append("## Agents on this symbol")
+        for a in agents:
+            out.append(f"- id={a['id']} `{a['name']}` ({a['agent_type']}, {a['status']}, {a['broker']})")
+    last = sym_row.get("last_retrain")
+    if last:
+        out.append("")
+        out.append("## Last retrain")
+        out.append(
+            f"- {last.get('started_at', '?')[:16]}: "
+            f"{last.get('old_grade')} → {last.get('new_grade')} "
+            f"({'swapped' if last.get('swapped') else 'held'}) "
+            f"{'· error: ' + last['error'] if last.get('error') else ''}"
+        )
+    return "\n".join(out)
+
+
+@router.post("/analyze")
+async def analyze_symbol(
+    body: MLAnalyzeRequest,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """
+    AI insight on a symbol's current model performance. Reuses the
+    per-user Claude supervisor — same one the hourly reports use.
+    Returns markdown. Requires the user to have configured an API key.
+    """
+    from app.services.llm.monitoring import _ensure_supervisor_configured
+    from app.services.llm.supervisor import get_supervisor
+
+    # Pull the same unified row and filter by pipeline
+    rows = list_symbols_unified(current_user=current_user, db=db)  # type: ignore
+    row = next((r for r in rows if r["symbol"].upper() == body.symbol.upper()), None)
+    if not row:
+        raise HTTPException(status_code=404, detail=f"No data for {body.symbol}")
+
+    if not _ensure_supervisor_configured(db, current_user.id):
+        raise HTTPException(
+            status_code=400,
+            detail="AI Supervisor not configured — add your Anthropic API key in Settings.",
+        )
+
+    summary = _format_ml_stats_for_ai(row, body.pipeline.lower())
+    instruction = (
+        "You are reviewing one trading symbol's ML model + live performance. "
+        "Using the brief below, produce a concise Markdown report with these "
+        "sections. No fluff.\n"
+        "  1. **Health verdict** — single-sentence: is the model working, marginal, or broken?\n"
+        "  2. **What's working** — which metrics / conditions are producing edge.\n"
+        "  3. **What's broken or fragile** — concrete issues (backtest-vs-live gap, "
+        "poor R:R, regime drift, low WR).\n"
+        "  4. **Recommended action** — exactly one of: {keep running, tune risk, "
+        "retrain on recent window, pause and debug}. Justify in 1-2 sentences.\n"
+        "  5. **If retrain**: suggest window (months) and whether to use `flowrex_v2` "
+        "(grade-gated swap) or `potential` (unconditional write).\n"
+        "Keep total length under 300 words. Do NOT invent numbers.\n\n"
+        "Brief:\n\n" + summary
+    )
+    reply = await get_supervisor().chat(current_user.id, instruction, context=None)
+    return {"markdown": reply or "_No response from AI._", "symbol": body.symbol, "pipeline": body.pipeline}
