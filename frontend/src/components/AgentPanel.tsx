@@ -64,25 +64,36 @@ function AgentCard({ agent, onAction }: { agent: Agent; onAction: () => void }) 
   return (
     <>
     <Card className="mb-2">
-      {/* Header */}
-      <div className="flex items-center gap-3 cursor-pointer" onClick={() => setExpanded(!expanded)}>
+      {/*
+        Collapsed row: a single clean line on mobile — status badge · name · P&L.
+        Tap anywhere (except the controls) to expand. Secondary chips
+        (agent_type, symbol, trade count) hide until expanded. Controls collapse
+        to a compact cluster that wraps below on narrow viewports instead of
+        overlapping the name.
+      */}
+      <div
+        className="flex items-center gap-2 cursor-pointer"
+        onClick={() => setExpanded(!expanded)}
+        role="button"
+        aria-expanded={expanded}
+      >
         {expanded ? <ChevronDown size={16} /> : <ChevronRight size={16} />}
-        <div className="flex-1 min-w-0">
-          <div className="flex items-center gap-2">
-            <span className="font-medium text-sm truncate">{agent.name}</span>
-            <StatusBadge value={agent.status} />
-            <StatusBadge value={agent.agent_type} />
-            <span className="text-xs" style={{ color: "var(--muted)" }}>{agent.symbol}</span>
-          </div>
-        </div>
-        <div className="flex items-center gap-3">
-          <span className={`text-sm font-medium ${pnlColor}`}>
-            {agent.total_pnl >= 0 ? "+" : ""}{fmt(agent.total_pnl)}
+        <div className="flex-1 min-w-0 flex items-center gap-2">
+          <StatusBadge value={agent.status} />
+          <span className="font-medium text-sm truncate">{agent.name}</span>
+          {/* Show agent_type + symbol only on sm+ or when expanded */}
+          <span className={`hidden sm:inline text-xs uppercase tracking-wide ${expanded ? "" : "truncate"}`} style={{ color: "var(--muted)" }}>
+            {agent.agent_type} · {agent.symbol}
           </span>
-          <span className="text-xs" style={{ color: "var(--muted)" }}>{agent.trade_count} trades</span>
         </div>
-        {/* Controls */}
-        <div className="flex gap-1 ml-2" onClick={(e) => e.stopPropagation()}>
+        <span className={`text-sm font-medium tabular-nums ${pnlColor}`}>
+          {agent.total_pnl >= 0 ? "+" : ""}{fmt(agent.total_pnl)}
+        </span>
+        <span className="hidden sm:inline text-xs" style={{ color: "var(--muted)" }}>
+          {agent.trade_count}t
+        </span>
+        {/* Primary control — one icon on mobile, full set from sm+ */}
+        <div className="flex gap-0.5" onClick={(e) => e.stopPropagation()}>
           {agent.status !== "running" && (
             <button onClick={() => handleAction("start")} className="p-1.5 rounded hover:bg-white/10" title="Start">
               <Play size={14} className="text-emerald-400" />
@@ -94,15 +105,48 @@ function AgentCard({ agent, onAction }: { agent: Agent; onAction: () => void }) 
             </button>
           )}
           {agent.status !== "stopped" && (
-            <button onClick={() => handleAction("stop")} className="p-1.5 rounded hover:bg-white/10" title="Stop">
+            <button onClick={() => handleAction("stop")} className="p-1.5 rounded hover:bg-white/10 hidden sm:inline-flex" title="Stop">
               <Square size={14} className="text-red-400" />
             </button>
           )}
-          <button onClick={() => setDeleteConfirmOpen(true)} aria-label={`Delete agent ${agent.name}`} className="p-1.5 rounded hover:bg-white/10" title="Delete">
+          <button
+            onClick={() => setDeleteConfirmOpen(true)}
+            aria-label={`Delete agent ${agent.name}`}
+            className="p-1.5 rounded hover:bg-white/10 hidden sm:inline-flex"
+            title="Delete"
+          >
             <Trash2 size={14} style={{ color: "var(--muted)" }} />
           </button>
         </div>
       </div>
+
+      {/* Mobile-only: secondary chips + extra controls appear when expanded.
+          Keeps the collapsed row to a single clean line. */}
+      {expanded && (
+        <div className="sm:hidden mt-2 flex items-center justify-between gap-2 text-xs" style={{ color: "var(--muted)" }}>
+          <div className="flex items-center gap-2 min-w-0">
+            <StatusBadge value={agent.agent_type} />
+            <span className="truncate">{agent.symbol}</span>
+            <span>·</span>
+            <span>{agent.trade_count} trades</span>
+          </div>
+          <div className="flex gap-0.5" onClick={(e) => e.stopPropagation()}>
+            {agent.status !== "stopped" && (
+              <button onClick={() => handleAction("stop")} className="p-1.5 rounded hover:bg-white/10" title="Stop">
+                <Square size={14} className="text-red-400" />
+              </button>
+            )}
+            <button
+              onClick={() => setDeleteConfirmOpen(true)}
+              aria-label={`Delete agent ${agent.name}`}
+              className="p-1.5 rounded hover:bg-white/10"
+              title="Delete"
+            >
+              <Trash2 size={14} style={{ color: "var(--muted)" }} />
+            </button>
+          </div>
+        </div>
+      )}
 
       {/* Expanded Content */}
       {expanded && (

@@ -15,6 +15,71 @@ const ALL_SESSIONS = [
   { id: "off_hours",label: "Off Hours",hours: "21-24 UTC" },
 ];
 
+
+/**
+ * Slider + number input that stay synced. Uses a string-backed text field so
+ * the user can type partial values like "0." or "0.1" without the controlled
+ * input snapping the cursor back every keystroke (which the previous
+ * `value={riskPerTrade.toFixed(2)}` approach did). Clamps to [min, max]
+ * on commit (blur / Enter / slider change), not on every keystroke.
+ */
+function SliderField({
+  id, label, value, onChange, min, max, step, decimals, hint,
+}: {
+  id: string;
+  label: string;
+  value: number;
+  onChange: (v: number) => void;
+  min: number;
+  max: number;
+  step: number;
+  decimals: number;
+  hint?: string;
+}) {
+  const [text, setText] = useState(value.toFixed(decimals));
+  useEffect(() => { setText(value.toFixed(decimals)); }, [value, decimals]);
+
+  const commit = (raw: string) => {
+    const v = parseFloat(raw);
+    if (isNaN(v)) { setText(value.toFixed(decimals)); return; }
+    const clamped = Math.max(min, Math.min(max, v));
+    onChange(Number(clamped.toFixed(decimals)));
+    setText(clamped.toFixed(decimals));
+  };
+
+  return (
+    <div>
+      <div className="flex items-baseline justify-between mb-1">
+        <label htmlFor={id} className="block text-xs font-medium" style={{ color: "var(--muted)" }}>{label}</label>
+        {hint && <span className="text-[10px]" style={{ color: "var(--muted)" }}>{hint}</span>}
+      </div>
+      <div className="flex items-center gap-2">
+        <input
+          id={id}
+          type="text"
+          inputMode="decimal"
+          value={text}
+          onChange={(e) => setText(e.target.value)}
+          onBlur={(e) => commit(e.target.value)}
+          onKeyDown={(e) => { if (e.key === "Enter") { commit((e.target as HTMLInputElement).value); (e.target as HTMLInputElement).blur(); } }}
+          className="w-24 px-2 py-1.5 text-sm rounded-lg border bg-transparent outline-none focus:border-blue-500 tabular-nums"
+          style={{ borderColor: "var(--border)" }}
+        />
+        <input
+          type="range"
+          min={min}
+          max={max}
+          step={step}
+          value={value}
+          onChange={(e) => onChange(parseFloat(e.target.value))}
+          className="flex-1 accent-blue-500"
+          aria-label={label}
+        />
+      </div>
+    </div>
+  );
+}
+
 export default function AgentConfigEditor({
   agent,
   open,
@@ -141,44 +206,41 @@ export default function AgentConfigEditor({
 
         <div className="grid grid-cols-2 gap-3">
           {sizingMode === "risk_pct" ? (
-            <div>
-              <label htmlFor="cfg-risk-per-trade" className="block text-xs font-medium mb-1" style={{ color: "var(--muted)" }}>Risk per Trade (%)</label>
-              <input
-                id="cfg-risk-per-trade"
-                type="number" step="0.01" min="0.01" max="3" value={riskPerTrade.toFixed(2)}
-                onChange={(e) => {
-                  const v = parseFloat(e.target.value);
-                  if (!isNaN(v) && v >= 0.01 && v <= 3) setRiskPerTrade(v);
-                }}
-                className="w-full px-3 py-2 text-sm rounded-lg border bg-transparent outline-none focus:border-blue-500"
-                style={{ borderColor: "var(--border)" }} />
-            </div>
+            <SliderField
+              id="cfg-risk-per-trade"
+              label="Risk per Trade (%)"
+              value={riskPerTrade}
+              onChange={setRiskPerTrade}
+              min={0.01}
+              max={3}
+              step={0.01}
+              decimals={2}
+              hint="0.01 % – 3 %"
+            />
           ) : (
-            <div>
-              <label htmlFor="cfg-max-lot" className="block text-xs font-medium mb-1" style={{ color: "var(--muted)" }}>Max Lot Size</label>
-              <input
-                id="cfg-max-lot"
-                type="number" step="1" min="1" max="100" value={maxLotSize}
-                onChange={(e) => {
-                  const v = parseInt(e.target.value);
-                  if (!isNaN(v) && v >= 1 && v <= 100) setMaxLotSize(v);
-                }}
-                className="w-full px-3 py-2 text-sm rounded-lg border bg-transparent outline-none focus:border-blue-500"
-                style={{ borderColor: "var(--border)" }} />
-            </div>
+            <SliderField
+              id="cfg-max-lot"
+              label="Max Lot Size"
+              value={maxLotSize}
+              onChange={setMaxLotSize}
+              min={0.01}
+              max={100}
+              step={0.01}
+              decimals={2}
+              hint="0.01 – 100 lots"
+            />
           )}
-          <div>
-            <label htmlFor="cfg-daily-loss" className="block text-xs font-medium mb-1" style={{ color: "var(--muted)" }}>Max Daily Loss (%)</label>
-            <input
-              id="cfg-daily-loss"
-              type="number" step="0.5" min="1" max="10" value={maxDailyLoss.toFixed(1)}
-              onChange={(e) => {
-                const v = parseFloat(e.target.value);
-                if (!isNaN(v) && v >= 1 && v <= 10) setMaxDailyLoss(v);
-              }}
-              className="w-full px-3 py-2 text-sm rounded-lg border bg-transparent outline-none focus:border-blue-500"
-              style={{ borderColor: "var(--border)" }} />
-          </div>
+          <SliderField
+            id="cfg-daily-loss"
+            label="Max Daily Loss (%)"
+            value={maxDailyLoss}
+            onChange={setMaxDailyLoss}
+            min={0.5}
+            max={10}
+            step={0.1}
+            decimals={1}
+            hint="0.5 % – 10 %"
+          />
         </div>
 
         <div className="grid grid-cols-2 gap-3">

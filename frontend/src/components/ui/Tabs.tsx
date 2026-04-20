@@ -20,13 +20,19 @@ export default function Tabs({
 
   return (
     <div>
-      <div className="flex border-b gap-0" style={{ borderColor: "var(--border)" }}>
+      {/* overflow-x-auto lets the tab row scroll horizontally on narrow
+          viewports instead of overflowing the card. whitespace-nowrap keeps
+          each tab label on a single line. */}
+      <div
+        className="flex border-b gap-0 overflow-x-auto scrollbar-thin"
+        style={{ borderColor: "var(--border)" }}
+      >
         {tabs.map((tab, i) => (
           <button
             key={i}
             onClick={() => setActive(i)}
             className={cn(
-              "px-4 py-2.5 text-sm font-medium transition-colors relative",
+              "px-4 py-2.5 text-sm font-medium transition-colors relative whitespace-nowrap flex-shrink-0",
               active === i ? "text-white" : "hover:text-white"
             )}
             style={{ color: active === i ? "var(--foreground)" : "var(--muted)" }}

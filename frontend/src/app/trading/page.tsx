@@ -586,12 +586,18 @@ export default function TradingPage() {
                     <p className="py-4 text-center text-sm" style={{ color: "var(--muted)" }}>No matching logs</p>
                   ) : (
                     filteredLogs.map((l) => (
-                      <div key={l.id} className="flex items-start gap-2 py-1">
-                        <span className="flex-shrink-0" style={{ color: "var(--muted)" }}>
-                          {toSydneyTime(l.created_at + (l.created_at.includes("Z") || l.created_at.includes("+") ? "" : "Z"))}
-                        </span>
-                        <StatusBadge value={l.level} />
-                        <span className="break-all">{l.message}</span>
+                      /* Column layout on mobile (meta row, then message below)
+                         so `break-words` can wrap the message on whole-word
+                         boundaries instead of `break-all` splitting mid-word.
+                         Desktop keeps the tight inline layout. */
+                      <div key={l.id} className="py-1 sm:flex sm:items-start sm:gap-2">
+                        <div className="flex items-center gap-2 sm:flex-shrink-0">
+                          <span className="text-[10px]" style={{ color: "var(--muted)" }}>
+                            {toSydneyTime(l.created_at + (l.created_at.includes("Z") || l.created_at.includes("+") ? "" : "Z"))}
+                          </span>
+                          <StatusBadge value={l.level} />
+                        </div>
+                        <span className="block mt-0.5 sm:mt-0 break-words leading-snug">{l.message}</span>
                       </div>
                     ))
                   )}
