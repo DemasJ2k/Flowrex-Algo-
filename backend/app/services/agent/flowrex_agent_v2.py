@@ -266,6 +266,22 @@ class FlowrexAgentV2:
         if np.any(np.isnan(feature_vector)) or np.any(np.isinf(feature_vector)):
             feature_vector = np.nan_to_num(feature_vector, nan=0.0, posinf=0.0, neginf=0.0)
 
+        # Clip extreme features to ±5σ of training distribution before prediction.
+        # Two features have known scale-drift issues on BTC at new all-time-highs
+        # (`lw_value_slope` raw-dollar, `donch_width_roc` near-zero denominator).
+        # Refactoring would invalidate every deployed model; clipping at runtime
+        # keeps predictions in-distribution without a retrain.
+        try:
+            from app.services.ml.feature_monitor import clip_to_training_distribution
+            feature_vector, _clipped = clip_to_training_distribution(
+                feature_vector, feat_names, self.symbol, sigma=5.0,
+            )
+            if _clipped and self._eval_count % 50 == 1:
+                self._log("info",
+                    f"Clipped {len(_clipped)} extreme features to ±5σ (first: {_clipped[:3]})")
+        except Exception:
+            pass
+
         # Drift check (first eval after start + every 50 evals).
         # Warnings go to agent_logs; does NOT block trading.
         if self._eval_count == 1 or self._eval_count % 50 == 0:

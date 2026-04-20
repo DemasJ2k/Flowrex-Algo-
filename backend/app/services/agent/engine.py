@@ -101,18 +101,38 @@ class AgentRunner:
                 manager = get_broker_manager()
                 adapter = manager.get_adapter(agent_record.created_by, agent_record.broker_name)
                 if adapter:
-                    # Symbol check — try fetching 1 candle; if zero rows, broker doesn't support it
+                    # Symbol availability check. Two-stage:
+                    #   1. get_tick — definitive existence check, no "complete" filter
+                    #   2. get_candles(5) — fallback if the adapter doesn't implement tick
+                    #                       or returns empty on weekends/holidays.
+                    # We previously called get_candles(..., 1). Oanda's adapter drops
+                    # any bar with `complete=False` (the currently-forming one), so a
+                    # single-bar request on a just-opened session returned an empty
+                    # list and the pre-flight incorrectly flagged the symbol as
+                    # "not available on oanda". Requesting 5 closed+open bars means
+                    # at most one is in-progress and at least four pass the filter.
+                    symbol_ok = False
+                    last_err = None
                     try:
-                        test_candles = await adapter.get_candles(agent_record.symbol, "M5", 1)
-                        if not test_candles:
-                            self._log_to_db(db, "error",
-                                f"Symbol '{agent_record.symbol}' not available on {agent_record.broker_name}. "
-                                f"Check symbol name matches broker's instrument list.")
-                            db.commit()
-                            return
-                    except Exception as sym_err:
-                        self._log_to_db(db, "warn",
-                            f"Symbol pre-flight check failed (non-fatal): {sym_err}")
+                        tick = await adapter.get_tick(agent_record.symbol)
+                        if tick and (tick.bid > 0 or tick.ask > 0):
+                            symbol_ok = True
+                    except Exception as e:
+                        last_err = e
+                    if not symbol_ok:
+                        try:
+                            test_candles = await adapter.get_candles(agent_record.symbol, "M5", 5)
+                            if test_candles:
+                                symbol_ok = True
+                        except Exception as e:
+                            last_err = e
+                    if not symbol_ok:
+                        self._log_to_db(db, "error",
+                            f"Symbol '{agent_record.symbol}' not available on {agent_record.broker_name}. "
+                            f"Check symbol name matches broker's instrument list."
+                            + (f" Last error: {last_err}" if last_err else ""))
+                        db.commit()
+                        return
 
                 # Feature count check — only if agent has EXPECTED_FEATURE_COUNT
                 expected = getattr(self._agent, "EXPECTED_FEATURE_COUNT", None)

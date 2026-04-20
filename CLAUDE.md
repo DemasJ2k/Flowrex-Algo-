@@ -8,21 +8,85 @@
 - **Brokers:** Oanda, cTrader, MT5, Tradovate, Interactive Brokers (Client Portal REST)
 
 ## Current Phase
-**REPORTING FIXES + IB + MULTI-BROKER + HELP PAGE + PWA** (2026-04-19)
-- AI reports: per-user frequency (off/1h/4h/12h/daily), quiet hours, skip when
-  markets closed, skip when unchanged (state-change hash), 24h liveness ping
-- User timezone autodetect + confirm banner; report headers now in local time
-- Supervisor system prompt hardened with asset-class hours + no-change rule
-  (fixes "SYSTEM FAILURE clock corrupted" hallucinations)
+**BACKTEST INTEGRITY + POTENTIAL AGENT TUNING + FUNDEDNEXT BOLT PLAN**
+(2026-04-20)
+
+### 2026-04-20 — FundedNext Bolt research + known issues queue
+- Bolt plan documented (see Prop Firm → Bolt section below). $50k account,
+  $3k profit target, $1k daily loss, $2k trailing DD, 40% consistency rule
+  in both phases, no overnight holds, EA/automation allowed via Tradovate
+  or NinjaTrader 8, strategy switching challenge↔funded prohibited, 5-
+  payout lifecycle (first 4 × $1,200 + final $7,700 = $12,500 cap/account).
+- Known open issues queued for next sprint:
+  1. Symbol-mismatch bug — live agents log "Symbol 'US30/BTCUSD/XAUUSD'
+     not available on oanda"; registry maps to US30_USD / BTC_USD / XAU_USD,
+     something's bypassing `to_broker()`.
+  2. Feature drift on BTCUSD flowrex_v2 — 3 features at z=5-14σ outside
+     training distribution; same failure shape as the CVD scale-mismatch bug
+     we already fixed — need to audit `features_flowrex.py` for the rest.
+  3. Mobile UI: trading-page agent cards clustered; engine log + settings
+     page overflow viewport; risk slider needed (0.01 %–3 %, 0.01 lot min).
+  4. Agent card layout: collapse-to-one-row + tap-to-expand on mobile.
+
+### 2026-04-19 — Dukascopy delta-merge + Backtest integrity + Potential tuning
+- Dukascopy backtest fetch rewritten as delta-merge against bind-mounted
+  History Data CSVs. First fetch bootstraps 2,500 days (~2-3 min);
+  subsequent runs pull only the delta (~5-25 s) and write back.
+  Fixes the "fetching fresh Dukascopy data…" timeout toast.
+- Backtest integrity pass (api/backtest.py + broker/manager.py):
+  - User-scoped adapter lookup (was iterating all users globally → a minor
+    security bug; another user's broker could be used in your backtest).
+  - Per-broker M5 candle caps (oanda 5k · mt5 50k · ctrader 5k · tradovate 5k
+    · ibkr 1k); H1/H4/D1 scale proportionally. Date range that exceeds the
+    broker cap is silently clamped to the earliest bar available and the UI
+    shows the real data window (source, broker, first/last bar, cap).
+  - Broker asyncio loop-affinity bug fixed: backtest worker thread now
+    dispatches broker coroutines to the FastAPI main loop via
+    `BrokerManager.run_coroutine_on_loop(...)` (same pattern as
+    retrain_scheduler). Was throwing "asyncio.locks.Event bound to a
+    different event loop" on Potential + Broker (Live) runs.
+  - `oos_start_ts` from the trained joblib now flows to the UI; monthly
+    rows tagged IS / OOS / BND (straddle).
+  - Breakdowns (direction / exit_type / session / confidence bucket /
+    oos_split) computed per trade using `predict_proba` confidences.
+  - New `POST /api/backtest/analyze` sends stats + breakdowns to the user's
+    Claude supervisor for a 400-word markdown review. Reuses existing
+    per-user supervisor — no new LLM stack.
+  - Frontend: data-coverage card, OOS caption on equity curve, In-Sample
+    vs True-OOS comparison card, 4 breakdown cards, Analyse-with-AI panel.
+- Potential agent per-symbol tuning:
+  - Runtime TP/SL + min-confidence now read from `symbol_config.py`
+    (previously hardcoded 1.5/1.0 ATR + 0.52 — matched XAUUSD by luck, hurt
+    BTCUSD/US30/NAS100 with wrong-sized stops).
+  - Training labels in `scripts/train_potential.py` now use per-symbol
+    `tp_atr_mult` / `sl_atr_mult` / `hold_bars` from the same config, so
+    model labels and runtime exits finally agree.
+  - US30 + NAS100 config widened from 1.2/0.8 → 1.5/1.0 after OOS backtest
+    showed tight stops got chopped on indices.
+  - Per-asset-class confidence defaults: commodity 0.52, forex 0.53,
+    index/crypto 0.55. Overridable per-agent via `config.min_confidence`.
+- Retrains completed (post-CVD-fix + post-TP/SL-fix):
+  - `potential_US30`  → Grade A all 4 folds, OOS ready
+  - `potential_NAS100` → folds 1-2 A / fold 3 D / fold 4 F — **regime
+    break 2024-11 onwards, model saved but DO NOT enable live**
+  - `flowrex_XAUUSD` → Grade A walk-forward, B/B/A on OOS block
+  - In queue (tmux `experiments2`): ETHUSD, XAGUSD, AUS200
+- Tests: 59/59 targeted green (same suite as yesterday — monitoring +17,
+  market_hours +9, broker_manager +1; all still passing).
+
+### 2026-04-19 (earlier) — Reporting fixes + IB + multi-broker + Help + PWA
+- AI reports: per-user frequency (off/1h/4h/12h/daily), quiet hours, skip
+  when markets closed, skip-when-unchanged state hash, 24h liveness ping.
+- User timezone autodetect + confirm banner; report headers in local time.
+- Supervisor prompt hardened with asset-class hours + no-change rule
+  (fixes "SYSTEM FAILURE clock corrupted" hallucinations).
 - Interactive Brokers adapter (Client Portal REST) — paper + live, native
-  bracket orders, IB contract mapping in symbol registry
-- Multi-broker simultaneous connections (removed auto-disconnect enforcement);
-  `/api/broker/status` now returns `brokers: [...]`
-- /help page replacing Settings Feedback tab — broker setup, prop firm
-  compatibility table, FAQ, feedback form; Help replaces AI on mobile
-  bottom-nav (AI stays in sidebar)
-- PWA: manifest.webmanifest + minimal SW (network-first, never caches /api or /ws)
-- Tests: 59/59 targeted green (market_hours +9, monitoring +17, broker_manager +1)
+  bracket orders, IB contract mapping.
+- Multi-broker simultaneous connections; `/api/broker/status` returns
+  `brokers: [...]`.
+- /help page replacing Settings Feedback tab — broker setup, prop-firm
+  compatibility table, FAQ, feedback. Help replaces AI on mobile bottom-nav.
+- PWA: manifest + minimal SW (network-first, never caches /api or /ws).
 
 ### 2026-04-18 — Engine wiring + AI autonomy + label-leakage fix
 - 25+ wiring gaps closed (on_error, parse_actions, RiskManager, feature drift,
@@ -118,6 +182,52 @@ target_rr: 1:2
 target_wr: 55%
 us30_primary_session: 13:30-15:30 UTC (cash open)
 ```
+
+### FundedNext Bolt — target prop-firm account (researched 2026-04-20)
+
+Source: fundednext.com/futures/bolt + fundednext.com/futures-challenge-terms
++ helpfutures.fundednext.com/en/articles/11170648 (EAs allowed).
+
+**Account / fees**
+- One tier only: **$50,000 account**
+- Challenge fee: **$99.99** one-time
+- Reset fee: **$91.99**
+
+**Rules (apply to challenge AND funded phase unless noted)**
+| Rule | Value |
+|---|---|
+| Profit target (challenge only) | **$3,000** (6 %) |
+| Daily loss limit | **$1,000** (2 %) — EOD aggregate |
+| Max trailing drawdown | **$2,000** (4 %) — EOD trailing, stops trailing once EOD hits $50,100 (locks floor at $50k) |
+| Consistency rule | **40 % — both phases**. No single day's profit > 40 % of total profit |
+| Overnight holds | **Not allowed** — all positions must close before market close |
+| News trading | Allowed |
+| EAs / automation | **Allowed** (Tradovate + NinjaTrader 8) |
+| Strategy switch challenge↔funded | **Prohibited** |
+| Min trading days | None |
+
+**Payouts (funded phase)**
+- 24-hour payout promise ("or we pay $1,000 extra")
+- 5-payout lifecycle, then the account ends
+- Payout cap: first 4 × $1,200 + final 5th × $7,700 = **$12,500 total per account**
+
+**What this means for our agent**
+- `prop_firm_mode=True` with **$1,000 daily stop**, **$2,000 trailing stop
+  tracked EOD**, **0.75 % base risk** ($375 max risk per trade) — existing
+  RiskManager covers daily + trailing but needs:
+  1. EOD forced-flat at 21:00 UTC (CME close) — new feature.
+  2. 40 % consistency gate: track daily P&L, skip trades that would push
+     today's profit above 40 % of the $3,000 target ($1,200) — new feature.
+  3. Trailing DD that stops trailing at balance ≥ $50,100 — tweak to
+     existing RiskManager trailing logic.
+  4. Fixed strategy: once we pick the config, lock it. No live re-tunes
+     between challenge and funded.
+- Training data source: **Databento** for ES / NQ / YM / GC / CL (real CME)
+  — we already have that integration wired via `market_data`. Skip
+  Tradovate's $25/mo API add-on for training; only needed for live routing.
+- Live execution: existing Tradovate adapter. Confirm whether the user's
+  live credentials work without the $25 add-on; if 403s, switch to
+  NinjaTrader 8 (not yet implemented) or pay.
 
 ## Deployed Models (as of 2026-04-07)
 | Symbol | Best Model | Grade | Sharpe | Source |

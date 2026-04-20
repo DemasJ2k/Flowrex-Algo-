@@ -272,6 +272,22 @@ class PotentialAgent:
 
         # Use last bar's features — validate for NaN/Inf
         feature_vector = X[-1].reshape(1, -1)
+
+        # Clip to training distribution before prediction. Unnormalised
+        # features (lw_value_slope in dollars, donch_width_roc with near-zero
+        # denominators) can spike to 14σ live on BTC at new highs and push
+        # the model into untrained territory. Clip to ±5σ preserves the
+        # direction of an extreme reading without letting it dominate.
+        try:
+            from app.services.ml.feature_monitor import clip_to_training_distribution
+            feature_vector, _clipped = clip_to_training_distribution(
+                feature_vector, feat_names, self.symbol, sigma=5.0,
+            )
+            if _clipped and self._eval_count % 50 == 1:
+                self._log("info",
+                    f"Clipped {len(_clipped)} extreme features to ±5σ (first: {_clipped[:3]})")
+        except Exception:
+            pass
         if np.any(np.isnan(feature_vector)) or np.any(np.isinf(feature_vector)):
             feature_vector = np.nan_to_num(feature_vector, nan=0.0, posinf=0.0, neginf=0.0)
 

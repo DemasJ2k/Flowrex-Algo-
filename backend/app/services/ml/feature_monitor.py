@@ -106,6 +106,56 @@ def check_drift(
     return warnings
 
 
+def clip_to_training_distribution(
+    feature_vector: np.ndarray,
+    feature_names: list[str],
+    symbol: str,
+    sigma: float = 5.0,
+) -> tuple[np.ndarray, list[str]]:
+    """
+    Clip a live feature vector to [mean - sigma*std, mean + sigma*std] using the
+    training baseline. Prevents scale-drift spikes (e.g. unnormalised dollar
+    slopes on BTC at new all-time-highs, or ROC divisions by near-zero) from
+    pushing the model into never-seen input regions.
+
+    Returns (clipped_vector, list_of_clipped_feature_names). Vector is a copy —
+    the input is never mutated. If no baseline exists, input is returned as-is.
+
+    Safe to call on shape (N,) or (1, N); returns the same shape.
+    """
+    baseline = _load_baseline(symbol)
+    if baseline is None:
+        return feature_vector, []
+
+    clipped = np.asarray(feature_vector, dtype=np.float64).copy()
+    one_d = clipped.ndim == 1
+    view = clipped if one_d else clipped[0]
+    clipped_names: list[str] = []
+
+    for i, fname in enumerate(feature_names):
+        if fname not in baseline or i >= len(view):
+            continue
+        stats = baseline[fname]
+        mean = float(stats.get("mean", 0.0))
+        std = float(stats.get("std", 1.0))
+        if std <= 0:
+            continue  # degenerate — leave alone
+        lo = mean - sigma * std
+        hi = mean + sigma * std
+        original = float(view[i])
+        if np.isnan(original) or np.isinf(original):
+            view[i] = mean
+            clipped_names.append(fname)
+            continue
+        if original < lo or original > hi:
+            view[i] = max(lo, min(hi, original))
+            clipped_names.append(fname)
+
+    if not one_d:
+        clipped[0] = view
+    return clipped, clipped_names
+
+
 def save_training_stats(
     feature_names: list[str],
     X_train: np.ndarray,

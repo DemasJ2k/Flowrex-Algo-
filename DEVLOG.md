@@ -11,7 +11,137 @@ _Chronological record of all changes. Read this before starting any task._
 
 ---
 
-## 2026-04-19 — Reporting fixes · Interactive Brokers · Multi-broker · Help page · PWA
+## 2026-04-20 — FundedNext Bolt research + issues triaged
+
+User pasted the FundedNext "Bolt" page (Tradovate add-on $25/mo for live API)
+and asked for a deep-dive. Pulled rules from fundednext.com/futures/bolt,
+/futures-challenge-terms, and helpfutures.fundednext.com.
+
+Bolt rules captured in CLAUDE.md → "FundedNext Bolt — target prop-firm
+account" section. Key points:
+- One tier only: $50k account @ $99.99 fee
+- Profit target $3k; daily loss limit $1k (EOD); trailing DD $2k (EOD,
+  stops trailing at +$100 balance, floor locks at $50k)
+- 40 % consistency rule applies in BOTH challenge and funded phases
+- No overnight holds — all positions flat before CME close
+- EAs ALLOWED via Tradovate or NinjaTrader 8
+- Strategy switch between challenge and funded is PROHIBITED
+- Payout: 5-lifecycle cap ($1,200 × 4 + $7,700 = $12,500/account)
+
+Action items queued (not yet coded):
+1. Symbol-mismatch bug ("US30 not available on oanda") — blocks all live
+   potential / flowrex_v2 agents. Either Oanda account instrument list
+   doesn't include them or registry bypass somewhere.
+2. Feature drift (z=14 σ) on `fx_donch_width_roc` in flowrex_v2 BTCUSD —
+   same shape as the bounded-CVD bug. Need to audit features_flowrex.py.
+3. Mobile layout: trading page agent cards clustered; engine log + settings
+   page overflow viewport.
+4. Risk slider (0.01 %–3 %, 0.01 lot min) replacing text-only input.
+5. Mobile agent cards: collapse-to-row + tap-to-expand.
+6. FundedNext Bolt agent wiring — new fields in RiskManager
+   (`force_flat_before_utc`, `consistency_pct_cap`, `trailing_stops_at`).
+
+Tradovate API access add-on ($25/mo) decision: defer. Training will use
+Databento (already integrated) for real CME data; live can try existing
+OAuth password-grant credentials before paying.
+
+---
+
+## 2026-04-19 — Backtest integrity + Dukascopy delta-merge + Potential tuning
+
+Three user-initiated asks in one day: broker-live backtest fix, overfitting
+visibility, Dukascopy fetch timeout.
+
+### Dukascopy delta-merge (was 5-min bootstrap every run)
+- Root cause: `BacktestDataFetcher.fetch()` did full 2,500-day pull every
+  call; Dukascopy rate-limiting pushed it past the 5-min subprocess cap
+  for ~40 % of runs.
+- Persistent `History Data/data/{SYMBOL}/{SYMBOL}_{TF}.csv` (~7 years)
+  was unused.
+- Fix: fetch_dukascopy_node.js got `--since=<unix_ts>` flag; data_fetcher
+  loads the persistent CSV, passes `min(max_ts) - 15min` as `--since`,
+  merges delta into memory, writes back to persistent CSV.
+- Bootstrap: ~2-3 min. Delta: ~5-25 s. Cache hit: <10 ms.
+- If Dukascopy delta fails, falls back to serving persistent data rather
+  than erroring the whole backtest.
+- Commit 55345c0.
+
+### Backtest broker-live event-loop bug
+- Symptom: "Broker data fetch failed: asyncio.locks.Event ... bound to a
+  different event loop" when selecting Broker (Live) + Potential agent.
+- Root cause: worker thread created a new asyncio loop; adapter's httpx
+  client was bound to FastAPI's main loop → httpx's internal
+  `asyncio.Event` failed the loop affinity check.
+- Fix: `BrokerManager.set_main_loop(loop)` + `run_coroutine_on_loop(coro)`
+  capture main loop at lifespan startup; backtest worker dispatches broker
+  coroutines back to it via `run_coroutine_threadsafe`. Same pattern the
+  retrain scheduler already used.
+- Also: scoped adapter lookup to `current_user.id` (was iterating all
+  users globally — minor cross-user leak).
+- Per-broker M5 caps map (oanda 5k · mt5 50k · ctrader 5k · tradovate 5k
+  · ibkr 1k). HTF windows scale proportionally. Response now includes
+  `data_window` so UI shows honest coverage.
+- Commit 77c42b5.
+
+### Overfitting / walk-forward visibility
+- Backtest response now includes `oos_start_ts` (read from the trained
+  joblib's `oos_start` field). Each trade flagged `is_oos`.
+- Monthly rows get `phase` = in_sample | oos | boundary.
+- Frontend shows OOS cutoff above the equity curve, plus a dedicated
+  In-sample vs True-OOS card with the split metrics.
+- Breakdowns by direction / exit_type / session / confidence bucket
+  computed with `predict_proba` confidences.
+- New `POST /api/backtest/analyze` takes `{result_id}` or `{symbol}`,
+  assembles stats + breakdowns into a structured prompt, calls the user's
+  existing Claude supervisor. Returns markdown. 400-word cap enforced in
+  the system prompt, refuses to invent numbers.
+- Commits 77c42b5 + 72bdb5a.
+
+### Potential agent per-symbol TP/SL + confidence
+- Diagnosed: only XAUUSD potential worked live because
+  `potential_agent.py` hardcoded `SL=1.0×ATR, TP=1.5×ATR` — which matches
+  XAUUSD's config by luck. BTCUSD (wants 2.0/1.2) got tight stops and
+  got chopped; US30/NAS100 (wants 1.2/0.8) got wide stops and
+  underperformed.
+- `potential_agent.py` now reads `tp_atr_mult` / `sl_atr_mult` from
+  `symbol_config`, and has per-asset-class confidence defaults
+  (commodity 0.52, forex 0.53, index/crypto 0.55). Both overridable via
+  agent config.
+- `train_potential.py` now reads the same `tp_atr_mult` / `sl_atr_mult`
+  / `hold_bars` from symbol_config so label barriers match runtime exits.
+  Previously trained on 1.2/0.8 labels while runtime traded 1.5/1.0 — a
+  model-vs-execution mismatch.
+- Backtest on the corrected pipeline: BTCUSD WR 72.5 → 77 %, PF 2.35 →
+  3.73, Sharpe 11.9 → 16.1 (xgb/lgb over 2024-09 → 2026-04 OOS). US30
+  actually preferred old wider stops so config widened from 1.2/0.8 →
+  1.5/1.0. XAUUSD unchanged (control — confirms diagnosis).
+- NAS100 model was broken regardless (WR ~23 %), so retraining queued.
+- Commit 5403cd9.
+
+### Training runs kicked off 2026-04-19
+- `potential_US30` Apr 19 12:41 → Grade A all 4 folds.
+- `potential_NAS100` Apr 19 20:57 → folds 1-2 A / fold 3 D / fold 4 F.
+  Regime break 2024-11 onwards. Saved but DO NOT enable live.
+- `flowrex_XAUUSD` Apr 20 02:28 → walk-forward Grade A; OOS block B/B/A.
+- `flowrex_NAS100` (in `experiments2`) still running; folds 1-2 A,
+  fold 3 D, fold 4 F — same regime break pattern. Queue contains
+  ETHUSD, XAGUSD, AUS200 after NAS100.
+
+### Monday-ready agent list
+| Agent | Status |
+|---|---|
+| XAUUSD potential | ✅ live-proven +$5k/14d |
+| XAUUSD flowrex_v2 | ✅ fresh Grade A/B |
+| US30 potential | ✅ fresh Grade A |
+| BTCUSD flowrex_v2 | ✅ Grade A, wide_sl_1.5 winner (Apr 18 model) |
+| US30 flowrex_v2 | ⚠️ Grade C trio — small size or skip |
+| NAS100 (either flavour) | ❌ regime break |
+| ES (either flavour) | ❌ regime break |
+| BTCUSD potential | ⚠️ pre-CVD-fix (Apr 14); backtest OK, ideally retrain |
+
+---
+
+## 2026-04-19 (earlier) — Reporting fixes · Interactive Brokers · Multi-broker · Help page · PWA
 
 Five-part change set addressing user-reported AI report defects and rolling in
 the broker + nav + packaging work queued for the beta.
