@@ -427,24 +427,78 @@ async def execute_autonomous_actions(user_id: int, response: str) -> list[dict]:
                 f"🤖 **Autonomous action requested:** `{_json.dumps(action)}`"
             )
 
-            # Security: ensure the agent belongs to this user
-            if agent_id:
+            # agent_id may arrive as a string like "US30_potential" if Claude
+            # ignored the numeric id in context. Try to resolve it.
+            resolved_id: Optional[int] = None
+            if agent_id is not None:
+                try:
+                    resolved_id = int(agent_id)
+                except (TypeError, ValueError):
+                    # String form — try "<SYMBOL>_<agent_type>" parse
+                    s = str(agent_id).strip()
+                    sym_type = s.replace(" ", "_").split("_", 1)
+                    if len(sym_type) == 2:
+                        sym, a_type = sym_type[0].upper(), sym_type[1].lower()
+                        cand = db.query(TradingAgent).filter(
+                            TradingAgent.created_by == user_id,
+                            TradingAgent.symbol == sym,
+                            TradingAgent.agent_type == a_type,
+                            TradingAgent.deleted_at.is_(None),
+                        ).order_by(TradingAgent.id.desc()).first()
+                        if cand:
+                            resolved_id = cand.id
+
+            # Security: ensure the agent belongs to this user. Any failure
+            # here MUST log visibly — we used to `continue` silently, which
+            # let the AI narrate "Agent is now PAUSED" while the engine
+            # kept firing trades. Never again.
+            if agent_id is not None:
+                if resolved_id is None:
+                    msg = (
+                        f"⚠️ **Autonomous action REJECTED**: could not resolve "
+                        f"agent_id `{agent_id}` to a numeric DB id. "
+                        f"Use the `id` field from the agents list in your context."
+                    )
+                    _append_to_monitoring_session(db, user_id, "assistant", msg)
+                    logger.warning(f"AI action skipped — unresolved agent_id={agent_id!r}: {action}")
+                    continue
                 owns = db.query(TradingAgent).filter(
-                    TradingAgent.id == agent_id,
+                    TradingAgent.id == resolved_id,
                     TradingAgent.created_by == user_id,
                     TradingAgent.deleted_at.is_(None),
                 ).first()
                 if not owns:
-                    continue  # not the user's agent — skip silently
+                    msg = (
+                        f"⚠️ **Autonomous action REJECTED**: agent id {resolved_id} "
+                        f"not found or not owned by you."
+                    )
+                    _append_to_monitoring_session(db, user_id, "assistant", msg)
+                    logger.warning(f"AI action skipped — agent {resolved_id} not owned by user {user_id}")
+                    continue
+                # Canonicalise for downstream code
+                agent_id = resolved_id
 
             try:
                 if act == "PAUSE_AGENT" and agent_id:
                     from app.services.agent.engine import get_algo_engine
-                    await get_algo_engine().pause_agent(agent_id)
-                    executed.append(action)
-                    await send_alert(user_id,
-                        f"🤖 Agent #{agent_id} paused by AI",
-                        f"<b>Reason:</b> {reason}")
+                    engine = get_algo_engine()
+                    await engine.pause_agent(agent_id)
+                    # Verify: confirm the engine reports the agent as not-running.
+                    # If pause silently failed we want to surface that to the AI
+                    # chat so the next turn doesn't assume success.
+                    still_running = engine.is_running(agent_id) if hasattr(engine, "is_running") else False
+                    if still_running:
+                        _append_to_monitoring_session(db, user_id, "assistant",
+                            f"⚠️ **PAUSE_AGENT failed**: agent {agent_id} still running "
+                            f"after pause call. Engine may be unresponsive — investigate.")
+                        logger.error(f"pause_agent({agent_id}) returned but agent still running")
+                    else:
+                        executed.append(action)
+                        _append_to_monitoring_session(db, user_id, "assistant",
+                            f"✅ **PAUSE_AGENT executed**: agent {agent_id} is now paused.")
+                        await send_alert(user_id,
+                            f"🤖 Agent #{agent_id} paused by AI",
+                            f"<b>Reason:</b> {reason}")
 
                 elif act == "ADJUST_RISK" and agent_id:
                     new_risk = float(action.get("risk_per_trade", 0.001))
