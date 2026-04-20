@@ -246,6 +246,18 @@ class PotentialAgent:
         if not self._check_risk(balance, daily_pnl, daily_trade_count):
             return None
 
+        # 3b. Bolt-style force-flat cutoff. If the RiskManager says we're
+        # past the CME close threshold, refuse new entries. The agent-level
+        # position-close loop elsewhere uses `should_flatten()` to decide
+        # whether to close any open trades — not our job here.
+        if self._risk_manager is not None:
+            try:
+                if self._risk_manager.should_flatten():
+                    self._log_reject("Past force-flat cutoff (CME close)")
+                    return None
+            except Exception:
+                pass
+
         # 4. Fetch HTF context
         if broker_adapter:
             await self._refresh_htf_context(broker_adapter)

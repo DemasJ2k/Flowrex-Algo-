@@ -67,6 +67,61 @@ PROP_FIRM_CONFIG: Dict = {
     "risk_per_trade": 0.0075,
     "max_daily_loss_pct": 0.04,
     "cooldown_bars": 3,
+
+    # ------------------------------------------------------------------
+    # Bolt-compatible extensions (2026-04-20)
+    # All three are None/off by default. Set via the BOLT_50K_CONFIG preset
+    # or the agent config editor to enable.
+    # ------------------------------------------------------------------
+    # UTC hour after which the agent must NOT open new positions and
+    # should flatten any open position. Bolt requires all positions closed
+    # before CME daily close — 21:00 UTC.
+    "force_flat_utc_hour": None,
+    # Absolute USD profit target for the 40 % consistency gate. Set this and
+    # `consistency_pct_cap` together.
+    "profit_target_usd": None,
+    # Fraction of profit target that any single day's P&L must not exceed
+    # (e.g. 0.40 for Bolt's 40 % consistency rule). If a trade's maximum
+    # theoretical profit would push daily P&L over this cap, it's rejected.
+    "consistency_pct_cap": None,
+    # Once the EOD account balance reaches this level, the trailing DD
+    # stops trailing and the loss floor locks. Bolt specifies $50,100 on
+    # the $50k account — trailing stops once +$100 is reached.
+    "trail_lock_at_balance": None,
+}
+
+
+# Pre-configured preset for the FundedNext Bolt $50k account. Use via
+#     RiskManager(config={**BOLT_50K_CONFIG, ...your overrides...})
+# or by selecting "Bolt 50K" in the agent config editor.
+BOLT_50K_CONFIG: Dict = {
+    "account_size":              50_000,
+    "profit_target_usd":          3_000,   # 6 %
+    "max_daily_dd_pct":            0.02,   # $1,000 daily loss
+    "max_total_dd_pct":            0.04,   # $2,000 trailing DD
+    "daily_dd_yellow":             0.01,   # $500 — tighten risk
+    "daily_dd_red":                0.015,  # $750 — no new entries
+    "daily_dd_hard_stop":          0.02,   # $1,000 — hard stop
+    "total_dd_caution":            0.02,   # $1,000
+    "total_dd_warning":            0.03,   # $1,500
+    "total_dd_critical":           0.035,  # $1,750
+    "total_dd_emergency":          0.04,   # $2,000
+    "base_risk_per_trade_pct":     0.0075, # 0.75 % = $375
+    "max_risk_per_trade_pct":      0.01,
+    "min_risk_per_trade_pct":      0.0025,
+    "max_trades_per_day":          5,
+    "max_concurrent_positions":    2,
+    "consistency_pct_cap":         0.40,   # 40 % consistency rule
+    "force_flat_utc_hour":         21,     # CME daily close
+    "trail_lock_at_balance":       50_100, # trailing stops at +$100
+    # Bolt-sensible session windows. Bolt accounts trade futures only; the
+    # most efficient window for ES / NQ is the NY cash session.
+    "us30_primary_session":       (13.5, 20.0),
+    "xauusd_primary_session":     (13.5, 20.0),
+    # Legacy compat
+    "risk_per_trade":              0.0075,
+    "max_daily_loss_pct":          0.02,
+    "cooldown_bars":               5,
 }
 
 
@@ -186,6 +241,36 @@ class RiskManager:
                 reason=f"Cooldown active ({bars_since_last_trade}/{self.cooldown_bars} bars)",
             )
 
+        # ------------------------------------------------------------------
+        # Bolt-compatible gates (only active if configured)
+        # ------------------------------------------------------------------
+
+        # Force flat before CME close: reject new entries once we're past the
+        # configured UTC hour. The runtime also has to CLOSE any open
+        # position — see `should_flatten()` below, which the agent polls.
+        force_flat_hour = self._cfg.get("force_flat_utc_hour")
+        if force_flat_hour is not None:
+            from datetime import datetime, timezone
+            now_hour = datetime.now(timezone.utc).hour + datetime.now(timezone.utc).minute / 60.0
+            if now_hour >= float(force_flat_hour):
+                return RiskCheck(
+                    approved=False,
+                    reason=f"Force-flat cutoff ({now_hour:.1f} UTC >= {force_flat_hour} UTC)",
+                )
+
+        # 40 % consistency rule: reject if already at/above the cap today,
+        # since even a breakeven trade risks pushing further over the cap
+        # if the winner comes tomorrow.
+        cap_pct = self._cfg.get("consistency_pct_cap")
+        target = self._cfg.get("profit_target_usd")
+        if cap_pct is not None and target is not None and target > 0 and daily_pnl > 0:
+            cap_usd = float(cap_pct) * float(target)
+            if daily_pnl >= cap_usd:
+                return RiskCheck(
+                    approved=False,
+                    reason=f"Consistency cap ({daily_pnl:.0f} >= {cap_usd:.0f} = {cap_pct:.0%} of ${target:.0f})",
+                )
+
         # Calculate risk amount
         risk_amount = balance * self.risk_per_trade * session_multiplier
 
@@ -194,6 +279,37 @@ class RiskManager:
             reason="Trade approved",
             risk_amount=risk_amount,
         )
+
+    # ------------------------------------------------------------------
+    # Bolt runtime helpers
+    # ------------------------------------------------------------------
+
+    def should_flatten(self, now_utc_hour: Optional[float] = None) -> bool:
+        """
+        Called by the agent each tick to decide whether to close open
+        positions. True once we're past `force_flat_utc_hour`. Returns
+        False if the cutoff isn't configured.
+        """
+        cutoff = self._cfg.get("force_flat_utc_hour")
+        if cutoff is None:
+            return False
+        if now_utc_hour is None:
+            from datetime import datetime, timezone
+            n = datetime.now(timezone.utc)
+            now_utc_hour = n.hour + n.minute / 60.0
+        return now_utc_hour >= float(cutoff)
+
+    def trailing_locked(self, eod_balance: float) -> bool:
+        """
+        Bolt: once EOD balance hits $50,100, the trailing drawdown stops
+        trailing and the max-loss floor locks at starting balance.
+        Engine caller uses this to decide whether to advance the trailing
+        high-water mark.
+        """
+        lock_at = self._cfg.get("trail_lock_at_balance")
+        if lock_at is None:
+            return False
+        return eod_balance >= float(lock_at)
 
     # ------------------------------------------------------------------
     # New prop-firm interface
