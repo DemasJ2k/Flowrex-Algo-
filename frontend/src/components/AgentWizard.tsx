@@ -157,6 +157,12 @@ export default function AgentWizard({
           allow_buy: allowBuy,
           allow_sell: allowSell,
           allowed_sessions: sessionFilter ? allowedSessions : [],
+          // Default-on filter parity with AgentConfigEditor (2026-04-21):
+          // new agents default to allowing all four regimes (filter only
+          // does something useful when the user narrows the list in
+          // Edit Config) and to including correlation features.
+          allowed_regimes: ["trending_up", "trending_down", "ranging", "volatile"],
+          use_correlations: true,
         },
       });
       toast.success(`Agent "${agentName}" created`);

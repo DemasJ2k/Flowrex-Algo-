@@ -81,6 +81,18 @@ class PotentialAgent:
         self.allow_buy: bool = self.config.get("allow_buy", True)
         self.allow_sell: bool = self.config.get("allow_sell", True)
 
+        # Regime filter — rule-based classifier (ATR + ADX + EMA slope). When
+        # enabled, skips entries in regimes not in `allowed_regimes` and
+        # scales risk by the active regime's multiplier.
+        self.regime_filter: bool = self.config.get("regime_filter", False)
+        self.allowed_regimes: list[str] = self.config.get("allowed_regimes") or [
+            "trending_up", "trending_down", "ranging", "volatile",
+        ]
+        # Symbol correlation toggle — when False, correlation feature columns
+        # are zeroed before prediction so the model sees no cross-symbol
+        # signal. Default True for backwards compatibility.
+        self.use_correlations: bool = bool(self.config.get("use_correlations", True))
+
         # Per-agent confidence threshold override; else per-asset-class default;
         # else the class-level fallback (0.52).
         try:
@@ -285,6 +297,21 @@ class PotentialAgent:
         # Use last bar's features — validate for NaN/Inf
         feature_vector = X[-1].reshape(1, -1)
 
+        # Correlation toggle — zero out cross-symbol correlation features
+        # if the user disabled them. Can't skip computing them because the
+        # model expects a fixed feature vector length, but zeroing them is
+        # equivalent to "no correlation signal" for tree-based models.
+        if not self.use_correlations:
+            try:
+                corr_mask = np.array(
+                    [fn.startswith("corr_") or fn.startswith("pot_corr_") for fn in feat_names],
+                    dtype=bool,
+                )
+                if corr_mask.any():
+                    feature_vector[:, corr_mask] = 0.0
+            except Exception:
+                pass
+
         # Clip to training distribution before prediction. Unnormalised
         # features (lw_value_slope in dollars, donch_width_roc with near-zero
         # denominators) can spike to 14σ live on BTC at new highs and push
@@ -321,6 +348,33 @@ class PotentialAgent:
         if signal is None or signal.direction == 0:
             self._log_reject("No signal")
             return None
+
+        # Regime filter — rule-based classifier (ATR + ADX + EMA slope).
+        # Hard-skip entries when the current regime isn't in the user's
+        # allowed set; otherwise record the soft-size multiplier for later.
+        regime_size_mult = 1.0
+        try:
+            from app.services.ml.regime_detector import (
+                classify_regime_simple, regime_size_multiplier,
+            )
+            closes_np = m5_df["close"].values
+            highs_np  = m5_df["high"].values
+            lows_np   = m5_df["low"].values
+            regime_res = classify_regime_simple(highs_np, lows_np, closes_np)
+            if self.regime_filter and regime_res.regime != "unknown":
+                if regime_res.regime not in self.allowed_regimes:
+                    self._log_reject(
+                        f"Regime '{regime_res.regime}' not in allowed {self.allowed_regimes}"
+                    )
+                    return None
+            # Apply soft multiplier whether or not the hard gate is on.
+            regime_size_mult = regime_size_multiplier(regime_res.regime)
+            if self._eval_count % 50 == 1:
+                self._log("info",
+                    f"Regime: {regime_res.regime} (conf {regime_res.confidence:.2f}) "
+                    f"× {regime_size_mult:.2f}")
+        except Exception:
+            pass
 
         # Direction filter — user can disable BUY or SELL.
         if signal.direction == 1 and not self.allow_buy:
@@ -405,11 +459,11 @@ class PotentialAgent:
         else:
             # Mode 1: Risk % of Balance (DEFAULT)
             risk_pct = self.risk_config.get("risk_per_trade_pct", 0.001)
-            risk_amount = balance * risk_pct
+            risk_amount = balance * risk_pct * regime_size_mult
             lot_size = calc_lot_size(self.symbol, risk_amount, sl_distance, self.broker_name)
             self._log("info",
-                f"Sizing: balance={balance:.0f} x risk={risk_pct*100:.2f}% = ${risk_amount:.2f}, "
-                f"SL_dist={sl_distance:.2f}, units={lot_size:.1f}")
+                f"Sizing: balance={balance:.0f} x risk={risk_pct*100:.2f}% x regime={regime_size_mult:.2f}"
+                f" = ${risk_amount:.2f}, SL_dist={sl_distance:.2f}, units={lot_size:.1f}")
 
         # Oanda uses integer units
         if self.broker_name == "oanda":

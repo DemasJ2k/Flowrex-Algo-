@@ -108,6 +108,13 @@ export default function AgentConfigEditor({
   const [allowedSessions, setAllowedSessions] = useState<string[]>(
     (cfg.allowed_sessions as string[]) || ["london", "ny_open", "ny_close"]
   );
+  // Regime filter sub-controls + correlation toggle (2026-04-21 parity patch)
+  const [allowedRegimes, setAllowedRegimes] = useState<string[]>(
+    (cfg.allowed_regimes as string[]) || ["trending_up", "trending_down", "ranging", "volatile"]
+  );
+  const [useCorrelations, setUseCorrelations] = useState<boolean>(
+    cfg.use_correlations !== false
+  );
   const [loading, setLoading] = useState(false);
 
   useEffect(() => {
@@ -165,6 +172,10 @@ export default function AgentConfigEditor({
           allow_buy: allowBuy,
           allow_sell: allowSell,
           allowed_sessions: sessionFilter ? allowedSessions : [],
+          allowed_regimes: regimeFilter ? allowedRegimes : [
+            "trending_up", "trending_down", "ranging", "volatile",
+          ],
+          use_correlations: useCorrelations,
         },
       });
       toast.success("Agent configuration updated");
@@ -328,6 +339,42 @@ export default function AgentConfigEditor({
           <label className="flex items-center gap-2 text-sm cursor-pointer">
             <input type="checkbox" checked={regimeFilter} onChange={(e) => setRegimeFilter(e.target.checked)} className="rounded" />
             Regime filter
+            <span className="text-[10px]" style={{ color: "var(--muted)" }}>
+              (skip trades outside allowed market states)
+            </span>
+          </label>
+          {regimeFilter && (
+            <div className="ml-6 grid grid-cols-2 gap-x-3 gap-y-1 p-2 rounded border" style={{ borderColor: "var(--border)" }}>
+              {[
+                { id: "trending_up",   label: "Trending up",   desc: "Strong upward slope" },
+                { id: "trending_down", label: "Trending down", desc: "Strong downward slope" },
+                { id: "ranging",       label: "Ranging",        desc: "Chop (ADX < 20)" },
+                { id: "volatile",      label: "Volatile",       desc: "ATR > 75th pctile" },
+              ].map((r) => (
+                <label key={r.id} className="flex items-start gap-2 text-xs cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={allowedRegimes.includes(r.id)}
+                    onChange={(e) => {
+                      if (e.target.checked) setAllowedRegimes([...allowedRegimes, r.id]);
+                      else setAllowedRegimes(allowedRegimes.filter((x) => x !== r.id));
+                    }}
+                    className="rounded mt-0.5"
+                  />
+                  <span>
+                    <span className="font-medium">{r.label}</span>
+                    <span className="block text-[10px]" style={{ color: "var(--muted)" }}>{r.desc}</span>
+                  </span>
+                </label>
+              ))}
+            </div>
+          )}
+          <label className="flex items-center gap-2 text-sm cursor-pointer">
+            <input type="checkbox" checked={useCorrelations} onChange={(e) => setUseCorrelations(e.target.checked)} className="rounded" />
+            Symbol correlations
+            <span className="text-[10px]" style={{ color: "var(--muted)" }}>
+              (include cross-symbol features in the model input)
+            </span>
           </label>
         </div>
 

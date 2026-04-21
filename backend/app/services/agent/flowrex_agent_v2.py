@@ -87,6 +87,15 @@ class FlowrexAgentV2:
         self.allow_buy: bool = self.config.get("allow_buy", True)
         self.allow_sell: bool = self.config.get("allow_sell", True)
 
+        # Regime filter — parity with PotentialAgent (2026-04-21). Uses the
+        # deterministic ATR+ADX+EMA-slope classifier. No training required.
+        self.regime_filter: bool = self.config.get("regime_filter", False)
+        self.allowed_regimes: list[str] = self.config.get("allowed_regimes") or [
+            "trending_up", "trending_down", "ranging", "volatile",
+        ]
+        # Symbol correlation toggle — zeroes correlation features if off.
+        self.use_correlations: bool = bool(self.config.get("use_correlations", True))
+
         # Prop-firm tiered risk manager (opt-in via config).
         # When enabled, approve_trade() gates every signal with FTMO-grade
         # drawdown tiers, anti-martingale sizing, and session windows.
@@ -214,7 +223,7 @@ class FlowrexAgentV2:
             self._log_reject("Cooldown", f"{int(elapsed_sec)}s/{cooldown_sec}s")
             return None
 
-        # 3. News filter
+        # 3. News filter (parity with PotentialAgent — same provider + log shape)
         if self.news_filter:
             try:
                 from app.services.news.newsapi_provider import check_high_impact_news
@@ -222,8 +231,8 @@ class FlowrexAgentV2:
                 if not news.should_trade:
                     self._log_reject(f"News filter: {news.reason}")
                     return None
-            except Exception:
-                pass
+            except Exception as e:
+                self._log("warn", f"News filter unavailable: {e}")
 
         # 4. Risk checks
         if not self._check_risk(balance, daily_pnl, daily_trade_count):
@@ -266,6 +275,21 @@ class FlowrexAgentV2:
         if np.any(np.isnan(feature_vector)) or np.any(np.isinf(feature_vector)):
             feature_vector = np.nan_to_num(feature_vector, nan=0.0, posinf=0.0, neginf=0.0)
 
+        # Correlation toggle — zero out cross-symbol correlation features if
+        # disabled. Same approach as PotentialAgent — model expects fixed
+        # feature vector length, zeroing is equivalent to "no signal" for
+        # tree-based models.
+        if not self.use_correlations:
+            try:
+                corr_mask = np.array(
+                    [fn.startswith("corr_") or fn.startswith("fx_corr_") for fn in feat_names],
+                    dtype=bool,
+                )
+                if corr_mask.any():
+                    feature_vector[:, corr_mask] = 0.0
+            except Exception:
+                pass
+
         # Clip extreme features to ±5σ of training distribution before prediction.
         # Two features have known scale-drift issues on BTC at new all-time-highs
         # (`lw_value_slope` raw-dollar, `donch_width_roc` near-zero denominator).
@@ -301,6 +325,33 @@ class FlowrexAgentV2:
         if signal is None or signal.direction == 0:
             self._log_reject("No signal")
             return None
+
+        # Regime filter — rule-based classifier (ATR + ADX + EMA slope).
+        # Hard-skip if regime isn't in allowed list; store soft multiplier
+        # for sizing even when the gate is off so risk adapts to market
+        # state without requiring the hard filter.
+        regime_size_mult = 1.0
+        try:
+            from app.services.ml.regime_detector import (
+                classify_regime_simple, regime_size_multiplier,
+            )
+            closes_np = m5_df["close"].values
+            highs_np  = m5_df["high"].values
+            lows_np   = m5_df["low"].values
+            regime_res = classify_regime_simple(highs_np, lows_np, closes_np)
+            if self.regime_filter and regime_res.regime != "unknown":
+                if regime_res.regime not in self.allowed_regimes:
+                    self._log_reject(
+                        f"Regime '{regime_res.regime}' not in allowed {self.allowed_regimes}"
+                    )
+                    return None
+            regime_size_mult = regime_size_multiplier(regime_res.regime)
+            if self._eval_count % 50 == 1:
+                self._log("info",
+                    f"Regime: {regime_res.regime} (conf {regime_res.confidence:.2f}) "
+                    f"× {regime_size_mult:.2f}")
+        except Exception:
+            pass
 
         # Direction filter — user can disable BUY or SELL independently.
         # signal.direction: 1=BUY, -1=SELL
@@ -383,7 +434,14 @@ class FlowrexAgentV2:
         if getattr(self, "_risk_default_warn", False):
             self._log("warn", "risk_per_trade not in config, using 0.10% default")
             self._risk_default_warn = False
-        risk_amount = balance * self.risk_config.get("risk_per_trade_pct", 0.001)
+        # regime_size_mult comes from the regime filter block above; defaults
+        # to 1.0 if regime detection failed or is off. Soft-sizes risk in
+        # ranging (×0.8) / volatile (×0.6) markets, boosts in trending (×1.1).
+        risk_amount = (
+            balance
+            * self.risk_config.get("risk_per_trade_pct", 0.001)
+            * regime_size_mult
+        )
         lot_size = calc_lot_size(self.symbol, risk_amount, sl_distance, self.broker_name)
 
         if self.broker_name == "oanda":
