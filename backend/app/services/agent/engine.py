@@ -68,6 +68,12 @@ class AgentRunner:
                 elif agent_type == "flowrex_v2":
                     from app.services.agent.flowrex_agent_v2 import FlowrexAgentV2
                     self._agent = FlowrexAgentV2(*agent_args)
+                elif agent_type == "scout":
+                    # Scout = PotentialAgent with a 40-bar lookback + pullback/BOS
+                    # entry state machine. Reuses the potential_{SYMBOL} models
+                    # on disk — no separate training required.
+                    from app.services.agent.scout_agent import ScoutAgent
+                    self._agent = ScoutAgent(*agent_args)
                 elif agent_type in ("scalping", "expert"):
                     # Deprecated agent types — removed in Batch 11 (2026-04-16).
                     # Models were archived, test files deleted. If a user has a stale

@@ -15,6 +15,7 @@ const STEPS = ["Setup", "Risk & Mode", "Review"];
 const AGENT_TYPES = [
   { value: "flowrex_v2", label: "Flowrex v2", desc: "120 features, 3-model ensemble (XGB+LGB+CatBoost), 4-layer MTF.", pipelineKey: "flowrex", color: "#f59e0b" },
   { value: "potential", label: "Potential Agent", desc: "85 institutional features (VWAP, ADX, ORB, anchored VWAPs). Walk-forward trained.", pipelineKey: "potential", color: "#22c55e" },
+  { value: "scout", label: "Scout Agent", desc: "Potential + 40-bar lookback. Waits for pullback / break-of-structure before entering (or instant entry if confidence ≥ 0.85).", pipelineKey: "potential", color: "#8b5cf6" },
 ];
 
 // Per-symbol model metadata from /api/ml/symbols (fetched on open).
