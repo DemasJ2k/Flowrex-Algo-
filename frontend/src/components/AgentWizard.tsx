@@ -7,7 +7,22 @@ import { AlertTriangle } from "lucide-react";
 import { toast } from "sonner";
 import { getErrorMessage } from "@/lib/errors";
 
-const STEPS = ["Setup", "Risk & Mode", "Review"];
+const STEPS = ["Setup", "Risk & Mode", "Filters", "Review"];
+
+const ALL_SESSIONS = [
+  { id: "asian",    label: "Asian",    hours: "00–08 UTC" },
+  { id: "london",   label: "London",   hours: "08–13 UTC" },
+  { id: "ny_open",  label: "NY Open",  hours: "13–17 UTC" },
+  { id: "ny_close", label: "NY Close", hours: "17–21 UTC" },
+  { id: "off_hours",label: "Off Hours",hours: "21–24 UTC" },
+];
+
+const ALL_REGIMES = [
+  { id: "trending_up",   label: "Trending up",   desc: "Strong upward slope" },
+  { id: "trending_down", label: "Trending down", desc: "Strong downward slope" },
+  { id: "ranging",       label: "Ranging",       desc: "Chop (ADX < 20)" },
+  { id: "volatile",      label: "Volatile",      desc: "ATR > 75th pctile" },
+];
 
 // Legacy "scalping" + "flowrex" types removed 2026-04-21 — they used the
 // deprecated FlowrexAgent runtime that lacks today's filters / risk
@@ -93,6 +108,16 @@ export default function AgentWizard({
   const [allowedSessions, setAllowedSessions] = useState<string[]>([
     "london", "ny_open", "ny_close",
   ]);
+  const [allowedRegimes, setAllowedRegimes] = useState<string[]>([
+    "trending_up", "trending_down", "ranging", "volatile",
+  ]);
+  const [useCorrelations, setUseCorrelations] = useState(true);
+  // Scout-only state machine knobs (mirror AgentConfigEditor defaults)
+  const [lookbackBars, setLookbackBars] = useState(40);
+  const [instantEntryConfidence, setInstantEntryConfidence] = useState(0.85);
+  const [maxPendingBars, setMaxPendingBars] = useState(10);
+  const [pullbackAtrFraction, setPullbackAtrFraction] = useState(0.50);
+  const [dedupeWindowBars, setDedupeWindowBars] = useState(20);
   const [loading, setLoading] = useState(false);
   // Dynamic per-symbol model metadata. Populated from /api/ml/symbols so the
   // wizard can show the deployed grade for each symbol under the selected
@@ -113,6 +138,10 @@ export default function AgentWizard({
       if (t.news_filter_enabled !== undefined) setNewsFilter(t.news_filter_enabled);
       if (t.session_filter !== undefined) setSessionFilter(t.session_filter);
       if (t.regime_filter !== undefined) setRegimeFilter(t.regime_filter);
+      if (t.use_correlations !== undefined) setUseCorrelations(t.use_correlations);
+      if (Array.isArray(t.allowed_regimes) && t.allowed_regimes.length > 0) {
+        setAllowedRegimes(t.allowed_regimes);
+      }
       if (r.data?.default_broker) setBroker(r.data.default_broker);
     }).catch(() => {}); // silently ignore — wizard still works with fallback defaults
 
@@ -131,6 +160,10 @@ export default function AgentWizard({
     setSessionFilter(true); setRegimeFilter(true); setNewsFilter(true);
     setPropFirmEnabled(false); setAllowBuy(true); setAllowSell(true);
     setAllowedSessions(["london", "ny_open", "ny_close"]);
+    setAllowedRegimes(["trending_up", "trending_down", "ranging", "volatile"]);
+    setUseCorrelations(true);
+    setLookbackBars(40); setInstantEntryConfidence(0.85);
+    setMaxPendingBars(10); setPullbackAtrFraction(0.50); setDedupeWindowBars(20);
   };
 
   const agentName = customName || `${symbol} Flowrex`;
@@ -158,12 +191,17 @@ export default function AgentWizard({
           allow_buy: allowBuy,
           allow_sell: allowSell,
           allowed_sessions: sessionFilter ? allowedSessions : [],
-          // Default-on filter parity with AgentConfigEditor (2026-04-21):
-          // new agents default to allowing all four regimes (filter only
-          // does something useful when the user narrows the list in
-          // Edit Config) and to including correlation features.
-          allowed_regimes: ["trending_up", "trending_down", "ranging", "volatile"],
-          use_correlations: true,
+          allowed_regimes: regimeFilter ? allowedRegimes : [
+            "trending_up", "trending_down", "ranging", "volatile",
+          ],
+          use_correlations: useCorrelations,
+          ...(agentType === "scout" ? {
+            lookback_bars: lookbackBars,
+            instant_entry_confidence: instantEntryConfidence,
+            max_pending_bars: maxPendingBars,
+            pullback_atr_fraction: pullbackAtrFraction,
+            dedupe_window_bars: dedupeWindowBars,
+          } : {}),
         },
       });
       toast.success(`Agent "${agentName}" created`);
@@ -388,6 +426,22 @@ export default function AgentWizard({
               </div>
             </div>
           )}
+          <div className="grid grid-cols-2 gap-3">
+            <div>
+              <label className="block text-xs font-medium mb-1" style={{ color: "var(--muted)" }}>Max Daily Loss (%)</label>
+              <input type="number" min="0.5" max="10" step="0.1" value={maxDailyLoss}
+                onChange={(e) => { const v = parseFloat(e.target.value); if (!isNaN(v) && v >= 0.5 && v <= 10) setMaxDailyLoss(v); }}
+                className="w-full px-3 py-2 text-sm rounded-lg border bg-transparent outline-none focus:border-blue-500"
+                style={{ borderColor: "var(--border)" }} />
+            </div>
+            <div>
+              <label className="block text-xs font-medium mb-1" style={{ color: "var(--muted)" }}>Cooldown (bars)</label>
+              <input type="number" min="1" max="20" step="1" value={cooldownBars}
+                onChange={(e) => { const v = parseInt(e.target.value); if (!isNaN(v) && v >= 1 && v <= 20) setCooldownBars(v); }}
+                className="w-full px-3 py-2 text-sm rounded-lg border bg-transparent outline-none focus:border-blue-500"
+                style={{ borderColor: "var(--border)" }} />
+            </div>
+          </div>
           <div>
             <label className="block text-xs font-medium mb-2" style={{ color: "var(--muted)" }}>Trading Mode</label>
             <div className="grid grid-cols-2 gap-2">
@@ -410,11 +464,149 @@ export default function AgentWizard({
               </div>
             )}
           </div>
+          <div className="pt-2 border-t" style={{ borderColor: "var(--border)" }}>
+            <label className="flex items-center justify-between cursor-pointer">
+              <div>
+                <p className="text-sm font-medium">Prop Firm Mode</p>
+                <p className="text-[10px]" style={{ color: "var(--muted)" }}>
+                  FTMO-style tiered DD: yellow −1.5% (size↓), red −2.5% (pause), hard −3%.
+                </p>
+              </div>
+              <input type="checkbox" checked={propFirmEnabled} onChange={(e) => setPropFirmEnabled(e.target.checked)} className="rounded" />
+            </label>
+          </div>
         </div>
       )}
 
-      {/* Step 3: Review */}
+      {/* Step 3: Filters */}
       {step === 2 && (
+        <div className="space-y-4">
+          <div>
+            <p className="text-xs font-medium mb-2" style={{ color: "var(--muted)" }}>Allowed Trade Directions</p>
+            <div className="grid grid-cols-2 gap-2">
+              <button type="button" onClick={() => setAllowBuy(!allowBuy)}
+                className={`p-2 text-center rounded-lg border text-sm font-medium transition-colors ${allowBuy ? "border-emerald-500 bg-emerald-500/10 text-emerald-400" : "hover:bg-white/5 opacity-50"}`}
+                style={{ borderColor: allowBuy ? undefined : "var(--border)" }}>
+                {allowBuy ? "✓ " : ""}BUY (Longs)
+              </button>
+              <button type="button" onClick={() => setAllowSell(!allowSell)}
+                className={`p-2 text-center rounded-lg border text-sm font-medium transition-colors ${allowSell ? "border-red-500 bg-red-500/10 text-red-400" : "hover:bg-white/5 opacity-50"}`}
+                style={{ borderColor: allowSell ? undefined : "var(--border)" }}>
+                {allowSell ? "✓ " : ""}SELL (Shorts)
+              </button>
+            </div>
+          </div>
+
+          <div className="pt-3 border-t" style={{ borderColor: "var(--border)" }}>
+            <div className="flex items-center justify-between mb-2">
+              <p className="text-xs font-medium" style={{ color: "var(--muted)" }}>Trading Sessions</p>
+              <label className="flex items-center gap-2 text-xs cursor-pointer">
+                <input type="checkbox" checked={sessionFilter} onChange={(e) => setSessionFilter(e.target.checked)} className="rounded" />
+                Restrict to selected
+              </label>
+            </div>
+            <div className={`grid grid-cols-1 gap-1.5 ${!sessionFilter ? "opacity-40 pointer-events-none" : ""}`}>
+              {ALL_SESSIONS.map((s) => {
+                const checked = allowedSessions.includes(s.id);
+                return (
+                  <label key={s.id} className={`flex items-center justify-between px-3 py-1.5 rounded-lg border cursor-pointer text-xs hover:bg-white/5 ${checked ? "border-blue-500 bg-blue-500/5" : ""}`}
+                    style={{ borderColor: checked ? undefined : "var(--border)" }}>
+                    <span className="flex items-center gap-2">
+                      <input type="checkbox" checked={checked}
+                        onChange={() => setAllowedSessions((prev) => prev.includes(s.id) ? prev.filter((x) => x !== s.id) : [...prev, s.id])}
+                        className="rounded" />
+                      <span className="font-medium">{s.label}</span>
+                    </span>
+                    <span style={{ color: "var(--muted)" }}>{s.hours}</span>
+                  </label>
+                );
+              })}
+            </div>
+          </div>
+
+          <div className="pt-3 border-t" style={{ borderColor: "var(--border)" }}>
+            <label className="flex items-center gap-2 text-sm cursor-pointer mb-2">
+              <input type="checkbox" checked={regimeFilter} onChange={(e) => setRegimeFilter(e.target.checked)} className="rounded" />
+              <span>Regime filter <span className="text-[10px]" style={{ color: "var(--muted)" }}>(skip trades outside allowed market states)</span></span>
+            </label>
+            {regimeFilter && (
+              <div className="ml-6 grid grid-cols-2 gap-x-3 gap-y-1 p-2 rounded border" style={{ borderColor: "var(--border)" }}>
+                {ALL_REGIMES.map((r) => (
+                  <label key={r.id} className="flex items-start gap-2 text-xs cursor-pointer">
+                    <input type="checkbox" checked={allowedRegimes.includes(r.id)}
+                      onChange={(e) => {
+                        if (e.target.checked) setAllowedRegimes([...allowedRegimes, r.id]);
+                        else setAllowedRegimes(allowedRegimes.filter((x) => x !== r.id));
+                      }}
+                      className="rounded mt-0.5" />
+                    <span>
+                      <span className="font-medium">{r.label}</span>
+                      <span className="block text-[10px]" style={{ color: "var(--muted)" }}>{r.desc}</span>
+                    </span>
+                  </label>
+                ))}
+              </div>
+            )}
+          </div>
+
+          <div className="pt-3 border-t space-y-2" style={{ borderColor: "var(--border)" }}>
+            <label className="flex items-center gap-2 text-sm cursor-pointer">
+              <input type="checkbox" checked={newsFilter} onChange={(e) => setNewsFilter(e.target.checked)} className="rounded" />
+              <span>News filter <span className="text-[10px]" style={{ color: "var(--muted)" }}>(skip 30min before high-impact events)</span></span>
+            </label>
+            <label className="flex items-center gap-2 text-sm cursor-pointer">
+              <input type="checkbox" checked={useCorrelations} onChange={(e) => setUseCorrelations(e.target.checked)} className="rounded" />
+              <span>Symbol correlations <span className="text-[10px]" style={{ color: "var(--muted)" }}>(include cross-symbol features)</span></span>
+            </label>
+          </div>
+
+          {agentType === "scout" && (
+            <div className="pt-3 border-t" style={{ borderColor: "var(--border)" }}>
+              <p className="text-xs font-medium mb-2" style={{ color: "var(--muted)" }}>
+                Scout entry state machine
+              </p>
+              <p className="text-[10px] mb-3" style={{ color: "var(--muted)" }}>
+                Stash signal → wait for pullback / BOS / instant-conf / expiry before entering.
+              </p>
+              <div className="grid grid-cols-2 gap-3">
+                <label className="space-y-1 text-xs">
+                  <span style={{ color: "var(--muted)" }}>Lookback bars</span>
+                  <input type="number" min={10} max={120} step={1} value={lookbackBars}
+                    onChange={(e) => setLookbackBars(Math.max(10, Math.min(120, parseInt(e.target.value) || 40)))}
+                    className="w-full px-2 py-1.5 rounded-lg border bg-transparent" style={{ borderColor: "var(--border)" }} />
+                </label>
+                <label className="space-y-1 text-xs">
+                  <span style={{ color: "var(--muted)" }}>Instant-entry conf</span>
+                  <input type="number" min={0.5} max={0.99} step={0.01} value={instantEntryConfidence}
+                    onChange={(e) => setInstantEntryConfidence(Math.max(0.5, Math.min(0.99, parseFloat(e.target.value) || 0.85)))}
+                    className="w-full px-2 py-1.5 rounded-lg border bg-transparent" style={{ borderColor: "var(--border)" }} />
+                </label>
+                <label className="space-y-1 text-xs">
+                  <span style={{ color: "var(--muted)" }}>Max pending bars</span>
+                  <input type="number" min={2} max={60} step={1} value={maxPendingBars}
+                    onChange={(e) => setMaxPendingBars(Math.max(2, Math.min(60, parseInt(e.target.value) || 10)))}
+                    className="w-full px-2 py-1.5 rounded-lg border bg-transparent" style={{ borderColor: "var(--border)" }} />
+                </label>
+                <label className="space-y-1 text-xs">
+                  <span style={{ color: "var(--muted)" }}>Pullback (× ATR)</span>
+                  <input type="number" min={0.1} max={2} step={0.05} value={pullbackAtrFraction}
+                    onChange={(e) => setPullbackAtrFraction(Math.max(0.1, Math.min(2, parseFloat(e.target.value) || 0.5)))}
+                    className="w-full px-2 py-1.5 rounded-lg border bg-transparent" style={{ borderColor: "var(--border)" }} />
+                </label>
+                <label className="space-y-1 text-xs col-span-2">
+                  <span style={{ color: "var(--muted)" }}>Dedupe window (bars, 0 = off)</span>
+                  <input type="number" min={0} max={100} step={1} value={dedupeWindowBars}
+                    onChange={(e) => setDedupeWindowBars(Math.max(0, Math.min(100, parseInt(e.target.value) || 0)))}
+                    className="w-full px-2 py-1.5 rounded-lg border bg-transparent" style={{ borderColor: "var(--border)" }} />
+                </label>
+              </div>
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* Step 4: Review */}
+      {step === 3 && (
         <div className="space-y-2 text-sm">
           <div className="flex justify-between py-1 border-b" style={{ borderColor: "var(--border)" }}>
             <span style={{ color: "var(--muted)" }}>Name</span><span>{agentName}</span>
@@ -440,6 +632,36 @@ export default function AgentWizard({
           <div className="flex justify-between py-1 border-b" style={{ borderColor: "var(--border)" }}>
             <span style={{ color: "var(--muted)" }}>News Filter</span><span>{newsFilter ? "On" : "Off"}</span>
           </div>
+          <div className="flex justify-between py-1 border-b" style={{ borderColor: "var(--border)" }}>
+            <span style={{ color: "var(--muted)" }}>Correlations</span><span>{useCorrelations ? "On" : "Off"}</span>
+          </div>
+          <div className="flex justify-between py-1 border-b" style={{ borderColor: "var(--border)" }}>
+            <span style={{ color: "var(--muted)" }}>Directions</span>
+            <span>{allowBuy && allowSell ? "Long + Short" : allowBuy ? "Long only" : allowSell ? "Short only" : "None"}</span>
+          </div>
+          {sessionFilter && (
+            <div className="flex justify-between py-1 border-b" style={{ borderColor: "var(--border)" }}>
+              <span style={{ color: "var(--muted)" }}>Sessions</span>
+              <span className="text-xs text-right">{allowedSessions.join(", ") || "—"}</span>
+            </div>
+          )}
+          {regimeFilter && (
+            <div className="flex justify-between py-1 border-b" style={{ borderColor: "var(--border)" }}>
+              <span style={{ color: "var(--muted)" }}>Regimes</span>
+              <span className="text-xs text-right">{allowedRegimes.length === 4 ? "all" : allowedRegimes.join(", ") || "—"}</span>
+            </div>
+          )}
+          <div className="flex justify-between py-1 border-b" style={{ borderColor: "var(--border)" }}>
+            <span style={{ color: "var(--muted)" }}>Prop Firm</span><span>{propFirmEnabled ? "On" : "Off"}</span>
+          </div>
+          {agentType === "scout" && (
+            <div className="flex justify-between py-1 border-b" style={{ borderColor: "var(--border)" }}>
+              <span style={{ color: "var(--muted)" }}>Scout</span>
+              <span className="text-xs text-right">
+                lookback={lookbackBars} · instant≥{instantEntryConfidence.toFixed(2)} · pull={pullbackAtrFraction.toFixed(2)}×ATR · max={maxPendingBars}b · dedupe={dedupeWindowBars}b
+              </span>
+            </div>
+          )}
           <div className="flex justify-between py-1">
             <span style={{ color: "var(--muted)" }}>Mode</span><span>{mode}</span>
           </div>

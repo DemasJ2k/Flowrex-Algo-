@@ -8,7 +8,7 @@ import Glass from "@/components/ui/Glass";
 import Tabs from "@/components/ui/Tabs";
 import {
   LifeBuoy, BookOpen, Landmark, Server, MessageSquare, ExternalLink,
-  Clock, Loader2,
+  Clock, Loader2, Brain, Settings2, TestTube,
 } from "lucide-react";
 
 type BrokerGuide = {
@@ -187,6 +187,210 @@ const PROP_FIRMS: PropFirm[] = [
   },
 ];
 
+type AgentStrategy = {
+  id: string;
+  name: string;
+  summary: string;
+  features: string;
+  bestFor: string[];
+  pros: string[];
+  cons: string[];
+};
+
+const AGENT_STRATEGIES: AgentStrategy[] = [
+  {
+    id: "flowrex_v2",
+    name: "Flowrex Agent v2",
+    summary: "Largest feature footprint + 3-model ensemble majority-vote. Built for conviction signals — fires fewer trades with stronger setups.",
+    features: "120 curated features across M5/M15/H1/H4/D1 · XGBoost + LightGBM + CatBoost majority-vote",
+    bestFor: ["Swing + intraday trend continuations", "Indices and FX majors during London/NY", "Users who want fewer, higher-quality signals"],
+    pros: [
+      "Ensemble drastically cuts false positives vs a single model.",
+      "4-layer MTF means signals only fire when HTF agrees with M5 direction.",
+      "Curated feature set is regime-aware (ICT, Williams, Quant modules).",
+    ],
+    cons: [
+      "Slower to react — will often miss the first leg of a fast move.",
+      "Slightly higher compute per tick (three models run per bar).",
+      "All three models must be deployed; if one symbol is missing a CatBoost, the ensemble gracefully falls back to the remaining two.",
+    ],
+  },
+  {
+    id: "potential",
+    name: "Potential Agent v2",
+    summary: "Leaner institutional-feature model. More trades, faster entries, tighter stops.",
+    features: "85 ATR-normalized institutional features (VWAP, anchored VWAPs, ORB, ADX) · XGBoost + LightGBM",
+    bestFor: ["Scalp-to-swing hybrid on liquid symbols", "Users testing new symbols quickly (faster retrain)", "Prop-firm challenges that reward trade frequency"],
+    pros: [
+      "Walk-forward validated with a stamped OOS boundary — backtest honesty is built in.",
+      "Per-symbol TP/SL/confidence tuned via `symbol_config.py`.",
+      "Smaller feature set means faster retraining cycles.",
+    ],
+    cons: [
+      "Lone models can overfit to a regime; Flowrex v2's ensemble is safer against regime drift.",
+      "Tighter stops on choppy symbols (NAS100/US30) historically got chopped — we widened them Apr 2026 but monitor carefully.",
+      "No built-in lookback entry (see Scout).",
+    ],
+  },
+  {
+    id: "scout",
+    name: "Scout Agent",
+    summary: "Potential's models + a lookback/pullback/BOS entry state machine. Waits for structural confirmation before entering.",
+    features: "Reuses deployed Potential joblibs · 40-bar lookback window · entry state machine (pullback / break-of-structure / instant-confidence)",
+    bestFor: ["Users who want fewer whipsaws and better entry prices", "Trend-day fades after a pullback", "When live-testing a new symbol you don't fully trust yet"],
+    pros: [
+      "Pullback entries hit cleaner risk:reward than market-on-signal.",
+      "Instant-entry shortcut (conf ≥ 0.85) means you don't miss the rare high-conviction signals.",
+      "Dedupe filter stops the model from stacking same-direction trades in a chop zone.",
+    ],
+    cons: [
+      "Will miss signals where no pullback or BOS arrives within the pending window.",
+      "Live behaviour depends on market volatility — in calm regimes, more pendings expire.",
+      "Uses Potential's models, so if Potential is Grade F on a symbol, Scout inherits that.",
+    ],
+  },
+];
+
+type ConfigRef = {
+  key: string;
+  label: string;
+  appearsIn: string;
+  what: string;
+  why: string;
+  defaultValue: string;
+};
+
+const CONFIG_GLOSSARY: ConfigRef[] = [
+  {
+    key: "risk_per_trade",
+    label: "Risk per trade (%)",
+    appearsIn: "Wizard · Edit Config · Settings → Trading",
+    what: "Fraction of account balance to risk on each trade. Sets position size via stop distance.",
+    why: "Keeps drawdowns predictable — at 0.5% per trade, ten losses in a row = ~5% account drawdown. Prop-firm challenges typically want 0.5–0.75% max.",
+    defaultValue: "0.5%",
+  },
+  {
+    key: "max_daily_loss_pct",
+    label: "Max daily loss (%)",
+    appearsIn: "Wizard · Edit Config · Settings → Trading",
+    what: "Hard stop. Once the day's P&L drops below -(max_daily_loss_pct × balance), the agent pauses until UTC midnight.",
+    why: "Prevents death-spiral trading. FTMO-style challenges use 4–5%; we default to a cautious 3%.",
+    defaultValue: "3% (4% when Prop Firm mode is on)",
+  },
+  {
+    key: "cooldown_bars",
+    label: "Cooldown (bars)",
+    appearsIn: "Wizard · Edit Config",
+    what: "After each entry, the agent waits this many M5 bars before considering another signal on the same symbol.",
+    why: "Stops the agent from re-entering a trade it just exited (common at reversal candles). 3 bars = 15 minutes.",
+    defaultValue: "3",
+  },
+  {
+    key: "session_filter",
+    label: "Session filter",
+    appearsIn: "Wizard · Edit Config · Settings · Backtest sandbox",
+    what: "Restricts trading to selected UTC session buckets: Asian, London, NY Open, NY Close, Off Hours.",
+    why: "Liquidity matters. NAS100/US30 chop during Asia; forex moves during London/NY. Blocking low-edge sessions lifts hit-rate without changing the model.",
+    defaultValue: "London + NY Open + NY Close",
+  },
+  {
+    key: "regime_filter",
+    label: "Regime filter",
+    appearsIn: "Wizard · Edit Config · Settings · Backtest sandbox",
+    what: "Classifies the current market using a rule tree (ATR percentile → ADX → EMA50 slope). Hard-skips trades when the regime is not in the allowed list.",
+    why: "Mean-reverting models bleed in trending regimes and vice-versa. Instead of retraining per regime, block the trades that were already doomed.",
+    defaultValue: "all four regimes allowed",
+  },
+  {
+    key: "news_filter_enabled",
+    label: "News filter",
+    appearsIn: "Wizard · Edit Config · Settings",
+    what: "Skips entries 30 minutes before high-impact economic releases (CPI, FOMC, NFP).",
+    why: "Models aren't trained on news-driven spikes. Skipping keeps your expectancy stable through calendar events.",
+    defaultValue: "On",
+  },
+  {
+    key: "use_correlations",
+    label: "Symbol correlations",
+    appearsIn: "Wizard · Edit Config · Settings · Backtest sandbox",
+    what: "Include cross-symbol features (e.g. BTC↔US30, XAU↔BTC). Off zero-masks those columns before inference.",
+    why: "These features capture spillover flow (risk-on/risk-off). Keep on by default; turn off to debug drift or test signal robustness.",
+    defaultValue: "On",
+  },
+  {
+    key: "allow_buy / allow_sell",
+    label: "Direction gate",
+    appearsIn: "Wizard · Edit Config",
+    what: "Enable long-only, short-only, or both. Disabling one side discards signals in that direction.",
+    why: "When analytics show a strong directional bias for a symbol-timeframe (e.g. XAUUSD longs win more than shorts), restrict to the winning side.",
+    defaultValue: "Both enabled",
+  },
+  {
+    key: "prop_firm_enabled",
+    label: "Prop Firm mode",
+    appearsIn: "Wizard · Edit Config",
+    what: "Activates FTMO-style tiered drawdown gates: yellow (-1.5% size↓), red (-2.5% pause), hard (-3% close all).",
+    why: "Prop firms kill accounts on hard DD. This keeps you inside their rules automatically.",
+    defaultValue: "Off",
+  },
+  {
+    key: "lookback_bars",
+    label: "Scout: Lookback bars",
+    appearsIn: "Wizard (scout only) · Edit Config (scout only)",
+    what: "Number of historical bars Scout scans for break-of-structure (BOS) reference highs/lows.",
+    why: "Longer lookback = more conservative BOS entries. 40 bars = ~3h 20m on M5.",
+    defaultValue: "40",
+  },
+  {
+    key: "instant_entry_confidence",
+    label: "Scout: Instant-entry confidence",
+    appearsIn: "Wizard (scout only) · Edit Config (scout only)",
+    what: "If model confidence exceeds this threshold, Scout enters immediately instead of waiting for pullback/BOS.",
+    why: "High-confidence signals rarely retrace. 0.85 is a good balance; lower → fewer waits, higher → more patience.",
+    defaultValue: "0.85",
+  },
+  {
+    key: "max_pending_bars",
+    label: "Scout: Max pending bars",
+    appearsIn: "Wizard (scout only) · Edit Config (scout only)",
+    what: "Pending signals that don't trigger within this many bars are discarded.",
+    why: "Stale pendings misrepresent current conditions. 10 bars = 50 minutes on M5.",
+    defaultValue: "10",
+  },
+  {
+    key: "pullback_atr_fraction",
+    label: "Scout: Pullback (× ATR)",
+    appearsIn: "Wizard (scout only) · Edit Config (scout only)",
+    what: "How far price must retrace (in ATR multiples) before a pullback entry can trigger.",
+    why: "Too small = you enter at the signal bar (defeats Scout's purpose). Too big = you rarely enter. 0.5× ATR is the sweet spot most symbols.",
+    defaultValue: "0.50",
+  },
+  {
+    key: "dedupe_window_bars",
+    label: "Scout: Dedupe window",
+    appearsIn: "Wizard (scout only) · Edit Config (scout only)",
+    what: "If the last closed trade was the same direction within this many bars, Scout skips the next pending.",
+    why: "Stops the model from stacking multiple longs (or shorts) in a chop zone when the same setup keeps re-emitting.",
+    defaultValue: "20",
+  },
+  {
+    key: "ADX",
+    label: "ADX (glossary)",
+    appearsIn: "Regime classifier only",
+    what: "Average Directional Index. Measures trend strength, not direction. 0–20 = no trend, 20–40 = moderate, 40+ = strong trend.",
+    why: "We use ADX < 20 as the 'ranging' regime signal. Models trained on trending data bleed when ADX < 20, so the regime filter blocks those bars.",
+    defaultValue: "—",
+  },
+  {
+    key: "ATR",
+    label: "ATR (glossary)",
+    appearsIn: "Stop/TP sizing · Regime classifier · Feature engineering",
+    what: "Average True Range. Measures volatility in price units.",
+    why: "Stops placed at 0.8× ATR are a stable way to 'scale' loss tolerance with market conditions — tighter in calm markets, wider in wild ones.",
+    defaultValue: "—",
+  },
+];
+
 const FAQ: { q: string; a: string }[] = [
   {
     q: "Do I need a VPS for MT5?",
@@ -292,6 +496,124 @@ export default function HelpPage() {
                   <a href="/docs/USER-GUIDE.txt" className="text-violet-400 hover:underline">
                     user guide
                   </a>.
+                </p>
+              </Glass>
+            </div>
+          ),
+        },
+        {
+          label: "Agent Guide",
+          content: (
+            <div className="space-y-4">
+              <Glass padding="md">
+                <h3 className="text-sm font-medium mb-2 flex items-center gap-2">
+                  <Brain size={14} className="text-violet-400" /> Agent Strategies
+                </h3>
+                <p className="text-[11px] mb-3" style={{ color: "var(--muted)" }}>
+                  Three agent types ship with Flowrex. They use different feature engineering, different
+                  models, and different entry logic. Pick based on how you trade, not which is newest.
+                </p>
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+                  {AGENT_STRATEGIES.map((a) => (
+                    <div key={a.id} className="p-3 rounded-lg border" style={{ borderColor: "var(--border)", background: "rgba(255,255,255,0.02)" }}>
+                      <h4 className="text-sm font-semibold mb-1">{a.name}</h4>
+                      <p className="text-[11px] mb-2" style={{ color: "var(--muted)" }}>{a.summary}</p>
+                      <div className="text-[10px] mb-2" style={{ color: "var(--muted)" }}>
+                        <span style={{ color: "var(--foreground)" }}>Under the hood:</span> {a.features}
+                      </div>
+                      <div className="mb-2">
+                        <p className="text-[11px] font-medium mb-1">Best for</p>
+                        <ul className="text-[11px] space-y-0.5 list-disc list-inside" style={{ color: "var(--muted)" }}>
+                          {a.bestFor.map((b, i) => <li key={i}>{b}</li>)}
+                        </ul>
+                      </div>
+                      <div className="mb-2">
+                        <p className="text-[11px] font-medium mb-1 text-emerald-400">Pros</p>
+                        <ul className="text-[11px] space-y-0.5 list-disc list-inside" style={{ color: "var(--muted)" }}>
+                          {a.pros.map((p, i) => <li key={i}>{p}</li>)}
+                        </ul>
+                      </div>
+                      <div>
+                        <p className="text-[11px] font-medium mb-1 text-amber-400">Cons</p>
+                        <ul className="text-[11px] space-y-0.5 list-disc list-inside" style={{ color: "var(--muted)" }}>
+                          {a.cons.map((c, i) => <li key={i}>{c}</li>)}
+                        </ul>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </Glass>
+
+              <Glass padding="md">
+                <h3 className="text-sm font-medium mb-2 flex items-center gap-2">
+                  <TestTube size={14} className="text-violet-400" /> Paper vs Live
+                </h3>
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-3 text-xs">
+                  <div className="p-3 rounded-lg border" style={{ borderColor: "var(--border)" }}>
+                    <h4 className="text-sm font-semibold mb-1 text-blue-400">Paper mode</h4>
+                    <ul className="space-y-1 list-disc list-inside" style={{ color: "var(--muted)" }}>
+                      <li>Uses your broker's demo endpoint (Oanda Practice, IBKR Paper, Tradovate Demo).</li>
+                      <li>Real market data, simulated execution.</li>
+                      <li>Best for: validating a config over 2–4 weeks before going live, testing new symbols.</li>
+                      <li>Metrics ARE representative — spread/slippage is modelled from symbol_config.</li>
+                    </ul>
+                  </div>
+                  <div className="p-3 rounded-lg border" style={{ borderColor: "var(--border)" }}>
+                    <h4 className="text-sm font-semibold mb-1 text-emerald-400">Live mode</h4>
+                    <ul className="space-y-1 list-disc list-inside" style={{ color: "var(--muted)" }}>
+                      <li>Real money against your live broker account.</li>
+                      <li>Switch only AFTER paper mode shows consistent positive expectancy for 2+ weeks.</li>
+                      <li>Start with Conservative risk (0.25%) even if paper was 1%.</li>
+                      <li>Prop Firm mode highly recommended on challenge accounts.</li>
+                    </ul>
+                  </div>
+                </div>
+              </Glass>
+
+              <Glass padding="md">
+                <h3 className="text-sm font-medium mb-2 flex items-center gap-2">
+                  <Settings2 size={14} className="text-violet-400" /> Config glossary
+                </h3>
+                <p className="text-[11px] mb-3" style={{ color: "var(--muted)" }}>
+                  Every filter / knob you see in the Agent Wizard, Edit Config modal, and Settings → Trading tab.
+                  Scout-specific knobs only appear when the agent type is Scout.
+                </p>
+                <div className="space-y-2">
+                  {CONFIG_GLOSSARY.map((c) => (
+                    <details key={c.key} className="p-2 rounded-lg border" style={{ borderColor: "var(--border)" }}>
+                      <summary className="cursor-pointer text-sm font-medium flex items-center justify-between">
+                        <span>{c.label}</span>
+                        <span className="text-[10px]" style={{ color: "var(--muted)" }}>default: {c.defaultValue}</span>
+                      </summary>
+                      <div className="mt-2 text-[11px] space-y-1.5" style={{ color: "var(--muted)" }}>
+                        <p><span style={{ color: "var(--foreground)" }}>What:</span> {c.what}</p>
+                        <p><span style={{ color: "var(--foreground)" }}>Why:</span> {c.why}</p>
+                        <p><span style={{ color: "var(--foreground)" }}>Appears in:</span> {c.appearsIn}</p>
+                      </div>
+                    </details>
+                  ))}
+                </div>
+              </Glass>
+
+              <Glass padding="md">
+                <h3 className="text-sm font-medium mb-2">Edit agent config (post-create)</h3>
+                <p className="text-[11px] mb-2" style={{ color: "var(--muted)" }}>
+                  Every agent exposes its full config for live editing. From the Agents page, hover a card and
+                  click the gear icon to open <span style={{ color: "var(--foreground)" }}>Edit Config</span>.
+                  Changes apply on the next tick — no agent restart needed.
+                </p>
+                <ul className="text-[11px] space-y-1 list-disc list-inside" style={{ color: "var(--muted)" }}>
+                  <li>Name, Mode (paper/live), Sizing mode, Risk %, Daily loss, Cooldown.</li>
+                  <li>Direction gate (buy/sell).</li>
+                  <li>Session filter + allowed sessions multi-select.</li>
+                  <li>Regime filter + allowed regimes multi-select.</li>
+                  <li>News filter · Symbol correlations.</li>
+                  <li>Prop Firm mode.</li>
+                  <li>Scout tuning (5 knobs) — only visible when the agent is a Scout.</li>
+                </ul>
+                <p className="text-[11px] mt-2" style={{ color: "var(--muted)" }}>
+                  Use the <span style={{ color: "var(--foreground)" }}>Filter sandbox</span> on the Backtest page
+                  to A/B test these settings before you change them on a live agent.
                 </p>
               </Glass>
             </div>

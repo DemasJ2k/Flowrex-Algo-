@@ -461,9 +461,102 @@ def compute_potential_features(
     d1_bull = (features["pot_d1_trend_atr"] > 0).astype(float)
     features["pot_htf_alignment"] = (h1_bull + h4_bull + d1_bull) / 3.0
 
+    # ── Regime features (option b — 2026-04-21) ───────────────────────
+    # Four one-hot regime columns + a few interaction columns. Appended at
+    # the end of the feature vector so models trained before this block
+    # existed still get their expected 85-col input when the inference path
+    # trims down to the model's saved feature_count. New retrains pick the
+    # regime columns up automatically.
+    try:
+        features.update(_compute_regime_features(highs, lows, closes, atr_14))
+    except Exception:
+        # Failing features compute should never block training or inference —
+        # fall back to zeros so the column shape stays stable.
+        zeros = np.zeros(n, dtype=np.float64)
+        for k in ("reg_trending_up", "reg_trending_down", "reg_ranging",
+                 "reg_volatile", "reg_x_atr_pctile", "reg_x_trend_strength",
+                 "reg_confidence"):
+            features[k] = zeros
+
     # ── Finalize ──────────────────────────────────────────────────────
     names = list(features.keys())
     cols = [np.asarray(features[k], dtype=np.float64).copy() for k in names]
     X = np.column_stack(cols).astype(np.float32)
     np.nan_to_num(X, nan=0.0, posinf=0.0, neginf=0.0, copy=False)
     return names, X
+
+
+def _compute_regime_features(
+    highs: np.ndarray, lows: np.ndarray, closes: np.ndarray, atr14: np.ndarray,
+) -> dict[str, np.ndarray]:
+    """Bar-by-bar regime one-hot + interaction features.
+
+    Mirrors `classify_regime_simple` decision tree using precomputed indicator
+    arrays so the cost is O(n) instead of O(n²). Columns:
+      - `reg_trending_up`  / `reg_trending_down` / `reg_ranging` / `reg_volatile`
+        — mutually exclusive binary flags (0/1).
+      - `reg_x_atr_pctile` — current ATR percentile (0-1) over last 100 bars.
+        Pairs with regime flags for trees to split on (e.g. ranging + low
+        ATR pctile vs volatile regime separately).
+      - `reg_x_trend_strength` — |EMA50 slope over last 20 bars| / ATR,
+        signed by direction. Captures trend intensity inside trending states.
+      - `reg_confidence` — heuristic 0-1 confidence analogous to the runtime
+        classifier's confidence output.
+    """
+    from app.services.backtest.indicators import adx as adx_fn
+    from app.services.backtest.indicators import ema as ema_fn
+
+    n = len(closes)
+    adx_val, _, _ = adx_fn(highs, lows, closes, 14)
+    ema50 = ema_fn(closes, 50)
+
+    out = {
+        "reg_trending_up": np.zeros(n, dtype=np.float64),
+        "reg_trending_down": np.zeros(n, dtype=np.float64),
+        "reg_ranging": np.zeros(n, dtype=np.float64),
+        "reg_volatile": np.zeros(n, dtype=np.float64),
+        "reg_x_atr_pctile": np.zeros(n, dtype=np.float64),
+        "reg_x_trend_strength": np.zeros(n, dtype=np.float64),
+        "reg_confidence": np.zeros(n, dtype=np.float64),
+    }
+
+    vol_lookback = 100
+    slope_lookback = 20
+    warmup = max(vol_lookback, 50 + slope_lookback, 30)
+    atr_vol_pctile = 75.0
+    adx_range = 20.0
+
+    for i in range(warmup, n):
+        ca = atr14[i]
+        if np.isnan(ca):
+            continue
+        recent = atr14[max(0, i - vol_lookback + 1): i + 1]
+        recent = recent[~np.isnan(recent)]
+        if len(recent) < 20:
+            continue
+        # ATR percentile — used as an interaction signal even when not volatile.
+        pctile = float(np.searchsorted(np.sort(recent), ca) / max(len(recent), 1))
+        out["reg_x_atr_pctile"][i] = pctile
+        thresh = float(np.percentile(recent, atr_vol_pctile))
+        if thresh > 0 and ca >= thresh:
+            out["reg_volatile"][i] = 1.0
+            out["reg_confidence"][i] = min(1.0, 0.6 + (ca - thresh) / max(thresh, 1e-9))
+            continue
+        cax = adx_val[i]
+        if np.isnan(cax):
+            cax = 0.0
+        if cax < adx_range:
+            out["reg_ranging"][i] = 1.0
+            out["reg_confidence"][i] = min(1.0, (adx_range - cax) / adx_range + 0.5)
+            continue
+        if i - slope_lookback < 0 or np.isnan(ema50[i]) or np.isnan(ema50[i - slope_lookback]):
+            continue
+        slope = (ema50[i] - ema50[i - slope_lookback]) / max(float(ca), 1e-9)
+        if slope > 0:
+            out["reg_trending_up"][i] = 1.0
+        else:
+            out["reg_trending_down"][i] = 1.0
+        out["reg_x_trend_strength"][i] = float(slope)
+        out["reg_confidence"][i] = min(1.0, abs(slope) / 2.0 + 0.5)
+
+    return out

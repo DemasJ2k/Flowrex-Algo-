@@ -16,7 +16,7 @@ import {
 // ── Types from /api/ml/symbols ───────────────────────────────────────────
 
 interface ModelVariant {
-  pipeline: "potential" | "flowrex" | string;
+  pipeline: "potential" | "flowrex" | "scout" | string;
   model_type: string; // xgboost / lightgbm / catboost
   grade: string;
   sharpe: number;
@@ -29,6 +29,9 @@ interface ModelVariant {
   feature_count: number;
   pipeline_version: string;
   file: string;
+  // Present only for synthetic pipelines (e.g. "scout") that reuse another
+  // pipeline's joblib. UI surfaces a "reuses X" badge when set.
+  proxy_for?: string;
 }
 
 interface SymbolRow {
@@ -532,15 +535,28 @@ function PipelineBlock({
   variants: ModelVariant[];
   onAnalyse: () => void;
 }) {
+  // Scout is a proxy pipeline — same joblib files as Potential, different
+  // runtime. Surface this so users don't think it's a separate training.
+  const isProxy = Boolean((variants[0] as ModelVariant & { proxy_for?: string })?.proxy_for);
+  const proxySource = (variants[0] as ModelVariant & { proxy_for?: string })?.proxy_for;
   return (
     <div className="p-2 rounded-lg border" style={{ borderColor: "var(--border)", background: "rgba(255,255,255,0.02)" }}>
       <div className="flex items-center justify-between mb-1.5">
         <div className="flex items-center gap-2">
-          <Zap size={12} className="text-violet-400" />
+          <Zap size={12} className={isProxy ? "text-amber-400" : "text-violet-400"} />
           <span className="text-xs font-semibold uppercase tracking-wide">{pipeline}</span>
           <span className="text-[10px]" style={{ color: "var(--muted)" }}>
             {variants[0]?.feature_count || 0} features
           </span>
+          {isProxy && (
+            <span
+              className="text-[9px] px-1 py-0.5 rounded"
+              style={{ background: "rgba(245,158,11,0.12)", color: "#f59e0b" }}
+              title={`Scout reuses the ${proxySource} joblib — no separate training.`}
+            >
+              reuses {proxySource}
+            </span>
+          )}
         </div>
         <button
           onClick={onAnalyse}

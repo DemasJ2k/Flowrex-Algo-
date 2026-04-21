@@ -294,6 +294,16 @@ class PotentialAgent:
             self._log_reject("Empty feature matrix")
             return None
 
+        # Align with the trained model's feature count. Padding the OTHER
+        # way (model expects more than we emit) was the historical path; the
+        # trim branch below catches the regime-feature-append case where the
+        # feature module is ahead of deployed models.
+        if self.feature_names:
+            trained_n = len(self.feature_names)
+            if X.shape[1] > trained_n:
+                X = X[:, :trained_n]
+                feat_names = feat_names[:trained_n]
+
         # Use last bar's features — validate for NaN/Inf
         feature_vector = X[-1].reshape(1, -1)
 

@@ -18,11 +18,30 @@ import { Download, Shield, ShieldCheck, Key, Eye, EyeOff, Trash2, Loader2, Datab
 interface UserProfile { id: number; email: string; is_admin: boolean; created_at: string | null; has_2fa: boolean; }
 interface BrokerConnection { broker_name: string; stored: boolean; is_active: boolean; connected: boolean; balance: number | null; currency: string | null; account_id: string | null; server: string | null; connected_since: number | null; }
 
-interface TradingDefaults { risk_per_trade: number; max_daily_loss_pct: number; max_positions: number; cooldown_bars: number; news_filter_enabled: boolean; session_filter: boolean; }
+interface TradingDefaults {
+  risk_per_trade: number;
+  max_daily_loss_pct: number;
+  max_positions: number;
+  cooldown_bars: number;
+  news_filter_enabled: boolean;
+  session_filter: boolean;
+  // 2026-04-21 parity patch — agents now honour these three plus the four
+  // above at runtime; the settings tab must expose all of them so the
+  // per-user defaults actually land on newly created agents.
+  regime_filter?: boolean;
+  allowed_regimes?: string[];
+  use_correlations?: boolean;
+}
 interface ApiKeys { finnhub: string; alphavantage: string; newsapi: string; }
 interface ModelFeatureToggles { use_correlations: boolean; use_m15_features: boolean; use_external_macro: boolean; }
 
-const DEFAULT_TRADING: TradingDefaults = { risk_per_trade: 0.01, max_daily_loss_pct: 0.03, max_positions: 4, cooldown_bars: 3, news_filter_enabled: true, session_filter: true };
+const DEFAULT_TRADING: TradingDefaults = {
+  risk_per_trade: 0.01, max_daily_loss_pct: 0.03, max_positions: 4, cooldown_bars: 3,
+  news_filter_enabled: true, session_filter: true,
+  regime_filter: true,
+  allowed_regimes: ["trending_up", "trending_down", "ranging", "volatile"],
+  use_correlations: true,
+};
 const DEFAULT_FEATURES: ModelFeatureToggles = { use_correlations: true, use_m15_features: true, use_external_macro: false };
 const DEFAULT_KEYS: ApiKeys = { finnhub: "", alphavantage: "", newsapi: "" };
 
@@ -475,6 +494,60 @@ export default function SettingsPage() {
                       className={`flex-shrink-0 relative inline-flex h-6 w-11 items-center rounded-full transition-colors ${trading.session_filter ? "bg-blue-600" : "bg-white/10"}`}
                     >
                       <span className={`inline-block h-4 w-4 transform rounded-full bg-white shadow transition-transform ${trading.session_filter ? "translate-x-6" : "translate-x-1"}`} />
+                    </button>
+                  </div>
+
+                  {/* Regime Filter — mirrors the AgentConfigEditor + wizard
+                      toggle. When ON, sets default allowed_regimes for newly
+                      created agents (edit any individual agent to narrow). */}
+                  <div className="flex items-start justify-between gap-4">
+                    <div className="flex-1">
+                      <p className="text-sm font-medium">Regime Filter</p>
+                      <p className="text-xs mt-0.5" style={{ color: "var(--muted)" }}>
+                        Skip signals when the rule-based classifier reports a regime outside the allowed
+                        list. Default allows all four (trending_up / trending_down / ranging / volatile).
+                      </p>
+                    </div>
+                    <button
+                      onClick={() => {
+                        const updated = { ...trading, regime_filter: !trading.regime_filter };
+                        setTrading(updated);
+                        const merged_json = { ...(settings.settings_json || {}), trading: updated };
+                        api.put("/api/settings/", { settings_json: merged_json }).then(() => {
+                          setSettings((s) => ({ ...s, settings_json: merged_json }));
+                          toast.success("Regime filter " + (!trading.regime_filter ? "enabled" : "disabled"));
+                        }).catch((e: unknown) => toast.error(getErrorMessage(e)));
+                      }}
+                      className={`flex-shrink-0 relative inline-flex h-6 w-11 items-center rounded-full transition-colors ${trading.regime_filter ? "bg-blue-600" : "bg-white/10"}`}
+                    >
+                      <span className={`inline-block h-4 w-4 transform rounded-full bg-white shadow transition-transform ${trading.regime_filter ? "translate-x-6" : "translate-x-1"}`} />
+                    </button>
+                  </div>
+
+                  {/* Symbol Correlations — sent as use_correlations to both
+                      PotentialAgent and FlowrexAgentV2. OFF zero-masks the
+                      cross-symbol feature columns before inference. */}
+                  <div className="flex items-start justify-between gap-4">
+                    <div className="flex-1">
+                      <p className="text-sm font-medium">Symbol Correlations</p>
+                      <p className="text-xs mt-0.5" style={{ color: "var(--muted)" }}>
+                        Include cross-symbol features (BTC↔US30, XAU↔BTC, etc.) in the model input. Turn
+                        OFF to zero-mask those columns — useful for debugging drift.
+                      </p>
+                    </div>
+                    <button
+                      onClick={() => {
+                        const updated = { ...trading, use_correlations: !(trading.use_correlations !== false) };
+                        setTrading(updated);
+                        const merged_json = { ...(settings.settings_json || {}), trading: updated };
+                        api.put("/api/settings/", { settings_json: merged_json }).then(() => {
+                          setSettings((s) => ({ ...s, settings_json: merged_json }));
+                          toast.success("Symbol correlations " + (updated.use_correlations ? "enabled" : "disabled"));
+                        }).catch((e: unknown) => toast.error(getErrorMessage(e)));
+                      }}
+                      className={`flex-shrink-0 relative inline-flex h-6 w-11 items-center rounded-full transition-colors ${trading.use_correlations !== false ? "bg-blue-600" : "bg-white/10"}`}
+                    >
+                      <span className={`inline-block h-4 w-4 transform rounded-full bg-white shadow transition-transform ${trading.use_correlations !== false ? "translate-x-6" : "translate-x-1"}`} />
                     </button>
                   </div>
 

@@ -202,6 +202,16 @@ class PotentialBacktestRequest(BaseModel):
     max_pending_bars: int = 10
     pullback_atr_fraction: float = 0.50
     dedupe_window_bars: int = 20
+    # Filter sandbox. Lets users A/B test filter settings against a symbol
+    # without touching the live agent's config. Defaults here mean "run as
+    # if the agent had all filters off" — the old behaviour. If the user
+    # provides non-default values, the simulation gates bars the same way
+    # PotentialAgent / FlowrexAgent v2 would at runtime.
+    session_filter: bool = False
+    allowed_sessions: Optional[list[str]] = None
+    regime_filter: bool = False
+    allowed_regimes: Optional[list[str]] = None
+    use_correlations: bool = True
 
 
 def _scout_check_triggers(
@@ -571,16 +581,78 @@ def _run_potential_backtest(body: PotentialBacktestRequest, result_id: int = Non
         _potential_status["progress"] = "computing features"
         feat_names, X = compute_potential_features(m5, h1, h4, d1, symbol=symbol)
 
-        # Pad extra features if model expects them
+        # Align the feature vector with the trained model's shape.
+        #   - Pad zeros if the model expects more cols than the feature
+        #     module produced (old path).
+        #   - Trim if the feature module now emits MORE cols than the model
+        #     was trained on (happens when we append features like the new
+        #     regime columns — old joblibs don't know about them).
         model_path = os.path.join(MODEL_DIR, f"potential_{symbol}_M5_xgboost.joblib")
         if os.path.exists(model_path):
             model_data = joblib.load(model_path)
             model_feats = model_data.get("feature_names", [])
-            for extra in model_feats[len(feat_names):]:
-                feat_names.append(extra)
-                X = np.column_stack([X, np.zeros(len(X), dtype=np.float32)])
+            if len(model_feats) > len(feat_names):
+                for extra in model_feats[len(feat_names):]:
+                    feat_names.append(extra)
+                    X = np.column_stack([X, np.zeros(len(X), dtype=np.float32)])
+            elif len(model_feats) and len(feat_names) > len(model_feats):
+                feat_names = feat_names[:len(model_feats)]
+                X = X[:, :len(model_feats)]
+
+        # Correlation-feature toggle (filter sandbox). Zero-mask corr columns
+        # so the model's feature vector shape stays intact but the values
+        # carry no signal — matches the live agent's use_correlations=False
+        # path.
+        if not body.use_correlations:
+            for col_idx, fname in enumerate(feat_names):
+                if fname.startswith("corr_") or fname.startswith("pot_corr_") or fname.startswith("fx_corr_"):
+                    X[:, col_idx] = 0.0
 
         atr_vals = atr_fn(highs, lows, closes, 14)
+
+        # Regime filter sandbox. Computes regime bar-by-bar using the same
+        # rule tree as ScoutAgent / PotentialAgent runtime so backtest
+        # rejection behaviour matches live.
+        regime_by_bar: Optional[np.ndarray] = None
+        if body.regime_filter and body.allowed_regimes:
+            from app.services.ml.regime_detector import validate_regime_on_history  # vectorized
+            _potential_status["progress"] = "classifying regimes"
+            # We only need the per-bar labels, not the return aggregation.
+            # Reuse the helper's internal loop by asking for forward_bars=1
+            # (cheapest valid input) and pulling the labels — cleaner than
+            # duplicating the rule tree here.
+            from app.services.backtest.indicators import atr as _atr_fn
+            from app.services.backtest.indicators import adx as _adx_fn
+            from app.services.backtest.indicators import ema as _ema_fn
+            _atr = _atr_fn(highs, lows, closes, 14)
+            _adx, _, _ = _adx_fn(highs, lows, closes, 14)
+            _ema = _ema_fn(closes, 50)
+            n = len(closes)
+            labels = np.empty(n, dtype=object)
+            labels[:] = ""
+            min_bars = max(100, 50 + 20, 14 * 2) + 5
+            for i in range(min_bars, n):
+                ca = _atr[i]
+                if np.isnan(ca):
+                    continue
+                recent = _atr[max(0, i - 100 + 1): i + 1]
+                recent = recent[~np.isnan(recent)]
+                if len(recent) < 20:
+                    continue
+                thresh = float(np.percentile(recent, 75))
+                if thresh > 0 and ca >= thresh:
+                    labels[i] = "volatile"
+                    continue
+                cax = _adx[i]
+                if np.isnan(cax):
+                    cax = 0.0
+                if cax < 20.0:
+                    labels[i] = "ranging"
+                    continue
+                if i - 20 < 0 or np.isnan(_ema[i]) or np.isnan(_ema[i - 20]):
+                    continue
+                labels[i] = "trending_up" if (_ema[i] - _ema[i - 20]) > 0 else "trending_down"
+            regime_by_bar = labels
 
         # ── Load model ────────────────────────────────────────────────────
         _potential_status["progress"] = "loading model"
@@ -661,11 +733,39 @@ def _run_potential_backtest(body: PotentialBacktestRequest, result_id: int = Non
         is_scout = (body.agent_type == "scout")
         pending_scout: Optional[dict] = None
         scout_entry_reason: Optional[str] = None
+        allowed_sessions_set = set(body.allowed_sessions or []) if body.session_filter else None
+        allowed_regimes_set = set(body.allowed_regimes or []) if body.regime_filter else None
+        rejected_counts = {"session": 0, "regime": 0}
+
+        def _session_for_ts(ts: int) -> str:
+            hr = int(pd.to_datetime(ts, unit="s", utc=True).hour)
+            if hr < 8:    return "asian"
+            if hr < 13:   return "london"
+            if hr < 17:   return "ny_open"
+            if hr < 21:   return "ny_close"
+            return "off_hours"
 
         i = oos_idx
         while i < min(end_idx, len(closes) - hold_bars - 1):
             sig = preds[i]
             scout_entry_reason = None
+
+            # Filter-sandbox gates (shared across potential + scout): check
+            # BEFORE any entry decision. If the agent's live config would
+            # reject this bar, the backtest should too.
+            if sig in (0, 2):
+                if allowed_sessions_set is not None:
+                    sess = _session_for_ts(int(timestamps[i + 1]) if i + 1 < len(timestamps) else int(timestamps[i]))
+                    if sess not in allowed_sessions_set:
+                        rejected_counts["session"] += 1
+                        i += 1
+                        continue
+                if allowed_regimes_set is not None and regime_by_bar is not None:
+                    reg = regime_by_bar[i]
+                    if reg and reg not in allowed_regimes_set:
+                        rejected_counts["regime"] += 1
+                        i += 1
+                        continue
 
             if is_scout:
                 if pending_scout is None:
@@ -1002,6 +1102,17 @@ def _run_potential_backtest(body: PotentialBacktestRequest, result_id: int = Non
             # (i.e. the model saw it during training). UI shades accordingly.
             "oos_start_ts": int(oos_start_ts),
             "breakdowns": breakdowns,
+            # Filter-sandbox counters — surfaces how many bars each filter
+            # rejected so the user sees the impact of their config.
+            "filter_rejections": {
+                "session": int(rejected_counts["session"]),
+                "regime": int(rejected_counts["regime"]),
+                "session_filter_on": bool(body.session_filter),
+                "regime_filter_on": bool(body.regime_filter),
+                "use_correlations": bool(body.use_correlations),
+                "allowed_sessions": list(body.allowed_sessions or []) if body.session_filter else [],
+                "allowed_regimes": list(body.allowed_regimes or []) if body.regime_filter else [],
+            },
             # Surfaces the real data window so the UI can show the honest
             # coverage — if broker caps at 5k M5 bars but user asked for
             # "1 year", this will show the ~17 days they actually got.
@@ -1076,9 +1187,12 @@ def run_potential_backtest(
     if _potential_status["active"]:
         return {"status": "busy", "message": f"Potential backtest running for {_potential_status['symbol']}"}
 
-    valid_symbols = ["US30", "BTCUSD", "XAUUSD", "ES", "NAS100"]
-    if body.symbol not in valid_symbols:
-        raise HTTPException(status_code=400, detail=f"Symbol must be one of: {valid_symbols}")
+    # Accept any symbol — validation happens downstream when the model file
+    # lookup runs. This lets us surface "No trained model for SYMBOL" once
+    # the user expands past the five original symbols (ETHUSD, XAGUSD, etc.),
+    # without a stale allowlist blocking legitimate symbols.
+    if not body.symbol or len(body.symbol) > 16:
+        raise HTTPException(status_code=400, detail="Symbol missing or too long")
 
     # Create DB record before starting background task
     db_agent_type = "scout" if body.agent_type == "scout" else "potential"

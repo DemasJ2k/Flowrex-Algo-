@@ -11,13 +11,28 @@ import { toast } from "sonner";
 import { getErrorMessage } from "@/lib/errors";
 import { FlaskConical, Loader2, TrendingUp, BarChart3, Calendar, DollarSign, Shield, Zap } from "lucide-react";
 
-const SYMBOLS = ["US30", "BTCUSD", "XAUUSD", "ES", "NAS100"] as const;
+// Popular symbols shown as the default "favorites" set before any API
+// response. Expanded beyond the original 5 with Dukascopy-available
+// instruments users have asked for. Additional symbols surface
+// dynamically from /api/ml/symbols (deployed models) and the connected
+// broker's /api/broker/symbols response.
+const POPULAR_SYMBOLS = [
+  "US30", "BTCUSD", "XAUUSD", "ES", "NAS100",
+  "ETHUSD", "XAGUSD", "AUS200", "GER40", "EURUSD", "GBPUSD", "USDJPY",
+] as const;
 const SYMBOL_META: Record<string, { label: string; desc: string }> = {
   US30: { label: "US30", desc: "Dow Jones" },
   BTCUSD: { label: "BTCUSD", desc: "Bitcoin" },
   XAUUSD: { label: "XAUUSD", desc: "Gold" },
   ES: { label: "ES", desc: "S&P 500" },
   NAS100: { label: "NAS100", desc: "Nasdaq 100" },
+  ETHUSD: { label: "ETHUSD", desc: "Ethereum" },
+  XAGUSD: { label: "XAGUSD", desc: "Silver" },
+  AUS200: { label: "AUS200", desc: "ASX 200" },
+  GER40: { label: "GER40", desc: "DAX" },
+  EURUSD: { label: "EURUSD", desc: "Euro / USD" },
+  GBPUSD: { label: "GBPUSD", desc: "Cable" },
+  USDJPY: { label: "USDJPY", desc: "Dollar / Yen" },
 };
 
 type DatePreset = "3m" | "6m" | "1y" | "all" | "custom";
@@ -95,6 +110,15 @@ interface BacktestResult {
   data_window?: DataWindow;
   oos_start_ts?: number;
   breakdowns?: Breakdowns;
+  filter_rejections?: {
+    session: number;
+    regime: number;
+    session_filter_on: boolean;
+    regime_filter_on: boolean;
+    use_correlations: boolean;
+    allowed_sessions: string[];
+    allowed_regimes: string[];
+  };
   error?: string;
 }
 
@@ -133,6 +157,24 @@ export default function BacktestPage() {
   const [regimeValidating, setRegimeValidating] = useState(false);
   const [regimeDays, setRegimeDays] = useState<number>(90);
   const [regimeForwardBars, setRegimeForwardBars] = useState<number>(10);
+  // Filter sandbox — per-run overrides that DO NOT touch any live agent.
+  // Lets users A/B test a filter config before flipping the live toggle.
+  const [btSessionFilter, setBtSessionFilter] = useState<boolean>(false);
+  const [btAllowedSessions, setBtAllowedSessions] = useState<string[]>([
+    "london", "ny_open", "ny_close",
+  ]);
+  const [btRegimeFilter, setBtRegimeFilter] = useState<boolean>(false);
+  const [btAllowedRegimes, setBtAllowedRegimes] = useState<string[]>([
+    "trending_up", "trending_down", "ranging", "volatile",
+  ]);
+  const [btUseCorrelations, setBtUseCorrelations] = useState<boolean>(true);
+  // Dynamic symbol list — merged from /api/ml/symbols (deployed models) +
+  // /api/broker/symbols (what the connected broker actually supports).
+  // Falls back to POPULAR_SYMBOLS until both respond.
+  type MlSymbol = { symbol: string; asset_class?: string; models?: Array<{ pipeline: string; grade: string }> };
+  const [mlSymbols, setMlSymbols] = useState<MlSymbol[]>([]);
+  const [brokerSymbols, setBrokerSymbols] = useState<string[]>([]);
+  const [symbolSearch, setSymbolSearch] = useState<string>("");
   const [dataSource, setDataSource] = useState<"history" | "broker" | "dukascopy">("dukascopy");
   const [connectedBrokers, setConnectedBrokers] = useState<string[]>([]);
   const [selectedBroker, setSelectedBroker] = useState<string>("");
@@ -166,6 +208,19 @@ export default function BacktestPage() {
       if (list.length > 0 && !selectedBroker) setSelectedBroker(list[0]);
     }).catch(() => setConnectedBrokers([]));
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Deployed-model symbols + broker-supported symbols. Merged for the picker
+  // so users can backtest anything we've trained a model for OR anything
+  // their broker can stream candles for.
+  useEffect(() => {
+    api.get("/api/ml/symbols").then((r) => {
+      setMlSymbols(Array.isArray(r.data) ? r.data : []);
+    }).catch(() => setMlSymbols([]));
+    api.get("/api/broker/symbols").then((r) => {
+      const names = (r.data as Array<{ name: string }> | undefined)?.map((s) => s.name) || [];
+      setBrokerSymbols(names);
+    }).catch(() => setBrokerSymbols([]));
+  }, []);
 
   // When the symbol changes, pre-fill cost inputs with backend's symbol
   // default. User can override in the UI; the request sends the overridden
@@ -269,6 +324,13 @@ export default function BacktestPage() {
           pullback_atr_fraction: scoutPullbackAtr,
           dedupe_window_bars: scoutDedupeBars,
         } : {}),
+        // Filter sandbox — sent regardless of agent type. Live agents
+        // are never touched by these values; they're per-run only.
+        session_filter: btSessionFilter,
+        allowed_sessions: btSessionFilter ? btAllowedSessions : null,
+        regime_filter: btRegimeFilter,
+        allowed_regimes: btRegimeFilter ? btAllowedRegimes : null,
+        use_correlations: btUseCorrelations,
         ...dates,
       });
       if (res.data?.result_id) setResultId(res.data.result_id);
@@ -508,34 +570,112 @@ export default function BacktestPage() {
           </details>
         )}
 
-        {/* Symbol Selector */}
-        <div className="mb-4">
-          <label className="block text-xs font-medium mb-2" style={{ color: "var(--muted)" }}>
-            Symbol
-          </label>
-          <div className="grid grid-cols-5 gap-2">
-            {SYMBOLS.map((s) => (
-              <button
-                key={s}
-                onClick={() => setSymbol(s)}
-                className={`px-3 py-2.5 rounded-lg border text-center transition-all ${
-                  symbol === s
-                    ? "border-violet-500 bg-violet-500/10 text-white"
-                    : "border-transparent hover:border-violet-500/30"
-                }`}
-                style={{
-                  borderColor: symbol === s ? undefined : "var(--border)",
-                  background: symbol === s ? undefined : "var(--bg)",
-                }}
-              >
-                <div className="text-sm font-medium">{SYMBOL_META[s].label}</div>
-                <div className="text-[10px]" style={{ color: "var(--muted)" }}>
-                  {SYMBOL_META[s].desc}
-                </div>
-              </button>
-            ))}
-          </div>
-        </div>
+        {/* Symbol Selector — merges popular defaults, deployed-model
+            symbols, and the connected broker's symbol list. Search filters
+            across all sources. */}
+        {(() => {
+          // Compose the visible list: popular first (order preserved), then
+          // ML-model symbols, then broker symbols. Dedup while preserving
+          // insertion order. Each entry tracks its source tags for badges.
+          const merged = new Map<string, { sources: Set<string>; grade: string | null; assetClass: string | null }>();
+          for (const s of POPULAR_SYMBOLS) {
+            merged.set(s, { sources: new Set(["popular"]), grade: null, assetClass: null });
+          }
+          for (const m of mlSymbols) {
+            const entry = merged.get(m.symbol) || { sources: new Set<string>(), grade: null, assetClass: null };
+            entry.sources.add("model");
+            // Pick best grade across deployed pipelines for a quick hint.
+            const grades = (m.models || []).map((x) => x.grade).filter(Boolean);
+            const GRADE_ORDER = ["A", "B", "C", "D", "F"];
+            for (const g of GRADE_ORDER) {
+              if (grades.includes(g)) { entry.grade = g; break; }
+            }
+            if (m.asset_class) entry.assetClass = m.asset_class;
+            merged.set(m.symbol, entry);
+          }
+          for (const s of brokerSymbols) {
+            const entry = merged.get(s) || { sources: new Set<string>(), grade: null, assetClass: null };
+            entry.sources.add("broker");
+            merged.set(s, entry);
+          }
+          const q = symbolSearch.trim().toUpperCase();
+          const rows = Array.from(merged.entries())
+            .filter(([name]) => !q || name.toUpperCase().includes(q));
+          const gradeColor = (g: string | null): string => {
+            if (g === "A") return "#22c55e";
+            if (g === "B") return "#3b82f6";
+            if (g === "C") return "#f59e0b";
+            if (g === "D") return "#f97316";
+            if (g === "F") return "#ef4444";
+            return "#71717a";
+          };
+          return (
+            <div className="mb-4">
+              <div className="flex items-center justify-between mb-2">
+                <label className="block text-xs font-medium" style={{ color: "var(--muted)" }}>
+                  Symbol
+                </label>
+                <input
+                  type="text"
+                  placeholder="Search (e.g. BTC, EUR, XAG)"
+                  value={symbolSearch}
+                  onChange={(e) => setSymbolSearch(e.target.value)}
+                  className="w-48 px-2 py-1 text-xs rounded-lg border bg-transparent outline-none focus:border-violet-500"
+                  style={{ borderColor: "var(--border)" }}
+                />
+              </div>
+              <div className="grid grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-2 max-h-72 overflow-y-auto pr-1">
+                {rows.map(([name, meta]) => {
+                  const label = SYMBOL_META[name]?.label || name;
+                  const desc = SYMBOL_META[name]?.desc || meta.assetClass || "—";
+                  const active = symbol === name;
+                  return (
+                    <button
+                      key={name}
+                      onClick={() => setSymbol(name)}
+                      className={`px-3 py-2 rounded-lg border text-center transition-all ${active ? "border-violet-500 bg-violet-500/10 text-white" : "hover:border-violet-500/30"}`}
+                      style={{
+                        borderColor: active ? undefined : "var(--border)",
+                        background: active ? undefined : "var(--bg)",
+                      }}
+                    >
+                      <div className="flex items-center justify-between gap-1">
+                        <span className="text-sm font-medium">{label}</span>
+                        {meta.grade && (
+                          <span
+                            className="text-[9px] font-bold px-1 py-0.5 rounded"
+                            style={{ background: `${gradeColor(meta.grade)}20`, color: gradeColor(meta.grade) }}
+                            title={`Best deployed grade: ${meta.grade}`}
+                          >
+                            {meta.grade}
+                          </span>
+                        )}
+                      </div>
+                      <div className="text-[10px] truncate" style={{ color: "var(--muted)" }}>{desc}</div>
+                      <div className="mt-0.5 flex gap-1 justify-center flex-wrap">
+                        {meta.sources.has("model") && (
+                          <span className="text-[8px] px-1 rounded" style={{ background: "rgba(34,197,94,0.15)", color: "#22c55e" }}>model</span>
+                        )}
+                        {meta.sources.has("broker") && (
+                          <span className="text-[8px] px-1 rounded" style={{ background: "rgba(59,130,246,0.15)", color: "#60a5fa" }}>broker</span>
+                        )}
+                      </div>
+                    </button>
+                  );
+                })}
+                {rows.length === 0 && (
+                  <div className="col-span-5 text-center text-xs py-4" style={{ color: "var(--muted)" }}>
+                    No symbols match &quot;{symbolSearch}&quot;.
+                  </div>
+                )}
+              </div>
+              <p className="text-[10px] mt-1" style={{ color: "var(--muted)" }}>
+                <span style={{ color: "#22c55e" }}>model</span> = deployed ML model ·
+                {" "}<span style={{ color: "#60a5fa" }}>broker</span> = supported by your connected broker
+              </p>
+            </div>
+          );
+        })()}
 
         {/* Data Source */}
         <div className="mb-4">
@@ -800,6 +940,71 @@ export default function BacktestPage() {
           </p>
         </details>
 
+        {/* Filter sandbox — per-run overrides (session / regime / correlations)
+            that do NOT affect any live agent. */}
+        <details className="mb-4 p-3 rounded-lg border" style={{ borderColor: "var(--border)" }}>
+          <summary className="cursor-pointer text-xs font-medium" style={{ color: "var(--muted)" }}>
+            Filter sandbox — session · regime · correlations (per-run only, never touches live agents)
+          </summary>
+          <div className="mt-3 space-y-3">
+            <label className="flex items-center gap-2 text-xs cursor-pointer">
+              <input type="checkbox" checked={btSessionFilter} onChange={(e) => setBtSessionFilter(e.target.checked)} className="rounded" />
+              <span>Session filter <span style={{ color: "var(--muted)" }}>(skip signals outside selected sessions)</span></span>
+            </label>
+            {btSessionFilter && (
+              <div className="ml-6 grid grid-cols-5 gap-1 text-[10px]">
+                {[
+                  { id: "asian", label: "Asian" },
+                  { id: "london", label: "London" },
+                  { id: "ny_open", label: "NY Open" },
+                  { id: "ny_close", label: "NY Close" },
+                  { id: "off_hours", label: "Off Hours" },
+                ].map((s) => {
+                  const on = btAllowedSessions.includes(s.id);
+                  return (
+                    <button key={s.id} type="button"
+                      onClick={() => setBtAllowedSessions((prev) => prev.includes(s.id) ? prev.filter((x) => x !== s.id) : [...prev, s.id])}
+                      className={`px-2 py-1.5 rounded border ${on ? "border-blue-500 bg-blue-500/10 text-blue-400" : "hover:bg-white/5"}`}
+                      style={{ borderColor: on ? undefined : "var(--border)" }}>
+                      {s.label}
+                    </button>
+                  );
+                })}
+              </div>
+            )}
+
+            <label className="flex items-center gap-2 text-xs cursor-pointer">
+              <input type="checkbox" checked={btRegimeFilter} onChange={(e) => setBtRegimeFilter(e.target.checked)} className="rounded" />
+              <span>Regime filter <span style={{ color: "var(--muted)" }}>(skip signals in non-allowed market states)</span></span>
+            </label>
+            {btRegimeFilter && (
+              <div className="ml-6 grid grid-cols-2 gap-1 text-[10px]">
+                {[
+                  { id: "trending_up", label: "Trending up" },
+                  { id: "trending_down", label: "Trending down" },
+                  { id: "ranging", label: "Ranging" },
+                  { id: "volatile", label: "Volatile" },
+                ].map((r) => {
+                  const on = btAllowedRegimes.includes(r.id);
+                  return (
+                    <button key={r.id} type="button"
+                      onClick={() => setBtAllowedRegimes((prev) => prev.includes(r.id) ? prev.filter((x) => x !== r.id) : [...prev, r.id])}
+                      className={`px-2 py-1.5 rounded border ${on ? "border-blue-500 bg-blue-500/10 text-blue-400" : "hover:bg-white/5"}`}
+                      style={{ borderColor: on ? undefined : "var(--border)" }}>
+                      {r.label}
+                    </button>
+                  );
+                })}
+              </div>
+            )}
+
+            <label className="flex items-center gap-2 text-xs cursor-pointer">
+              <input type="checkbox" checked={btUseCorrelations} onChange={(e) => setBtUseCorrelations(e.target.checked)} className="rounded" />
+              <span>Symbol correlations <span style={{ color: "var(--muted)" }}>(include cross-symbol features in model input)</span></span>
+            </label>
+          </div>
+        </details>
+
         {/* Regime classifier validation — one-shot sanity check before
             turning regime_filter on live. Renders P&L-relevant next-bar
             stats per regime bucket. */}
@@ -958,6 +1163,44 @@ export default function BacktestPage() {
                   Requests past that are silently truncated to the earliest bar the broker returned.
                 </p>
               )}
+            </Glass>
+          )}
+
+          {result.filter_rejections && (result.filter_rejections.session_filter_on || result.filter_rejections.regime_filter_on || !result.filter_rejections.use_correlations) && (
+            <Glass padding="md">
+              <p className="text-xs font-medium mb-2" style={{ color: "var(--muted)" }}>Filter sandbox impact</p>
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-3 text-xs">
+                <div>
+                  <span className="block text-[10px]" style={{ color: "var(--muted)" }}>Session rejections</span>
+                  <span className="text-lg font-semibold tabular-nums">{result.filter_rejections.session.toLocaleString()}</span>
+                  <span className="block text-[10px] mt-0.5" style={{ color: "var(--muted)" }}>
+                    {result.filter_rejections.session_filter_on
+                      ? `allowed: ${result.filter_rejections.allowed_sessions.join(", ") || "(none)"}`
+                      : "filter off"}
+                  </span>
+                </div>
+                <div>
+                  <span className="block text-[10px]" style={{ color: "var(--muted)" }}>Regime rejections</span>
+                  <span className="text-lg font-semibold tabular-nums">{result.filter_rejections.regime.toLocaleString()}</span>
+                  <span className="block text-[10px] mt-0.5" style={{ color: "var(--muted)" }}>
+                    {result.filter_rejections.regime_filter_on
+                      ? `allowed: ${result.filter_rejections.allowed_regimes.join(", ") || "(none)"}`
+                      : "filter off"}
+                  </span>
+                </div>
+                <div>
+                  <span className="block text-[10px]" style={{ color: "var(--muted)" }}>Correlations</span>
+                  <span className="text-lg font-semibold">{result.filter_rejections.use_correlations ? "on" : "off"}</span>
+                  <span className="block text-[10px] mt-0.5" style={{ color: "var(--muted)" }}>
+                    {result.filter_rejections.use_correlations
+                      ? "cross-symbol features included"
+                      : "cross-symbol features zero-masked"}
+                  </span>
+                </div>
+              </div>
+              <p className="text-[10px] mt-2" style={{ color: "var(--muted)" }}>
+                These values were applied only to this backtest run. Live agents are unaffected.
+              </p>
             </Glass>
           )}
 

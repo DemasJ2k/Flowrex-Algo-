@@ -634,11 +634,22 @@ def list_symbols_unified(
             }
 
     # ── 5. Merge into one row per symbol ────────────────────────────────
+    # ScoutAgent reuses Potential's deployed joblibs (same 85 features, same
+    # xgb/lgb/catboost artifacts, no separate training). Surface it as a
+    # synthetic "scout" pipeline entry cloning the potential models so the ML
+    # page shows a Scout card and the AgentWizard can display grade badges
+    # without a separate training artefact on disk.
     rows = []
     all_syms = set(per_symbol.keys()) | set(per_symbol_agents.keys())
     for sym in all_syms:
+        base = per_symbol.get(sym, [])
+        potential_models = [m for m in base if m["pipeline"] == "potential"]
+        scout_proxies = [
+            {**m, "pipeline": "scout", "proxy_for": "potential"}
+            for m in potential_models
+        ]
         models = sorted(
-            per_symbol.get(sym, []),
+            base + scout_proxies,
             key=lambda m: (m["pipeline"], m["model_type"]),
         )
         live = per_symbol_live.get(sym, {})
