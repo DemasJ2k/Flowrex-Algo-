@@ -1194,6 +1194,13 @@ def run_potential_backtest(
     if not body.symbol or len(body.symbol) > 16:
         raise HTTPException(status_code=400, detail="Symbol missing or too long")
 
+    # Clear any previous result for this symbol BEFORE the background task
+    # starts. Otherwise the frontend's status poll finds the stale result
+    # on its first tick (before the new simulation has overwritten it) and
+    # displays data from the previous run — which made two different filter
+    # configs look identical in the UI. Fixes the issue flagged 2026-04-21.
+    _potential_results.pop(body.symbol, None)
+
     # Create DB record before starting background task
     db_agent_type = "scout" if body.agent_type == "scout" else "potential"
     bt_record = BacktestResult(
