@@ -134,6 +134,11 @@ export default function BacktestPage() {
   const [analyzing, setAnalyzing] = useState(false);
   const [aiMarkdown, setAiMarkdown] = useState<string | null>(null);
   const [resultId, setResultId] = useState<number | null>(null);
+  // Cost overrides — pre-filled from /api/backtest/cost-defaults/{symbol}
+  // when the user changes symbol. `null` = use backend symbol default.
+  const [spreadPts, setSpreadPts] = useState<number | null>(null);
+  const [slippagePts, setSlippagePts] = useState<number | null>(null);
+  const [commissionPerLot, setCommissionPerLot] = useState<number | null>(null);
 
   // Load the user's currently-connected brokers so the broker-live picker
   // shows real options (and hides itself if nothing is connected).
@@ -146,6 +151,20 @@ export default function BacktestPage() {
       if (list.length > 0 && !selectedBroker) setSelectedBroker(list[0]);
     }).catch(() => setConnectedBrokers([]));
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // When the symbol changes, pre-fill cost inputs with backend's symbol
+  // default. User can override in the UI; the request sends the overridden
+  // values. Skips the fetch / reset if nothing is configured yet.
+  useEffect(() => {
+    if (!symbol) return;
+    api.get(`/api/backtest/cost-defaults/${symbol}`).then((r) => {
+      setSpreadPts(r.data?.spread_pts ?? null);
+      setSlippagePts(r.data?.slippage_pts ?? null);
+      setCommissionPerLot(r.data?.commission_per_lot ?? 0);
+    }).catch(() => {
+      setSpreadPts(null); setSlippagePts(null); setCommissionPerLot(null);
+    });
+  }, [symbol]);
 
   const fmt = (v: number | undefined) =>
     v !== undefined
@@ -205,6 +224,12 @@ export default function BacktestPage() {
         sizing_mode: sizingMode,
         data_source: dataSource,
         broker: dataSource === "broker" ? (selectedBroker || undefined) : undefined,
+        // Cost overrides: send only when the user has changed them from the
+        // symbol default (non-null). Backend falls back to the symbol's
+        // _EXEC_COSTS entry when null / missing.
+        spread_pts_override: spreadPts,
+        slippage_pts_override: slippagePts,
+        commission_per_lot_override: commissionPerLot,
         ...dates,
       });
       if (res.data?.result_id) setResultId(res.data.result_id);
@@ -611,6 +636,69 @@ export default function BacktestPage() {
             </div>
           )}
         </div>
+
+        {/* Execution costs — pre-filled from the symbol default; user can
+            override to match their broker (e.g. tighter Oanda live spread or
+            FundedNext Bolt Tradovate commission). Null = use backend default. */}
+        <details className="mb-4">
+          <summary className="text-xs font-medium cursor-pointer select-none" style={{ color: "var(--muted)" }}>
+            Execution costs (spread / slippage / commission) — defaults pre-filled for {symbol}
+          </summary>
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-3 mt-2">
+            <div>
+              <label className="block text-xs mb-1" style={{ color: "var(--muted)" }}>Spread (points)</label>
+              <input
+                type="number"
+                step="0.01"
+                min="0"
+                value={spreadPts ?? ""}
+                onChange={(e) => {
+                  const t = e.target.value;
+                  setSpreadPts(t === "" ? null : parseFloat(t));
+                }}
+                placeholder="symbol default"
+                className="w-full px-3 py-2 text-sm rounded-lg border bg-transparent"
+                style={{ borderColor: "var(--border)" }}
+              />
+            </div>
+            <div>
+              <label className="block text-xs mb-1" style={{ color: "var(--muted)" }}>Slippage (points)</label>
+              <input
+                type="number"
+                step="0.01"
+                min="0"
+                value={slippagePts ?? ""}
+                onChange={(e) => {
+                  const t = e.target.value;
+                  setSlippagePts(t === "" ? null : parseFloat(t));
+                }}
+                placeholder="symbol default"
+                className="w-full px-3 py-2 text-sm rounded-lg border bg-transparent"
+                style={{ borderColor: "var(--border)" }}
+              />
+            </div>
+            <div>
+              <label className="block text-xs mb-1" style={{ color: "var(--muted)" }}>Commission ($/lot, round-trip)</label>
+              <input
+                type="number"
+                step="0.01"
+                min="0"
+                value={commissionPerLot ?? ""}
+                onChange={(e) => {
+                  const t = e.target.value;
+                  setCommissionPerLot(t === "" ? null : parseFloat(t));
+                }}
+                placeholder="0.00"
+                className="w-full px-3 py-2 text-sm rounded-lg border bg-transparent"
+                style={{ borderColor: "var(--border)" }}
+              />
+            </div>
+          </div>
+          <p className="text-[10px] mt-1" style={{ color: "var(--muted)" }}>
+            Leave blank to use the backend&apos;s symbol default. Commission is
+            charged round-trip (entry + exit) per lot.
+          </p>
+        </details>
 
         {/* Run Button */}
         <button

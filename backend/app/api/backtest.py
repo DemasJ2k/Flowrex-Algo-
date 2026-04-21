@@ -176,6 +176,13 @@ class PotentialBacktestRequest(BaseModel):
     balance: float = 10000.0
     max_lot: float = 0.10
     risk_pct: float = 0.01
+    # Per-run cost overrides. When omitted, backend falls back to the
+    # symbol's entry in _EXEC_COSTS. User can override via the backtest UI
+    # to simulate a different broker's fee structure (e.g. FundedNext Bolt
+    # Tradovate commissions vs Oanda practice). All three optional.
+    spread_pts_override: Optional[float] = None
+    slippage_pts_override: Optional[float] = None
+    commission_per_lot_override: Optional[float] = None
     # "dukascopy" (DEFAULT as of 2026-04-15): fetch fresh from Dukascopy per run
     # "broker": live broker data — uses the specified broker (or user's first
     #           connected broker) up to that broker's per-request cap
@@ -216,6 +223,28 @@ _EXEC_COSTS = {
     "ES":     {"spread_pts": 0.50, "slippage_pts": 0.25, "point_value": 50.0},
     "NAS100": {"spread_pts": 1.0, "slippage_pts": 0.50, "point_value": 20.0},
 }
+
+
+@router.get("/cost-defaults/{symbol}")
+def get_cost_defaults(
+    symbol: str,
+    current_user: User = Depends(get_current_user),
+):
+    """Symbol's default spread / slippage / commission for the backtest UI.
+
+    Used to pre-fill the cost inputs when the user selects a symbol, so
+    they start from realistic values and can nudge up/down to simulate
+    tighter-or-wider broker conditions without blind guessing.
+    """
+    fallback = {"spread_pts": 2.0, "slippage_pts": 1.0, "point_value": 1.0}
+    costs = _EXEC_COSTS.get(symbol.upper(), fallback)
+    return {
+        "symbol": symbol.upper(),
+        "spread_pts": costs["spread_pts"],
+        "slippage_pts": costs["slippage_pts"],
+        "commission_per_lot": 0.0,   # no symbol-default commission today
+        "point_value": costs["point_value"],
+    }
 
 
 def _normalize_ohlcv(df: pd.DataFrame) -> pd.DataFrame:
@@ -489,7 +518,19 @@ def _run_potential_backtest(body: PotentialBacktestRequest, result_id: int = Non
         tp_mult = cfg.get("tp_atr_mult", 1.2)
         sl_mult = cfg.get("sl_atr_mult", 0.8)
         hold_bars = cfg.get("hold_bars", 10)
-        total_cost_points = costs["spread_pts"] + costs["slippage_pts"]
+        # Per-run cost overrides (from UI). None → symbol default.
+        spread_pts = (
+            body.spread_pts_override
+            if body.spread_pts_override is not None
+            else costs["spread_pts"]
+        )
+        slippage_pts = (
+            body.slippage_pts_override
+            if body.slippage_pts_override is not None
+            else costs["slippage_pts"]
+        )
+        commission_per_lot_rt = float(body.commission_per_lot_override or 0.0)
+        total_cost_points = spread_pts + slippage_pts
         point_value = costs["point_value"]
 
         balance = body.balance
@@ -563,7 +604,10 @@ def _run_potential_backtest(body: PotentialBacktestRequest, result_id: int = Non
 
             raw_points = (exit_price - entry) if is_long else (entry - exit_price)
             net_points = raw_points - total_cost_points
-            dollar_pnl = net_points * lot_size * point_value
+            # Commission charged per lot, round-trip (entry + exit). Subtracted
+            # in $ terms after the points-based P&L. 0 when no override.
+            commission_cost = commission_per_lot_rt * lot_size * 2
+            dollar_pnl = (net_points * lot_size * point_value) - commission_cost
 
             balance += dollar_pnl
             if balance > peak_balance:

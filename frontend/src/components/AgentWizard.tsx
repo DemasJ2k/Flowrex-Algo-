@@ -9,12 +9,47 @@ import { getErrorMessage } from "@/lib/errors";
 
 const STEPS = ["Setup", "Risk & Mode", "Review"];
 
+// Legacy "scalping" + "flowrex" types removed 2026-04-21 — they used the
+// deprecated FlowrexAgent runtime that lacks today's filters / risk
+// manager and kept showing up as options despite being unmaintained.
 const AGENT_TYPES = [
-  { value: "flowrex_v2", label: "Flowrex v2", desc: "120 features, 3-model ensemble (XGB+LGB+CatBoost), 4-layer MTF.", badge: "NEW", color: "#f59e0b" },
-  { value: "potential", label: "Potential Agent", desc: "Institutional strategies (VWAP, ADX, ORB, EMA). Grade A model.", badge: "A", color: "#22c55e" },
-  { value: "scalping", label: "Scalping Agent", desc: "Quick entries with single-model conviction. ICT/SMC features.", badge: "B", color: "#3b82f6" },
-  { value: "flowrex", label: "Flowrex Agent", desc: "Unified ensemble — loads all available models with smart voting.", badge: "", color: "#8b5cf6" },
+  { value: "flowrex_v2", label: "Flowrex v2", desc: "120 features, 3-model ensemble (XGB+LGB+CatBoost), 4-layer MTF.", pipelineKey: "flowrex", color: "#f59e0b" },
+  { value: "potential", label: "Potential Agent", desc: "85 institutional features (VWAP, ADX, ORB, anchored VWAPs). Walk-forward trained.", pipelineKey: "potential", color: "#22c55e" },
 ];
+
+// Per-symbol model metadata from /api/ml/symbols (fetched on open).
+interface SymbolInfo {
+  symbol: string;
+  asset_class: string;
+  models: Array<{ pipeline: string; grade: string; model_type: string }>;
+}
+
+const BROKERS: Array<{ value: string; label: string }> = [
+  { value: "oanda", label: "Oanda" },
+  { value: "tradovate", label: "Tradovate" },
+  { value: "ctrader", label: "cTrader" },
+  { value: "mt5", label: "MT5" },
+  { value: "interactive_brokers", label: "Interactive Brokers" },
+];
+
+const GRADE_ORDER = ["A", "B", "C", "D", "F"];
+function bestGradeForPipeline(s: SymbolInfo, pipelineKey: string): string {
+  const candidates = s.models
+    .filter((m) => m.pipeline === pipelineKey)
+    .map((m) => m.grade);
+  for (const g of GRADE_ORDER) {
+    if (candidates.includes(g)) return g;
+  }
+  return "—"; // no model for that pipeline
+}
+function gradeColor(grade: string): string {
+  if (grade === "A") return "#22c55e";
+  if (grade === "B") return "#3b82f6";
+  if (grade === "C") return "#f59e0b";
+  if (grade === "D") return "#f97316";
+  if (grade === "F") return "#ef4444";
+  return "#71717a";
+}
 
 const RISK_PRESETS = [
   { label: "Conservative", value: 0.0025, desc: "0.25% per trade" },
@@ -58,6 +93,11 @@ export default function AgentWizard({
     "london", "ny_open", "ny_close",
   ]);
   const [loading, setLoading] = useState(false);
+  // Dynamic per-symbol model metadata. Populated from /api/ml/symbols so the
+  // wizard can show the deployed grade for each symbol under the selected
+  // pipeline (e.g. "BTCUSD Grade A" for potential, "NAS100 Grade F" showing
+  // the user that NAS100's current model is regime-broken).
+  const [symbolInfo, setSymbolInfo] = useState<SymbolInfo[]>([]);
 
   // Fetch user's trading defaults from settings when wizard opens
   useEffect(() => {
@@ -74,6 +114,12 @@ export default function AgentWizard({
       if (t.regime_filter !== undefined) setRegimeFilter(t.regime_filter);
       if (r.data?.default_broker) setBroker(r.data.default_broker);
     }).catch(() => {}); // silently ignore — wizard still works with fallback defaults
+
+    // Pull the symbol→models map once per open. Shows empty grid while
+    // loading; falls back to a static safety list if the endpoint errors.
+    api.get("/api/ml/symbols")
+      .then((r) => setSymbolInfo(r.data || []))
+      .catch(() => setSymbolInfo([]));
   }, [open]);
 
   const reset = () => {
@@ -147,41 +193,104 @@ export default function AgentWizard({
               className="w-full px-3 py-2 text-sm rounded-lg border bg-transparent outline-none focus:border-blue-500"
               style={{ borderColor: "var(--border)" }} placeholder={`${symbol} Flowrex`} />
           </div>
-          <div>
-            <label className="block text-xs font-medium mb-2" style={{ color: "var(--muted)" }}>Symbol</label>
-            <div className="grid grid-cols-3 gap-2">
-              {["XAUUSD", "BTCUSD", "US30", "ES", "NAS100", "EURUSD", "GBPUSD"].map((s) => (
-                <button key={s} onClick={() => setSymbol(s)}
-                  className={"px-3 py-2 text-sm rounded-lg border transition-colors " + (symbol === s ? "border-blue-500 bg-blue-500/10 text-blue-400" : "hover:bg-white/5")}
-                  style={{ borderColor: symbol === s ? undefined : "var(--border)" }}>{s}</button>
-              ))}
-            </div>
-          </div>
+          {(() => {
+            // Pick which pipeline grade to show next to each symbol based on
+            // the currently-selected agent type. Falls back gracefully if the
+            // symbols endpoint hasn't loaded yet (shows symbols without grades).
+            const activePipelineKey = AGENT_TYPES.find((a) => a.value === agentType)?.pipelineKey || "potential";
+            const FALLBACK_SYMBOLS = ["XAUUSD", "BTCUSD", "US30", "ES", "NAS100"];
+            const symbolsToShow = symbolInfo.length > 0
+              ? symbolInfo.map((s) => s.symbol)
+              : FALLBACK_SYMBOLS;
+            return (
+              <div>
+                <label className="block text-xs font-medium mb-2" style={{ color: "var(--muted)" }}>
+                  Symbol
+                  <span className="ml-2 text-[10px]" style={{ opacity: 0.6 }}>
+                    grade shown for {AGENT_TYPES.find((a) => a.value === agentType)?.label}
+                  </span>
+                </label>
+                <div className="grid grid-cols-2 gap-2">
+                  {symbolsToShow.map((s) => {
+                    const info = symbolInfo.find((x) => x.symbol === s);
+                    const g = info ? bestGradeForPipeline(info, activePipelineKey) : "—";
+                    const active = symbol === s;
+                    return (
+                      <button
+                        key={s}
+                        onClick={() => setSymbol(s)}
+                        className={"flex items-center justify-between px-3 py-2 text-sm rounded-lg border transition-colors " + (active ? "border-blue-500 bg-blue-500/10 text-blue-400" : "hover:bg-white/5")}
+                        style={{ borderColor: active ? undefined : "var(--border)" }}
+                      >
+                        <span className="font-medium">{s}</span>
+                        <span
+                          className="text-[10px] font-bold px-1.5 py-0.5 rounded"
+                          style={{ background: `${gradeColor(g)}20`, color: gradeColor(g) }}
+                          title={g === "—" ? `No ${activePipelineKey} model deployed` : `Grade ${g}`}
+                        >
+                          {g === "—" ? "—" : `Grade ${g}`}
+                        </span>
+                      </button>
+                    );
+                  })}
+                </div>
+                {symbolInfo.length > 0 && (() => {
+                  const sel = symbolInfo.find((x) => x.symbol === symbol);
+                  const g = sel ? bestGradeForPipeline(sel, activePipelineKey) : "—";
+                  if (g === "F") {
+                    return (
+                      <p className="text-[11px] mt-1.5 text-red-400 flex items-center gap-1">
+                        <AlertTriangle size={12} />
+                        {symbol} {activePipelineKey} is Grade F — model regime-broken, expect losses live.
+                      </p>
+                    );
+                  }
+                  if (g === "—") {
+                    return (
+                      <p className="text-[11px] mt-1.5 text-amber-400">
+                        No {activePipelineKey} model deployed for {symbol} — retrain before enabling.
+                      </p>
+                    );
+                  }
+                  return null;
+                })()}
+              </div>
+            );
+          })()}
           <div>
             <label className="block text-xs font-medium mb-2" style={{ color: "var(--muted)" }}>Agent Strategy</label>
-            {AGENT_TYPES.map((a) => (
-              <button key={a.value} onClick={() => setAgentType(a.value)}
-                className={`w-full text-left p-2.5 rounded-lg border transition-colors mb-2 ${agentType === a.value ? "border-blue-500 bg-blue-500/10" : "hover:bg-white/5"}`}
-                style={{ borderColor: agentType === a.value ? undefined : "var(--border)" }}>
-                <div className="flex items-center justify-between">
-                  <span className="font-medium text-sm">{a.label}</span>
-                  {a.badge && <span className="text-xs px-1.5 py-0.5 rounded font-bold" style={{ background: `${a.color}20`, color: a.color }}>Grade {a.badge}</span>}
-                </div>
-                <span className="text-xs" style={{ color: "var(--muted)" }}>{a.desc}</span>
-              </button>
-            ))}
+            {AGENT_TYPES.map((a) => {
+              const info = symbolInfo.find((x) => x.symbol === symbol);
+              const grade = info ? bestGradeForPipeline(info, a.pipelineKey) : "?";
+              return (
+                <button
+                  key={a.value}
+                  onClick={() => setAgentType(a.value)}
+                  className={`w-full text-left p-2.5 rounded-lg border transition-colors mb-2 ${agentType === a.value ? "border-blue-500 bg-blue-500/10" : "hover:bg-white/5"}`}
+                  style={{ borderColor: agentType === a.value ? undefined : "var(--border)" }}
+                >
+                  <div className="flex items-center justify-between">
+                    <span className="font-medium text-sm">{a.label}</span>
+                    <span
+                      className="text-xs px-1.5 py-0.5 rounded font-bold"
+                      style={{ background: `${gradeColor(grade)}20`, color: gradeColor(grade) }}
+                    >
+                      {grade === "—" ? "No model" : `Grade ${grade}`}
+                    </span>
+                  </div>
+                  <span className="text-xs" style={{ color: "var(--muted)" }}>{a.desc}</span>
+                </button>
+              );
+            })}
           </div>
-          <div className="grid grid-cols-2 gap-3">
-            <div>
-              <label htmlFor="aw-broker" className="block text-xs font-medium mb-1" style={{ color: "var(--muted)" }}>Broker</label>
-              <select id="aw-broker" value={broker} onChange={(e) => setBroker(e.target.value)}
-                className="w-full px-3 py-2 text-sm rounded-lg border bg-transparent" style={{ borderColor: "var(--border)", background: "var(--card)" }}>
-                <option value="oanda">Oanda</option>
-                <option value="tradovate">Tradovate</option>
-                <option value="ctrader">cTrader</option>
-                <option value="mt5">MT5</option>
-              </select>
-            </div>
+          <div>
+            <label htmlFor="aw-broker" className="block text-xs font-medium mb-1" style={{ color: "var(--muted)" }}>Broker</label>
+            <select id="aw-broker" value={broker} onChange={(e) => setBroker(e.target.value)}
+              className="w-full px-3 py-2 text-sm rounded-lg border bg-transparent" style={{ borderColor: "var(--border)", background: "var(--card)" }}>
+              {BROKERS.map((b) => (
+                <option key={b.value} value={b.value}>{b.label}</option>
+              ))}
+            </select>
             {/* Timeframe dropdown removed (audit H18): all models are M5-only and
                 the engine hardcodes get_candles(symbol, "M5", 500). The dropdown
                 was vestigial — the field was sent to the API but ignored. */}
