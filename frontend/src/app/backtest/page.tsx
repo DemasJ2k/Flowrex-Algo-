@@ -117,7 +117,22 @@ const BROKER_LABEL: Record<string, string> = {
 
 export default function BacktestPage() {
   const [symbol, setSymbol] = useState<string>("US30");
-  const [agentType, setAgentType] = useState<"potential" | "flowrex_v2">("potential");
+  const [agentType, setAgentType] = useState<"potential" | "flowrex_v2" | "scout">("potential");
+  // Scout-only knobs. Sensible defaults that match the ScoutAgent runtime.
+  const [scoutLookbackBars, setScoutLookbackBars] = useState<number>(40);
+  const [scoutInstantConf, setScoutInstantConf] = useState<number>(0.85);
+  const [scoutMaxPending, setScoutMaxPending] = useState<number>(10);
+  const [scoutPullbackAtr, setScoutPullbackAtr] = useState<number>(0.50);
+  const [scoutDedupeBars, setScoutDedupeBars] = useState<number>(20);
+  // Regime-classifier validation: bar-level regime labels + forward-return
+  // breakdown. Shown as a separate card so users can sanity-check the
+  // classifier before flipping `regime_filter` on a live agent.
+  type RegimeBucket = { n_bars: number; mean_return_pct: number; median_return_pct: number; std_pct: number; up_rate: number; abs_return_pct: number };
+  type RegimeValidation = { symbol: string; days: number; forward_bars: number; total_bars: number; classified_bars: number; buckets: Record<string, RegimeBucket> };
+  const [regimeValidation, setRegimeValidation] = useState<RegimeValidation | null>(null);
+  const [regimeValidating, setRegimeValidating] = useState(false);
+  const [regimeDays, setRegimeDays] = useState<number>(90);
+  const [regimeForwardBars, setRegimeForwardBars] = useState<number>(10);
   const [dataSource, setDataSource] = useState<"history" | "broker" | "dukascopy">("dukascopy");
   const [connectedBrokers, setConnectedBrokers] = useState<string[]>([]);
   const [selectedBroker, setSelectedBroker] = useState<string>("");
@@ -204,6 +219,23 @@ export default function BacktestPage() {
     }
   };
 
+  const runRegimeValidation = async () => {
+    setRegimeValidating(true);
+    setRegimeValidation(null);
+    try {
+      const res = await api.post("/api/backtest/regime-validate", {
+        symbol,
+        days: regimeDays,
+        forward_bars: regimeForwardBars,
+      }, { timeout: 180000 });
+      setRegimeValidation(res.data);
+    } catch (e: unknown) {
+      toast.error(getErrorMessage(e));
+    } finally {
+      setRegimeValidating(false);
+    }
+  };
+
   const runBacktest = async () => {
     if (balance < 100) { toast.error("Balance must be at least $100"); return; }
     if (sizingMode === "risk_pct" && (riskPct <= 0 || riskPct > 3)) { toast.error("Risk % must be between 0.01 and 3"); return; }
@@ -230,6 +262,13 @@ export default function BacktestPage() {
         spread_pts_override: spreadPts,
         slippage_pts_override: slippagePts,
         commission_per_lot_override: commissionPerLot,
+        ...(agentType === "scout" ? {
+          lookback_bars: scoutLookbackBars,
+          instant_entry_confidence: scoutInstantConf,
+          max_pending_bars: scoutMaxPending,
+          pullback_atr_fraction: scoutPullbackAtr,
+          dedupe_window_bars: scoutDedupeBars,
+        } : {}),
         ...dates,
       });
       if (res.data?.result_id) setResultId(res.data.result_id);
@@ -382,7 +421,7 @@ export default function BacktestPage() {
         {/* Agent Type Selector */}
         <div className="mb-4">
           <label className="block text-xs font-medium mb-2" style={{ color: "var(--muted)" }}>Agent / Model</label>
-          <div className="grid grid-cols-2 gap-2">
+          <div className="grid grid-cols-3 gap-2">
             <button onClick={() => setAgentType("potential")}
               className={`p-3 text-left rounded-lg border transition-colors ${agentType === "potential" ? "border-violet-500 bg-violet-500/10" : "hover:bg-white/5"}`}
               style={{ borderColor: agentType === "potential" ? undefined : "var(--border)" }}>
@@ -405,8 +444,69 @@ export default function BacktestPage() {
               </div>
               <p className="text-[10px]" style={{ color: "var(--muted)" }}>120 curated features, 3-model ensemble (XGB + LGB + CatBoost), 4-layer MTF</p>
             </button>
+            <button onClick={() => setAgentType("scout")}
+              className={`p-3 text-left rounded-lg border transition-colors ${agentType === "scout" ? "border-amber-500 bg-amber-500/10" : "hover:bg-white/5"}`}
+              style={{ borderColor: agentType === "scout" ? undefined : "var(--border)" }}>
+              <div className="flex items-center gap-2 mb-1">
+                <div className="w-6 h-6 rounded bg-gradient-to-br from-amber-500 to-orange-500 flex items-center justify-center">
+                  <Zap size={12} className="text-white" />
+                </div>
+                <span className="text-sm font-semibold">Scout Agent</span>
+              </div>
+              <p className="text-[10px]" style={{ color: "var(--muted)" }}>Potential models + 40-bar lookback, pullback / BOS entry state machine</p>
+            </button>
           </div>
         </div>
+
+        {agentType === "scout" && (
+          <details className="mb-4 p-3 rounded-lg border" style={{ borderColor: "var(--border)" }}>
+            <summary className="cursor-pointer text-xs font-medium" style={{ color: "var(--muted)" }}>
+              Scout tuning (lookback · pullback · dedupe)
+            </summary>
+            <div className="grid grid-cols-2 gap-3 mt-3 text-xs">
+              <label className="space-y-1">
+                <span style={{ color: "var(--muted)" }}>Lookback bars</span>
+                <input type="number" min={10} max={120} step={1}
+                  value={scoutLookbackBars}
+                  onChange={(e) => setScoutLookbackBars(Math.max(10, Math.min(120, parseInt(e.target.value) || 40)))}
+                  className="w-full px-2 py-1.5 rounded-lg border bg-transparent outline-none focus:border-amber-500"
+                  style={{ borderColor: "var(--border)" }} />
+              </label>
+              <label className="space-y-1">
+                <span style={{ color: "var(--muted)" }}>Instant-entry conf</span>
+                <input type="number" min={0.5} max={0.99} step={0.01}
+                  value={scoutInstantConf}
+                  onChange={(e) => setScoutInstantConf(Math.max(0.5, Math.min(0.99, parseFloat(e.target.value) || 0.85)))}
+                  className="w-full px-2 py-1.5 rounded-lg border bg-transparent outline-none focus:border-amber-500"
+                  style={{ borderColor: "var(--border)" }} />
+              </label>
+              <label className="space-y-1">
+                <span style={{ color: "var(--muted)" }}>Max pending bars</span>
+                <input type="number" min={2} max={60} step={1}
+                  value={scoutMaxPending}
+                  onChange={(e) => setScoutMaxPending(Math.max(2, Math.min(60, parseInt(e.target.value) || 10)))}
+                  className="w-full px-2 py-1.5 rounded-lg border bg-transparent outline-none focus:border-amber-500"
+                  style={{ borderColor: "var(--border)" }} />
+              </label>
+              <label className="space-y-1">
+                <span style={{ color: "var(--muted)" }}>Pullback (× ATR)</span>
+                <input type="number" min={0.1} max={2} step={0.05}
+                  value={scoutPullbackAtr}
+                  onChange={(e) => setScoutPullbackAtr(Math.max(0.1, Math.min(2, parseFloat(e.target.value) || 0.5)))}
+                  className="w-full px-2 py-1.5 rounded-lg border bg-transparent outline-none focus:border-amber-500"
+                  style={{ borderColor: "var(--border)" }} />
+              </label>
+              <label className="space-y-1 col-span-2">
+                <span style={{ color: "var(--muted)" }}>Dedupe window (bars, 0 = off)</span>
+                <input type="number" min={0} max={100} step={1}
+                  value={scoutDedupeBars}
+                  onChange={(e) => setScoutDedupeBars(Math.max(0, Math.min(100, parseInt(e.target.value) || 0)))}
+                  className="w-full px-2 py-1.5 rounded-lg border bg-transparent outline-none focus:border-amber-500"
+                  style={{ borderColor: "var(--border)" }} />
+              </label>
+            </div>
+          </details>
+        )}
 
         {/* Symbol Selector */}
         <div className="mb-4">
@@ -698,6 +798,81 @@ export default function BacktestPage() {
             Leave blank to use the backend&apos;s symbol default. Commission is
             charged round-trip (entry + exit) per lot.
           </p>
+        </details>
+
+        {/* Regime classifier validation — one-shot sanity check before
+            turning regime_filter on live. Renders P&L-relevant next-bar
+            stats per regime bucket. */}
+        <details className="mb-4">
+          <summary className="text-xs font-medium cursor-pointer select-none" style={{ color: "var(--muted)" }}>
+            Regime classifier validation — does the classifier correlate with next-bar returns?
+          </summary>
+          <div className="mt-2 flex items-end gap-3 flex-wrap">
+            <div>
+              <label className="block text-xs mb-1" style={{ color: "var(--muted)" }}>Window (days)</label>
+              <input type="number" min={7} max={365} step={1}
+                value={regimeDays}
+                onChange={(e) => setRegimeDays(Math.max(7, Math.min(365, parseInt(e.target.value) || 90)))}
+                className="w-28 px-2 py-1.5 text-sm rounded-lg border bg-transparent" style={{ borderColor: "var(--border)" }} />
+            </div>
+            <div>
+              <label className="block text-xs mb-1" style={{ color: "var(--muted)" }}>Forward horizon (M5 bars)</label>
+              <input type="number" min={1} max={100} step={1}
+                value={regimeForwardBars}
+                onChange={(e) => setRegimeForwardBars(Math.max(1, Math.min(100, parseInt(e.target.value) || 10)))}
+                className="w-28 px-2 py-1.5 text-sm rounded-lg border bg-transparent" style={{ borderColor: "var(--border)" }} />
+            </div>
+            <button
+              onClick={runRegimeValidation}
+              disabled={regimeValidating}
+              className="px-4 py-2 text-xs font-medium rounded-lg border hover:bg-white/5 disabled:opacity-50"
+              style={{ borderColor: "var(--border)" }}
+            >
+              {regimeValidating ? "Classifying..." : "Run validation"}
+            </button>
+          </div>
+          {regimeValidation && (
+            <div className="mt-3 space-y-2">
+              <p className="text-[10px]" style={{ color: "var(--muted)" }}>
+                {regimeValidation.classified_bars.toLocaleString()} of {regimeValidation.total_bars.toLocaleString()} bars labelled;
+                forward window = {regimeValidation.forward_bars} × M5. Look for a regime whose mean return
+                is distinct from 0 (edge) or whose std is notably lower (calmer).
+              </p>
+              <div className="overflow-x-auto">
+                <table className="w-full text-xs">
+                  <thead>
+                    <tr className="text-left" style={{ color: "var(--muted)" }}>
+                      <th className="py-1 pr-3">Regime</th>
+                      <th className="py-1 pr-3 text-right">Bars</th>
+                      <th className="py-1 pr-3 text-right">Mean %</th>
+                      <th className="py-1 pr-3 text-right">Median %</th>
+                      <th className="py-1 pr-3 text-right">Std %</th>
+                      <th className="py-1 pr-3 text-right">Up-rate</th>
+                      <th className="py-1 pr-3 text-right">|Avg| %</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {(["trending_up", "trending_down", "ranging", "volatile", "unknown"] as const).map((name) => {
+                      const b = regimeValidation.buckets[name];
+                      if (!b || b.n_bars === 0) return null;
+                      const meanColor = b.mean_return_pct > 0 ? "#34d399" : b.mean_return_pct < 0 ? "#f87171" : "var(--text)";
+                      return (
+                        <tr key={name} className="border-t" style={{ borderColor: "var(--border)" }}>
+                          <td className="py-1 pr-3 font-medium">{name}</td>
+                          <td className="py-1 pr-3 text-right tabular-nums">{b.n_bars.toLocaleString()}</td>
+                          <td className="py-1 pr-3 text-right tabular-nums" style={{ color: meanColor }}>{b.mean_return_pct.toFixed(3)}</td>
+                          <td className="py-1 pr-3 text-right tabular-nums">{b.median_return_pct.toFixed(3)}</td>
+                          <td className="py-1 pr-3 text-right tabular-nums">{b.std_pct.toFixed(3)}</td>
+                          <td className="py-1 pr-3 text-right tabular-nums">{(b.up_rate * 100).toFixed(1)}%</td>
+                          <td className="py-1 pr-3 text-right tabular-nums">{b.abs_return_pct.toFixed(3)}</td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          )}
         </details>
 
         {/* Run Button */}

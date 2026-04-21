@@ -115,6 +115,22 @@ export default function AgentConfigEditor({
   const [useCorrelations, setUseCorrelations] = useState<boolean>(
     cfg.use_correlations !== false
   );
+  // Scout-only tuning knobs (2026-04-21)
+  const [lookbackBars, setLookbackBars] = useState<number>(
+    (cfg.lookback_bars as number) || 40
+  );
+  const [instantEntryConfidence, setInstantEntryConfidence] = useState<number>(
+    (cfg.instant_entry_confidence as number) || 0.85
+  );
+  const [maxPendingBars, setMaxPendingBars] = useState<number>(
+    (cfg.max_pending_bars as number) || 10
+  );
+  const [pullbackAtrFraction, setPullbackAtrFraction] = useState<number>(
+    (cfg.pullback_atr_fraction as number) || 0.50
+  );
+  const [dedupeWindowBars, setDedupeWindowBars] = useState<number>(
+    (cfg.dedupe_window_bars as number) || 20
+  );
   const [loading, setLoading] = useState(false);
 
   useEffect(() => {
@@ -134,6 +150,13 @@ export default function AgentConfigEditor({
     setAllowBuy(c.allow_buy !== false);
     setAllowSell(c.allow_sell !== false);
     setAllowedSessions((c.allowed_sessions as string[]) || ["london", "ny_open", "ny_close"]);
+    setAllowedRegimes((c.allowed_regimes as string[]) || ["trending_up", "trending_down", "ranging", "volatile"]);
+    setUseCorrelations(c.use_correlations !== false);
+    setLookbackBars((c.lookback_bars as number) || 40);
+    setInstantEntryConfidence((c.instant_entry_confidence as number) || 0.85);
+    setMaxPendingBars((c.max_pending_bars as number) || 10);
+    setPullbackAtrFraction((c.pullback_atr_fraction as number) || 0.50);
+    setDedupeWindowBars((c.dedupe_window_bars as number) || 20);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [agent]);
 
@@ -176,6 +199,13 @@ export default function AgentConfigEditor({
             "trending_up", "trending_down", "ranging", "volatile",
           ],
           use_correlations: useCorrelations,
+          ...(agent.agent_type === "scout" ? {
+            lookback_bars: lookbackBars,
+            instant_entry_confidence: instantEntryConfidence,
+            max_pending_bars: maxPendingBars,
+            pullback_atr_fraction: pullbackAtrFraction,
+            dedupe_window_bars: dedupeWindowBars,
+          } : {}),
         },
       });
       toast.success("Agent configuration updated");
@@ -377,6 +407,77 @@ export default function AgentConfigEditor({
             </span>
           </label>
         </div>
+
+        {/* Scout tuning (only for scout agents) */}
+        {agent.agent_type === "scout" && (
+          <details className="pt-3 border-t group" style={{ borderColor: "var(--border)" }}>
+            <summary className="cursor-pointer text-xs font-medium flex items-center justify-between" style={{ color: "var(--muted)" }}>
+              <span>Scout tuning — lookback entry state machine</span>
+              <span className="text-[10px] group-open:hidden">click to expand</span>
+            </summary>
+            <p className="text-[10px] mt-2 mb-3" style={{ color: "var(--muted)" }}>
+              Scout stashes each signal as pending and waits for a pullback, break-of-structure,
+              or high-confidence trigger before entering. These knobs tune that behaviour.
+            </p>
+            <div className="space-y-3">
+              <SliderField
+                id="cfg-lookback-bars"
+                label="Lookback window (bars)"
+                value={lookbackBars}
+                onChange={(v) => setLookbackBars(Math.round(v))}
+                min={10}
+                max={120}
+                step={1}
+                decimals={0}
+                hint="bars scanned for BOS reference"
+              />
+              <SliderField
+                id="cfg-instant-conf"
+                label="Instant-entry confidence"
+                value={instantEntryConfidence}
+                onChange={setInstantEntryConfidence}
+                min={0.50}
+                max={0.99}
+                step={0.01}
+                decimals={2}
+                hint="skip wait if conf ≥ this"
+              />
+              <SliderField
+                id="cfg-max-pending"
+                label="Max pending bars"
+                value={maxPendingBars}
+                onChange={(v) => setMaxPendingBars(Math.round(v))}
+                min={2}
+                max={60}
+                step={1}
+                decimals={0}
+                hint="discard pending after N bars"
+              />
+              <SliderField
+                id="cfg-pullback-atr"
+                label="Pullback distance (× ATR)"
+                value={pullbackAtrFraction}
+                onChange={setPullbackAtrFraction}
+                min={0.10}
+                max={2.00}
+                step={0.05}
+                decimals={2}
+                hint="price must retrace this much"
+              />
+              <SliderField
+                id="cfg-dedupe-window"
+                label="Dedupe window (bars)"
+                value={dedupeWindowBars}
+                onChange={(v) => setDedupeWindowBars(Math.round(v))}
+                min={0}
+                max={100}
+                step={1}
+                decimals={0}
+                hint="skip same-direction repeats"
+              />
+            </div>
+          </details>
+        )}
 
         {/* Prop Firm Mode */}
         <div className="pt-3 border-t" style={{ borderColor: "var(--border)" }}>

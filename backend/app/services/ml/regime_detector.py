@@ -136,6 +136,115 @@ def classify_regime_simple(
         return RegimeResult(regime="trending_down", confidence=conf, state_id=1)
 
 
+def validate_regime_on_history(
+    highs: Sequence[float],
+    lows: Sequence[float],
+    closes: Sequence[float],
+    forward_bars: int = 10,
+    atr_window: int = 14,
+    adx_window: int = 14,
+    atr_vol_lookback: int = 100,
+    atr_vol_percentile: float = 75.0,
+    ema_period: int = 50,
+    ema_slope_lookback: int = 20,
+    adx_range_threshold: float = 20.0,
+) -> dict:
+    """Bar-by-bar regime labelling + forward-return aggregation.
+
+    For each bar (after warmup), applies the same rule tree as
+    `classify_regime_simple` using precomputed ATR / ADX / EMA arrays, then
+    records the next `forward_bars` close-to-close return. Final output
+    groups bars by regime and reports: count, mean return, std, up-rate.
+
+    Used by the backtest-page regime-validation tool to confirm the
+    classifier actually correlates with realised returns before the user
+    flips `regime_filter` on live.
+    """
+    from app.services.backtest.indicators import atr as atr_fn
+    from app.services.backtest.indicators import adx as adx_fn
+    from app.services.backtest.indicators import ema as ema_fn
+
+    h_arr = np.asarray(highs, dtype=np.float64)
+    l_arr = np.asarray(lows, dtype=np.float64)
+    c_arr = np.asarray(closes, dtype=np.float64)
+    n = len(c_arr)
+
+    min_bars = max(atr_vol_lookback, ema_period + ema_slope_lookback, adx_window * 2) + 5
+    if n < min_bars + forward_bars + 1:
+        return {"total_bars": n, "buckets": {}, "error": "insufficient_data"}
+
+    atr_series = atr_fn(h_arr, l_arr, c_arr, atr_window)
+    adx_val, _, _ = adx_fn(h_arr, l_arr, c_arr, adx_window)
+    ema_series = ema_fn(c_arr, ema_period)
+
+    regimes: list[str] = [""] * n
+    start = min_bars
+    stop = n - forward_bars
+
+    for i in range(start, stop):
+        current_atr = atr_series[i]
+        if np.isnan(current_atr):
+            regimes[i] = "unknown"
+            continue
+        recent = atr_series[max(0, i - atr_vol_lookback + 1): i + 1]
+        recent = recent[~np.isnan(recent)]
+        if len(recent) < 20:
+            regimes[i] = "unknown"
+            continue
+        atr_threshold = float(np.percentile(recent, atr_vol_percentile))
+        if atr_threshold > 0 and current_atr >= atr_threshold:
+            regimes[i] = "volatile"
+            continue
+
+        current_adx = adx_val[i]
+        if np.isnan(current_adx):
+            current_adx = 0.0
+        if current_adx < adx_range_threshold:
+            regimes[i] = "ranging"
+            continue
+
+        if i - ema_slope_lookback < 0:
+            regimes[i] = "unknown"
+            continue
+        ema_now = ema_series[i]
+        ema_past = ema_series[i - ema_slope_lookback]
+        if np.isnan(ema_now) or np.isnan(ema_past):
+            regimes[i] = "unknown"
+            continue
+        regimes[i] = "trending_up" if (ema_now - ema_past) > 0 else "trending_down"
+
+    buckets: dict[str, dict] = {}
+    for name in ("trending_up", "trending_down", "ranging", "volatile", "unknown"):
+        idxs = [i for i in range(start, stop) if regimes[i] == name]
+        if not idxs:
+            buckets[name] = {
+                "n_bars": 0, "mean_return_pct": 0.0,
+                "median_return_pct": 0.0, "std_pct": 0.0,
+                "up_rate": 0.0, "abs_return_pct": 0.0,
+            }
+            continue
+        idx_arr = np.asarray(idxs, dtype=np.int64)
+        entry = c_arr[idx_arr]
+        exit_ = c_arr[idx_arr + forward_bars]
+        rets = (exit_ - entry) / np.where(entry != 0, entry, 1.0)
+        buckets[name] = {
+            "n_bars": int(len(idx_arr)),
+            "mean_return_pct": float(np.mean(rets) * 100),
+            "median_return_pct": float(np.median(rets) * 100),
+            "std_pct": float(np.std(rets) * 100),
+            "up_rate": float(np.mean(rets > 0)),
+            "abs_return_pct": float(np.mean(np.abs(rets)) * 100),
+        }
+
+    total_classified = sum(b["n_bars"] for k, b in buckets.items() if k != "unknown")
+    return {
+        "total_bars": int(n),
+        "classified_bars": total_classified,
+        "forward_bars": forward_bars,
+        "buckets": buckets,
+    }
+
+
 def regime_size_multiplier(regime: str) -> float:
     """Soft-sizing multiplier applied AFTER the hard-gate check passes.
 

@@ -192,6 +192,68 @@ class PotentialBacktestRequest(BaseModel):
     # connected broker is used). Agents already track their own broker; the
     # backtest UI can pass this when the user has multiple connections.
     broker: Optional[str] = None
+    # Agent behaviour. "potential" = immediate entry on signal (original).
+    # "scout" = lookback + pullback/BOS entry state machine (mirrors
+    # ScoutAgent runtime). Scout reuses the same deployed potential_* models;
+    # only the entry gating differs.
+    agent_type: str = "potential"
+    lookback_bars: int = 40
+    instant_entry_confidence: float = 0.85
+    max_pending_bars: int = 10
+    pullback_atr_fraction: float = 0.50
+    dedupe_window_bars: int = 20
+
+
+def _scout_check_triggers(
+    pending: dict,
+    i: int,
+    closes: np.ndarray,
+    highs: np.ndarray,
+    lows: np.ndarray,
+    lookback_bars: int,
+    pullback_atr_fraction: float,
+    instant_entry_confidence: float,
+) -> Optional[str]:
+    """Return the first Scout trigger that fires at bar i, or None.
+
+    Mirrors `ScoutAgent._check_triggers` so backtest behaviour matches live.
+    Order matters: instant > pullback > break-of-structure.
+    """
+    conf = float(pending["confidence"])
+    if conf >= instant_entry_confidence:
+        return "instant_confidence"
+
+    direction = int(pending["direction"])
+    ref_close = float(pending["ref_close"])
+    ref_atr = float(pending["ref_atr"]) or 1.0
+    bars_waited = int(pending["bars_waited"])
+    pullback_distance = ref_atr * pullback_atr_fraction
+
+    # Pullback: price moved against pending direction, current bar reverses.
+    start_idx = max(0, i - bars_waited)
+    if direction > 0:
+        lowest_since = float(np.min(lows[start_idx:i + 1]))
+        if (ref_close - lowest_since) >= pullback_distance and float(closes[i]) > float(closes[i - 1]):
+            return "pullback"
+    else:
+        highest_since = float(np.max(highs[start_idx:i + 1]))
+        if (highest_since - ref_close) >= pullback_distance and float(closes[i]) < float(closes[i - 1]):
+            return "pullback"
+
+    # Break-of-structure: current bar extends past lookback extreme.
+    win_start = max(0, i - lookback_bars)
+    win_end = i
+    if win_end > win_start:
+        if direction > 0:
+            prior_high = float(np.max(highs[win_start:win_end]))
+            if float(highs[i]) > prior_high:
+                return "break_of_structure"
+        else:
+            prior_low = float(np.min(lows[win_start:win_end]))
+            if float(lows[i]) < prior_low:
+                return "break_of_structure"
+
+    return None
 
 
 # Per-broker hard ceilings on bars returned by `get_candles` in a single call.
@@ -223,6 +285,62 @@ _EXEC_COSTS = {
     "ES":     {"spread_pts": 0.50, "slippage_pts": 0.25, "point_value": 50.0},
     "NAS100": {"spread_pts": 1.0, "slippage_pts": 0.50, "point_value": 20.0},
 }
+
+
+class RegimeValidateRequest(BaseModel):
+    symbol: str
+    days: int = 90
+    forward_bars: int = 10
+
+
+@router.post("/regime-validate")
+def regime_validate(
+    body: RegimeValidateRequest,
+    current_user: User = Depends(get_current_user),
+):
+    """Classify every M5 bar of the last N days and show next-forward-bar
+    return per regime bucket. Helps confirm the classifier earns its keep
+    before flipping `regime_filter` on live.
+
+    Uses Dukascopy (same source as /api/backtest/potential) so results are
+    reproducible and not broker-dependent.
+    """
+    from app.services.backtest.data_fetcher import get_backtest_fetcher
+    from app.services.ml.regime_detector import validate_regime_on_history
+
+    days = max(7, min(int(body.days), 365))
+    forward = max(1, min(int(body.forward_bars), 100))
+
+    try:
+        bundle = get_backtest_fetcher().fetch(
+            body.symbol, days=days, timeframes=["M5"],
+        )
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Dukascopy fetch failed: {e}")
+
+    if bundle.m5 is None or len(bundle.m5) == 0:
+        raise HTTPException(status_code=400, detail="No M5 data for symbol")
+
+    m5 = _normalize_ohlcv(bundle.m5)
+    # Clip to the requested window — the fetcher may return more bars from
+    # cached History Data than we asked for.
+    cutoff_ts = int((pd.Timestamp.utcnow() - pd.Timedelta(days=days)).timestamp())
+    m5 = m5[m5["time"] >= cutoff_ts].reset_index(drop=True)
+    if len(m5) < 500:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Only {len(m5)} M5 bars in the last {days} days — need 500+",
+        )
+
+    result = validate_regime_on_history(
+        m5["high"].to_numpy(dtype=np.float64),
+        m5["low"].to_numpy(dtype=np.float64),
+        m5["close"].to_numpy(dtype=np.float64),
+        forward_bars=forward,
+    )
+    result["symbol"] = body.symbol.upper()
+    result["days"] = days
+    return result
 
 
 @router.get("/cost-defaults/{symbol}")
@@ -540,12 +658,77 @@ def _run_potential_backtest(body: PotentialBacktestRequest, result_id: int = Non
         daily_pnl = {}
         equity_history = [(timestamps[oos_idx] if oos_idx < len(timestamps) else 0, balance)]
 
+        is_scout = (body.agent_type == "scout")
+        pending_scout: Optional[dict] = None
+        scout_entry_reason: Optional[str] = None
+
         i = oos_idx
         while i < min(end_idx, len(closes) - hold_bars - 1):
             sig = preds[i]
-            if sig not in (0, 2):
-                i += 1
-                continue
+            scout_entry_reason = None
+
+            if is_scout:
+                if pending_scout is None:
+                    # No pending — look for a fresh signal to stash.
+                    if sig not in (0, 2):
+                        i += 1
+                        continue
+                    direction_int = 1 if sig == 2 else -1
+
+                    # Dedupe: skip if last trade was same-direction within
+                    # `dedupe_window_bars` × 5min. Keeps scout from stacking
+                    # in chop when the model re-emits the same side.
+                    if trades:
+                        last_ts = trades[-1].get("entry_ts", 0)
+                        bars_since = (int(timestamps[i]) - int(last_ts)) // 300
+                        if bars_since < body.dedupe_window_bars:
+                            last_dir_int = 1 if trades[-1]["direction"] == "BUY" else -1
+                            if last_dir_int == direction_int:
+                                i += 1
+                                continue
+
+                    conf_i = float(probas[i][int(sig)]) if probas is not None else 0.0
+                    if conf_i >= body.instant_entry_confidence:
+                        scout_entry_reason = "instant_confidence"
+                        # fall through to execute below
+                    else:
+                        atr_ref = float(atr_vals[i]) if not np.isnan(atr_vals[i]) else 0.0
+                        pending_scout = {
+                            "direction": direction_int,
+                            "confidence": conf_i,
+                            "ref_close": float(closes[i]),
+                            "ref_high": float(highs[i]),
+                            "ref_low": float(lows[i]),
+                            "ref_atr": atr_ref,
+                            "ref_idx": i,
+                            "bars_waited": 0,
+                        }
+                        i += 1
+                        continue
+                else:
+                    # Pending exists — check expiry first, then triggers.
+                    pending_scout["bars_waited"] += 1
+                    if pending_scout["bars_waited"] > body.max_pending_bars:
+                        pending_scout = None
+                        i += 1
+                        continue
+                    trigger = _scout_check_triggers(
+                        pending_scout, i, closes, highs, lows,
+                        body.lookback_bars, body.pullback_atr_fraction,
+                        body.instant_entry_confidence,
+                    )
+                    if trigger is None:
+                        i += 1
+                        continue
+                    scout_entry_reason = trigger
+                    # Override sig to match pending direction so shared code
+                    # below picks the right side.
+                    sig = 2 if pending_scout["direction"] == 1 else 0
+                    pending_scout = None
+            else:
+                if sig not in (0, 2):
+                    i += 1
+                    continue
 
             entry = opens[i + 1] if opens[i + 1] > 0 else closes[i]
             if entry <= 0 or np.isnan(atr_vals[i]) or atr_vals[i] <= 0:
@@ -657,6 +840,7 @@ def _run_potential_backtest(body: PotentialBacktestRequest, result_id: int = Non
                 "confidence": round(conf, 3),
                 "session": session,
                 "is_oos": bool(int(entry_time) >= oos_start_ts),
+                "entry_reason": scout_entry_reason or "signal",
             }
             trades.append(trade)
 
@@ -897,10 +1081,11 @@ def run_potential_backtest(
         raise HTTPException(status_code=400, detail=f"Symbol must be one of: {valid_symbols}")
 
     # Create DB record before starting background task
+    db_agent_type = "scout" if body.agent_type == "scout" else "potential"
     bt_record = BacktestResult(
         user_id=current_user.id,
         symbol=body.symbol,
-        agent_type="potential",
+        agent_type=db_agent_type,
         config={
             "start_date": body.start_date,
             "end_date": body.end_date,
@@ -908,6 +1093,12 @@ def run_potential_backtest(
             "max_lot": body.max_lot,
             "risk_pct": body.risk_pct,
             "data_source": body.data_source,
+            "agent_type": body.agent_type,
+            "lookback_bars": body.lookback_bars if body.agent_type == "scout" else None,
+            "instant_entry_confidence": body.instant_entry_confidence if body.agent_type == "scout" else None,
+            "max_pending_bars": body.max_pending_bars if body.agent_type == "scout" else None,
+            "pullback_atr_fraction": body.pullback_atr_fraction if body.agent_type == "scout" else None,
+            "dedupe_window_bars": body.dedupe_window_bars if body.agent_type == "scout" else None,
         },
         status="running",
     )
