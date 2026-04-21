@@ -174,11 +174,20 @@ class PotentialAgent:
             grade = data.get("grade", "?")
             pipeline_version = data.get("pipeline_version", data.get("version", "?"))
 
-            # Validate feature count matches expected — abort if mismatch
-            if feat_count != self.EXPECTED_FEATURE_COUNT:
+            # Validate feature count is within the supported range. The old
+            # strict equality check (feat_count == 85) rejected:
+            #   - old joblibs trained before a feature was added
+            #   - new joblibs trained after regime features were appended (92
+            #     cols now)
+            # The inference path trims X to the trained shape, so either side
+            # of the expected count is safe. We still reject grossly wrong
+            # counts (corruption, wrong pipeline) with a loose range.
+            MIN_SUPPORTED = 60
+            MAX_SUPPORTED = 160
+            if feat_count < MIN_SUPPORTED or feat_count > MAX_SUPPORTED:
                 self._log("error",
-                    f"Feature count mismatch for {mtype}: model has {feat_count} features, "
-                    f"expected {self.EXPECTED_FEATURE_COUNT} from compute_potential_features")
+                    f"Feature count out of range for {mtype}: model has {feat_count} features, "
+                    f"expected {MIN_SUPPORTED}–{MAX_SUPPORTED}")
                 return False
 
             self.models[mtype] = data

@@ -948,7 +948,14 @@ export default function BacktestPage() {
           </summary>
           <div className="mt-3 space-y-3">
             <label className="flex items-center gap-2 text-xs cursor-pointer">
-              <input type="checkbox" checked={btSessionFilter} onChange={(e) => setBtSessionFilter(e.target.checked)} className="rounded" />
+              <input type="checkbox" checked={btSessionFilter}
+                onChange={(e) => {
+                  setBtSessionFilter(e.target.checked);
+                  if (e.target.checked && btAllowedSessions.length === 0) {
+                    setBtAllowedSessions(["london", "ny_open", "ny_close"]);
+                  }
+                }}
+                className="rounded" />
               <span>Session filter <span style={{ color: "var(--muted)" }}>(skip signals outside selected sessions)</span></span>
             </label>
             {btSessionFilter && (
@@ -974,7 +981,14 @@ export default function BacktestPage() {
             )}
 
             <label className="flex items-center gap-2 text-xs cursor-pointer">
-              <input type="checkbox" checked={btRegimeFilter} onChange={(e) => setBtRegimeFilter(e.target.checked)} className="rounded" />
+              <input type="checkbox" checked={btRegimeFilter}
+                onChange={(e) => {
+                  setBtRegimeFilter(e.target.checked);
+                  if (e.target.checked && btAllowedRegimes.length === 0) {
+                    setBtAllowedRegimes(["trending_up", "trending_down", "ranging", "volatile"]);
+                  }
+                }}
+                className="rounded" />
               <span>Regime filter <span style={{ color: "var(--muted)" }}>(skip signals in non-allowed market states)</span></span>
             </label>
             {btRegimeFilter && (

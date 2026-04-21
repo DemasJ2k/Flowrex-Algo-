@@ -8,8 +8,56 @@
 - **Brokers:** Oanda, cTrader, MT5, Tradovate, Interactive Brokers (Client Portal REST)
 
 ## Current Phase
-**BACKTEST INTEGRITY + POTENTIAL AGENT TUNING + FUNDEDNEXT BOLT PLAN**
-(2026-04-20)
+**FILTER PARITY + SCOUT AGENT + REGIME FEATURES + FILTER SANDBOX**
+(2026-04-21)
+
+### 2026-04-21 — Filter parity + Scout + regime features + filter sandbox
+
+- New **Scout agent type** — subclass of PotentialAgent with a
+  40-bar-lookback entry state machine (pullback / BOS / instant-confidence
+  ≥0.85). Reuses deployed `potential_{SYMBOL}_M5_*.joblib` — no separate
+  training needed. Config knobs: `lookback_bars`, `instant_entry_confidence`,
+  `max_pending_bars`, `pullback_atr_fraction`, `dedupe_window_bars`.
+  Registered in `engine.py`; surfaces on ML page as synthetic "scout"
+  pipeline cloning Potential.
+- **Filter parity across flowrex_v2 + potential** — rule-based
+  `classify_regime_simple()` wired into both agents. Regime filter +
+  `allowed_regimes` + news filter + `use_correlations` all read at
+  runtime. Correlation off zero-masks `corr_*` / `pot_corr_*` /
+  `fx_corr_*` feature cols before inference.
+- **4-step AgentWizard** — Setup · Risk & Mode · Filters · Review. Filters
+  step exposes direction gate, session multi-select, regime multi-select,
+  news, correlations, and 5 Scout knobs (only when scout). Review lists
+  every field that will land.
+- **Backtest filter sandbox** — `/api/backtest/potential` accepts per-run
+  `session_filter`, `allowed_sessions`, `regime_filter`, `allowed_regimes`,
+  `use_correlations`, and 5 Scout knobs. Simulation branches on
+  `agent_type="scout"` + applies session/regime gates using the same rule
+  tree as live. Rejection counters surface in the response.
+  `POST /api/backtest/regime-validate` classifies N days of bars and
+  aggregates next-forward-bar returns per regime bucket so users can
+  validate the classifier before enabling it live.
+- **Regime feature column (option b)** — `features_potential.py` appends
+  7 regime columns: 4 one-hot flags (`reg_trending_up`/`down`/`ranging`/
+  `volatile`) plus `reg_x_atr_pctile`, `reg_x_trend_strength`,
+  `reg_confidence`. Inference path in `potential_agent.py` + `backtest.py`
+  trims X to the trained model's feature count, so **old joblibs still
+  work** and new retrains automatically include regime context. Flowrex v2
+  is NOT yet extended (uses `features_flowrex.py`, separate path).
+- **Backtest dynamic symbol picker** — merges `/api/ml/symbols` +
+  `/api/broker/symbols` + 12 popular defaults; search box filters across.
+  Backend 5-symbol allowlist removed.
+- **Help page Agent Guide** — strategy pros/cons, Paper vs Live,
+  17-row config glossary (every UI control + ADX + ATR), Edit Config
+  reference.
+- **Deploy hot-fix** — `scripts/deploy.sh` only rebuilt `backend`;
+  frontend was running stale Node builds. Fixed to
+  `build backend frontend` + `up -d --force-recreate backend frontend`.
+- **Audit fixes** — relaxed the strict feature-count equality check in
+  `potential_agent.py` (60–160 range) and `flowrex_agent_v2.py`
+  (90–200 range). Inference trim already handles shape mismatch; strict
+  check was a regression trap. Backtest filter UI now pre-fills default
+  allowed-lists when a filter toggle flips on.
 
 ### 2026-04-20 — FundedNext Bolt research + known issues queue
 - Bolt plan documented (see Prop Firm → Bolt section below). $50k account,

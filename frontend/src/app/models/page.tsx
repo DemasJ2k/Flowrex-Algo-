@@ -451,6 +451,37 @@ function SymbolCard({
         <Stat label="R:R" value={rr ? rr.toFixed(2) : "—"} />
       </div>
 
+      {/* Last retrain summary — surfaced inline so users don't have to
+          expand the details view to see the most recent training result. */}
+      {row.last_retrain && (
+        <div className="mb-3 p-2 rounded-lg border text-[11px] flex items-center justify-between gap-2"
+             style={{ borderColor: "var(--border)", background: "rgba(139,92,246,0.04)" }}>
+          <div className="flex items-center gap-2 flex-wrap">
+            <span style={{ color: "var(--muted)" }}>Last retrain</span>
+            <span>{fmtDate(row.last_retrain.started_at)}</span>
+            <span style={{ color: "var(--muted)" }}>·</span>
+            <GradeChip grade={row.last_retrain.old_grade || "?"} size="sm" />
+            <span style={{ color: "var(--muted)" }}>→</span>
+            <GradeChip grade={row.last_retrain.new_grade || "?"} size="sm" />
+            {row.last_retrain.old_sharpe != null && row.last_retrain.new_sharpe != null && (
+              <span className="text-[10px]" style={{ color: "var(--muted)" }}>
+                Sharpe {row.last_retrain.old_sharpe.toFixed(2)} → {row.last_retrain.new_sharpe.toFixed(2)}
+              </span>
+            )}
+          </div>
+          <span
+            className="text-[10px] font-medium px-1.5 py-0.5 rounded"
+            style={
+              row.last_retrain.swapped
+                ? { background: "rgba(16,185,129,0.15)", color: "#34d399" }
+                : { background: "rgba(245,158,11,0.15)", color: "#f59e0b" }
+            }
+          >
+            {row.last_retrain.swapped ? "swapped" : "held (old kept)"}
+          </span>
+        </div>
+      )}
+
       {/* Models by pipeline */}
       {pipelines.length === 0 ? (
         <p className="text-xs text-center py-4" style={{ color: "var(--muted)" }}>
@@ -654,7 +685,7 @@ function RetrainWizard({
               selected={pipeline === "potential"}
               onClick={() => setPipeline("potential")}
               title="potential"
-              subtitle="85 features, walk-forward, writes unconditionally"
+              subtitle="85 features, walk-forward, writes unconditionally. Scout agents reuse this same model — one retrain covers both."
               tag="Warning — check new grade"
               tagColor="text-amber-400 border-amber-500/40"
             />

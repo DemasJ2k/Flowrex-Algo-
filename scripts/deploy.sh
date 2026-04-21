@@ -74,12 +74,12 @@ echo "  ✓ Config valid"
 # [3/6] Build containers
 echo ""
 echo "[3/6] Building backend container..."
-docker compose -f docker-compose.prod.yml build backend
+docker compose -f docker-compose.prod.yml build backend frontend
 
 # [4/6] Restart
 echo ""
 echo "[4/6] Restarting backend..."
-docker compose -f docker-compose.prod.yml up -d --force-recreate backend
+docker compose -f docker-compose.prod.yml up -d --force-recreate backend frontend
 
 # [5/6] Health check (up to 180s)
 echo ""

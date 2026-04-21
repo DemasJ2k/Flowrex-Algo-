@@ -158,10 +158,13 @@ class FlowrexAgentV2:
             grade = data.get("grade", "?")
             pipeline_version = data.get("pipeline_version", "?")
 
-            if feat_count != self.EXPECTED_FEATURE_COUNT:
+            # Loose range (was strict equality) — future feature additions
+            # shouldn't break previously-trained models; inference trims X
+            # to the trained shape anyway.
+            if feat_count < 90 or feat_count > 200:
                 self._log("error",
-                    f"Feature count mismatch for {mtype}: model has {feat_count}, "
-                    f"expected {self.EXPECTED_FEATURE_COUNT}")
+                    f"Feature count out of range for {mtype}: model has {feat_count}, "
+                    f"expected 90–200")
                 continue
 
             self.models[mtype] = data

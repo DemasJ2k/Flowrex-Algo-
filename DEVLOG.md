@@ -11,6 +11,118 @@ _Chronological record of all changes. Read this before starting any task._
 
 ---
 
+## 2026-04-21 — Filter parity + Scout + regime features + filter sandbox
+
+User-requested sprint addressing: cross-user data leak on ML page (done
+earlier, commit 2e886c1), legacy agent types, backtest cost inputs,
+Scout agent for lookback entries, regime filter parity across
+flowrex_v2/potential, Scout backtest support, regime classifier
+validation, deploy script gap, and filter sandbox for backtests.
+
+### Shipped (commits 2e886c1 → f2e1f7f)
+
+- **Part 1 (data leak)** — `api/ml.py` scopes every query by
+  `current_user.id` + `deleted_at IS NULL`. Was leaking agents + trades
+  cross-user.
+- **Part 2 (wizard cleanup)** — removed legacy scalping + flowrex agent
+  types. Dynamic symbol grid with per-pipeline grade badges fetched from
+  `/api/ml/symbols`. Interactive Brokers added to broker dropdown.
+- **Part 3 (backtest costs)** — spread/slippage/commission overrides on
+  `/api/backtest/potential` + UI inputs pre-filled from
+  `/api/backtest/cost-defaults/{symbol}`.
+- **Part 4 (filter parity)** — rule-based `classify_regime_simple()` in
+  `regime_detector.py` plus `regime_size_multiplier()`. Both v2 + potential
+  now read `regime_filter`, `allowed_regimes`, `news_filter_enabled`,
+  `use_correlations` from config. Correlation off zero-masks
+  `corr_*` / `pot_corr_*` / `fx_corr_*` columns. AgentConfigEditor +
+  AgentWizard expose all four filters.
+- **Part 5 (Scout agent)** — new `agent_type="scout"`. Subclasses
+  PotentialAgent, reuses deployed joblibs. State machine: stash signal →
+  wait for pullback (0.5×ATR + reversal), break-of-structure, or
+  instant-confidence (≥0.85); expire after `max_pending_bars`;
+  `_is_duplicate_direction()` skips same-side repeats within
+  `dedupe_window_bars`. Registered in engine.py.
+- **Part 6 (backtest sandbox + Scout support)** — `/api/backtest/potential`
+  now accepts `agent_type="scout"` + 5 Scout knobs + filter overrides
+  (`session_filter`, `allowed_sessions`, `regime_filter`,
+  `allowed_regimes`, `use_correlations`). Simulation branches on scout,
+  applies filter gates bar-by-bar, returns `filter_rejections` counter in
+  response. `GET /api/backtest/cost-defaults/{symbol}` +
+  `POST /api/backtest/regime-validate` added. Hardcoded 5-symbol
+  allowlist replaced with length-only validation.
+- **Part 7 (regime feature column, option b)** — `features_potential.py`
+  now appends 7 regime columns (`reg_trending_up`, `reg_trending_down`,
+  `reg_ranging`, `reg_volatile`, `reg_x_atr_pctile`,
+  `reg_x_trend_strength`, `reg_confidence`) at end of feature vector.
+  Vectorized — O(n) not O(n²). Inference path in `potential_agent.py` +
+  `backtest.py` trims X to trained model's feature shape so old joblibs
+  still work; new retrains pick the regime cols up automatically.
+- **Part 8 (regime classifier validation tool)** — `POST
+  /api/backtest/regime-validate` classifies every M5 bar of last N days
+  using the same rule tree as live + aggregates next-forward-bar return
+  per regime bucket. Surfaces mean/median/std/up-rate per regime so users
+  can validate the classifier has signal before flipping the live
+  toggle. Collapsible card on backtest page.
+- **Part 9 (Scout on ML page)** — `list_symbols_unified` synthesises a
+  "scout" pipeline entry per symbol cloning the Potential models with
+  `proxy_for: "potential"`. ML page renders a Scout block with amber
+  "reuses potential" badge. Retrain modal subtitle clarifies that
+  training Potential also trains Scout.
+- **Part 10 (Settings Trading parity)** — Default Agent Filters card
+  gains Regime Filter + Symbol Correlations toggles saved to
+  `settings_json.trading`. AgentWizard reads these + `allowed_regimes`
+  from settings on open.
+- **Part 11 (wizard 4-step flow)** — AgentWizard grew a Filters step.
+  Setup · Risk & Mode · Filters · Review. Filters step exposes direction
+  gate, session multi-select, regime filter + regime multi-select, news
+  filter, correlations, and 5 Scout knobs (visible only when
+  `agent_type="scout"`). Review summarises everything.
+- **Part 12 (backtest dynamic symbols)** — picker merges
+  `/api/ml/symbols` + `/api/broker/symbols` + 12 popular defaults
+  (added ETHUSD, XAGUSD, AUS200, GER40, EURUSD, GBPUSD, USDJPY). Search
+  box filters across all sources.
+- **Part 13 (help page agent guide)** — new "Agent Guide" tab covering
+  the three strategies (pros/cons per agent), Paper vs Live, a 17-row
+  config glossary (every UI control plus ADX + ATR definitions), and an
+  Edit Config reference block.
+
+### Deploy script bug (hot-fix 2026-04-21)
+
+`scripts/deploy.sh` only rebuilt `backend`; `frontend` was left running
+stale Node builds. Sprint 1 commits landed backend-side but users still
+saw the old UI on flowrexalgo.com. Patched to `build backend frontend` +
+`up -d --force-recreate backend frontend`. All commits + fix now live.
+
+### Audit findings + hot-fixes
+
+- **Strict feature-count equality check** in both `potential_agent.py`
+  (line 178) and `flowrex_agent_v2.py` (line 161) would reject models
+  trained before or after the regime-feature pipeline change. Relaxed to
+  loose range (`60–160` for potential, `90–200` for flowrex) — inference
+  trim logic handles mismatch safely.
+- **Backtest filter prefill** — turning the regime or session filter ON
+  with empty allowed-list was a silent no-op. UI now defaults allowed
+  lists when the toggle flips on.
+
+### Deploy state 2026-04-21
+
+- Two sprint commits on prod: `6987f6e7` + `0902f23b` + `f2e1f7f`
+  (hot-fix batch).
+- Pushed to origin/main.
+- Docker Compose rebuilds both services.
+- Scout proxy visible in ML page; Scout tuning visible in Agent Wizard
+  + Edit Config + Backtest; regime validator callable from the Backtest
+  page.
+
+### Still deferred per user direction
+
+- TradingView Pine Script port — deferred permanently unless the new
+  lookback/filter work proves insufficient.
+- FundedNext Bolt mock-challenge backtests — user waiting on all Scout
+  + Flowrex training to finish.
+
+---
+
 ## 2026-04-20 — FundedNext Bolt research + issues triaged
 
 User pasted the FundedNext "Bolt" page (Tradovate add-on $25/mo for live API)

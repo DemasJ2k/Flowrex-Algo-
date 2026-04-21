@@ -1140,3 +1140,123 @@ Direct response to three hourly-report defect screenshots (AI hallucinating
 3. Risk slider + mobile agent card collapse (UX debt)
 4. Tradovate demo connection + Databento-based ES/NQ training on futures
 5. FundedNext Bolt agent design + forced-flat + consistency gate
+
+---
+
+## Phase 25 — Filter Parity + Scout Agent + Regime Features + Filter Sandbox (2026-04-21)
+
+### Data-leak fixes (Part 1)
+- `/api/ml/symbols` + `/api/ml/retrain/history` + `/api/ml/analyze` all
+  scoped by `current_user.id` + `deleted_at IS NULL`. Previously leaked
+  cross-user agents + trades in the 14-day P&L panel.
+
+### AgentWizard — 4-step flow
+- Steps: Setup · Risk & Mode · Filters · Review.
+- Legacy `scalping` + `flowrex` agent types removed.
+- Setup dynamic: symbol grid fetched from `/api/ml/symbols` with per-pipeline
+  grade badges. Scout added as third option.
+- Risk step: sizing mode, risk %, daily-loss, cooldown, mode (paper/live),
+  Prop-firm toggle.
+- Filters step: direction gate (allow_buy/sell), session filter + sessions
+  multi-select, regime filter + regimes multi-select, news filter,
+  correlations, 5 Scout knobs (only when scout).
+- Review step lists every config field that will land.
+
+### AgentConfigEditor
+- Same filter controls as wizard.
+- Scout tuning panel collapsible; renders only when `agent.agent_type === "scout"`.
+
+### Scout agent (new agent_type)
+- `scout_agent.py` subclasses `PotentialAgent` — reuses deployed
+  `potential_{SYMBOL}_M5_*.joblib` models (no separate training).
+- Entry state machine: stash signal → wait for pullback / BOS /
+  instant-confidence ≥ 0.85 / expire after `max_pending_bars`.
+- `_is_duplicate_direction()` dedupe filter against last same-side trade
+  within `dedupe_window_bars`.
+- Config: `lookback_bars=40`, `instant_entry_confidence=0.85`,
+  `max_pending_bars=10`, `pullback_atr_fraction=0.50`,
+  `dedupe_window_bars=20`.
+- Registered in `engine.py`.
+- Surfaces on ML page as synthetic "scout" pipeline cloning Potential with
+  `proxy_for: "potential"` — amber "reuses potential" badge.
+
+### Filter parity on flowrex_v2 + potential
+- Rule-based `classify_regime_simple()` in `regime_detector.py` (ATR pctile
+  → ADX → EMA50 slope). No training needed.
+- Both agents read `regime_filter`, `allowed_regimes`,
+  `news_filter_enabled`, `use_correlations` at runtime.
+- Regime hard-gate + soft size multiplier
+  (volatile × 0.6, ranging × 0.8, trending × 1.1).
+- Correlation toggle zero-masks `corr_*` / `pot_corr_*` / `fx_corr_*`
+  feature columns before inference.
+- News filter unified across both — same log message on rejection.
+
+### Regime feature column (option b)
+- `features_potential.py` appends 7 regime columns:
+  `reg_trending_up`, `reg_trending_down`, `reg_ranging`, `reg_volatile`,
+  `reg_x_atr_pctile`, `reg_x_trend_strength`, `reg_confidence`.
+- Vectorized bar-by-bar (O(n), not O(n²)).
+- Inference-path trim: `potential_agent.py` + `backtest.py` trim X to the
+  trained model's feature count so **old joblibs still work**. New retrains
+  pick the regime cols up automatically.
+- Feature-count checks in both agents loosened from strict equality to a
+  range (potential 60–160, flowrex 90–200) so pre/post-feature-change
+  models both load.
+
+### Backtest enhancements
+- `/api/backtest/potential` accepts 3 cost overrides + 5 Scout knobs +
+  5 filter-sandbox fields (session/regime/correlations).
+- Simulation branches on `agent_type="scout"` and runs the Scout state
+  machine with per-bar pending + trigger detection.
+- Session + regime gates applied bar-by-bar using the SAME rule tree as
+  live agents. Rejection counts surface in the response.
+- `GET /api/backtest/cost-defaults/{symbol}` returns per-symbol defaults.
+- `POST /api/backtest/regime-validate` classifies N days of bars +
+  aggregates next-forward-bar return per regime bucket.
+- Hardcoded 5-symbol allowlist replaced with length-only validation. Any
+  symbol with a deployed model works; bad symbols surface "No trained
+  model for X" naturally.
+
+### Frontend backtest page
+- Agent picker: Potential · Flowrex v2 · Scout (third option with
+  collapsible Scout tuning panel).
+- Dynamic symbol picker: popular defaults (12 symbols) merged with
+  `/api/ml/symbols` + `/api/broker/symbols`. Search box filters across.
+- Filter sandbox collapsible block with session, regime, correlation
+  controls (with default-list prefill when toggled on).
+- Regime validator collapsible block with per-regime result table.
+- Cost overrides (spread/slippage/commission) pre-filled from backend.
+- Execution summary card shows `filter_rejections` counts post-run.
+
+### Settings Trading tab
+- Added Regime Filter + Symbol Correlations toggles. `settings_json.trading`
+  stores user defaults; AgentWizard reads these on open.
+
+### Help page — Agent Guide tab
+- Three agent strategies with pros/cons.
+- Paper vs Live comparison.
+- 17-row config glossary (every UI control + ADX + ATR definitions).
+- Edit Config reference block.
+
+### Deploy fix
+- `scripts/deploy.sh` now rebuilds + recreates `backend frontend` together.
+  Previously only backend was rebuilt; frontend ran stale Node builds for
+  two sprint cycles.
+
+### Commits
+- `2e886c1` — data-leak fixes (scope `/api/ml/*` to current user)
+- `6f86d46` — wizard cleanup + backtest cost overrides
+- `8a3781b` — filter parity (regime/news/correlations) on v2 + potential
+- `23c09dc` — Scout agent + engine registration
+- `6987f6e` — Scout config UI + Scout backtest + regime validator
+- `0902f23` — 4-step wizard + filter sandbox + regime feature column +
+  Scout on ML page + Help Agent Guide
+- `f2e1f7f` — deploy.sh hot-fix + feature-count check relaxed +
+  backtest filter prefill (this phase)
+
+### Open issues from the audit
+- Old-model compatibility now safe via trim + relaxed feature-count
+  range — but newly-trained models should retrain to include regime
+  columns to get the full benefit.
+- Flowrex v2 does NOT yet use regime feature columns (only potential
+  does). Deferred pending flowrex retrain decision.
