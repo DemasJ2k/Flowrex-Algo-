@@ -202,6 +202,9 @@ class PotentialBacktestRequest(BaseModel):
     max_pending_bars: int = 10
     pullback_atr_fraction: float = 0.50
     dedupe_window_bars: int = 20
+    # Direction gate — matches live agent's allow_buy / allow_sell toggles.
+    allow_buy: bool = True
+    allow_sell: bool = True
     # Filter sandbox. Lets users A/B test filter settings against a symbol
     # without touching the live agent's config. Defaults here mean "run as
     # if the agent had all filters off" — the old behaviour. If the user
@@ -735,7 +738,11 @@ def _run_potential_backtest(body: PotentialBacktestRequest, result_id: int = Non
         scout_entry_reason: Optional[str] = None
         allowed_sessions_set = set(body.allowed_sessions or []) if body.session_filter else None
         allowed_regimes_set = set(body.allowed_regimes or []) if body.regime_filter else None
-        rejected_counts = {"session": 0, "regime": 0}
+        # Direction gate parity — the live agent honours allow_buy/allow_sell;
+        # without this the backtest would A/B test those toggles dishonestly.
+        allow_buy = getattr(body, "allow_buy", True)
+        allow_sell = getattr(body, "allow_sell", True)
+        rejected_counts = {"session": 0, "regime": 0, "direction": 0}
 
         def _session_for_ts(ts: int) -> str:
             hr = int(pd.to_datetime(ts, unit="s", utc=True).hour)
@@ -754,6 +761,12 @@ def _run_potential_backtest(body: PotentialBacktestRequest, result_id: int = Non
             # BEFORE any entry decision. If the agent's live config would
             # reject this bar, the backtest should too.
             if sig in (0, 2):
+                # Direction gate — mirror live agent's allow_buy/allow_sell.
+                is_long_sig = sig == 2
+                if (is_long_sig and not allow_buy) or ((not is_long_sig) and not allow_sell):
+                    rejected_counts["direction"] += 1
+                    i += 1
+                    continue
                 if allowed_sessions_set is not None:
                     sess = _session_for_ts(int(timestamps[i + 1]) if i + 1 < len(timestamps) else int(timestamps[i]))
                     if sess not in allowed_sessions_set:
@@ -1107,11 +1120,14 @@ def _run_potential_backtest(body: PotentialBacktestRequest, result_id: int = Non
             "filter_rejections": {
                 "session": int(rejected_counts["session"]),
                 "regime": int(rejected_counts["regime"]),
+                "direction": int(rejected_counts.get("direction", 0)),
                 "session_filter_on": bool(body.session_filter),
                 "regime_filter_on": bool(body.regime_filter),
                 "use_correlations": bool(body.use_correlations),
                 "allowed_sessions": list(body.allowed_sessions or []) if body.session_filter else [],
                 "allowed_regimes": list(body.allowed_regimes or []) if body.regime_filter else [],
+                "allow_buy": bool(getattr(body, "allow_buy", True)),
+                "allow_sell": bool(getattr(body, "allow_sell", True)),
             },
             # Surfaces the real data window so the UI can show the honest
             # coverage — if broker caps at 5k M5 bars but user asked for
