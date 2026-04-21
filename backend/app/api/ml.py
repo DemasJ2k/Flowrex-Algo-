@@ -451,8 +451,23 @@ def get_retrain_history(
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
-    """List past retrain runs."""
-    q = db.query(RetrainRun).order_by(RetrainRun.started_at.desc())
+    """List past retrain runs scoped to symbols the caller owns agents on.
+
+    RetrainRun has no user_id column; scoping by owned symbols keeps the
+    history relevant without leaking other users' retrains.
+    """
+    from app.models.agent import TradingAgent
+    owned = {a.symbol for a in db.query(TradingAgent.symbol).filter(
+        TradingAgent.created_by == current_user.id,
+        TradingAgent.deleted_at.is_(None),
+    ).distinct().all()}
+    if not owned:
+        return []
+    q = (
+        db.query(RetrainRun)
+        .filter(RetrainRun.symbol.in_(owned))
+        .order_by(RetrainRun.started_at.desc())
+    )
     if symbol:
         q = q.filter(RetrainRun.symbol == symbol.upper())
     return q.limit(limit).all()
@@ -545,12 +560,16 @@ def list_symbols_unified(
             "file": basename,
         })
 
-    # ── 2. 14-day live trade stats per symbol ───────────────────────────
+    # ── 2. 14-day live trade stats per symbol (current user only) ──────
+    # SECURITY: previously this query joined AgentTrade↔TradingAgent without
+    # filtering by created_by — every user saw every other user's trades in
+    # the Models page "live P&L" column. Scoped to the caller's agents now.
     cutoff = datetime.now(timezone.utc) - timedelta(days=14)
     live_trades = (
         db.query(AgentTrade, TradingAgent)
         .join(TradingAgent, AgentTrade.agent_id == TradingAgent.id)
         .filter(
+            TradingAgent.created_by == current_user.id,
             TradingAgent.deleted_at.is_(None),
             AgentTrade.entry_time >= cutoff,
             AgentTrade.status == "closed",
@@ -573,8 +592,12 @@ def list_symbols_unified(
         elif pnl < 0:
             bucket["losses_pnl"] += pnl
 
-    # ── 3. Agents targeting each symbol ──────────────────────────────────
-    agents = db.query(TradingAgent).filter(TradingAgent.deleted_at.is_(None)).all()
+    # ── 3. Agents targeting each symbol (current user only) ───────────
+    # SECURITY: same leak as above — previously returned all users' agents.
+    agents = db.query(TradingAgent).filter(
+        TradingAgent.created_by == current_user.id,
+        TradingAgent.deleted_at.is_(None),
+    ).all()
     per_symbol_agents: dict[str, list[dict]] = {}
     for a in agents:
         per_symbol_agents.setdefault(a.symbol, []).append({
@@ -582,26 +605,33 @@ def list_symbols_unified(
             "status": a.status, "broker": a.broker_name,
         })
 
-    # ── 4. Last retrain per symbol ──────────────────────────────────────
+    # ── 4. Last retrain per symbol ─────────────────────────────────────
+    # RetrainRun has no user_id column (migration deferred). Scope to
+    # symbols the caller actually owns — cleaner than showing everyone's
+    # retrain history, and the model files themselves are global assets
+    # anyway so this is a reasonable privacy-vs-utility trade-off.
+    user_symbols = {a.symbol for a in agents}
     last_retrain: dict[str, dict] = {}
-    recent_retrains = (
-        db.query(RetrainRun)
-        .order_by(RetrainRun.started_at.desc())
-        .limit(200).all()
-    )
-    for r in recent_retrains:
-        if r.symbol in last_retrain:
-            continue
-        last_retrain[r.symbol] = {
-            "id": r.id,
-            "status": r.status,
-            "started_at": r.started_at.isoformat() if r.started_at else None,
-            "finished_at": r.finished_at.isoformat() if r.finished_at else None,
-            "old_grade": r.old_grade, "new_grade": r.new_grade,
-            "old_sharpe": r.old_sharpe, "new_sharpe": r.new_sharpe,
-            "swapped": r.swapped,
-            "error": r.error_message,
-        }
+    if user_symbols:
+        recent_retrains = (
+            db.query(RetrainRun)
+            .filter(RetrainRun.symbol.in_(user_symbols))
+            .order_by(RetrainRun.started_at.desc())
+            .limit(200).all()
+        )
+        for r in recent_retrains:
+            if r.symbol in last_retrain:
+                continue
+            last_retrain[r.symbol] = {
+                "id": r.id,
+                "status": r.status,
+                "started_at": r.started_at.isoformat() if r.started_at else None,
+                "finished_at": r.finished_at.isoformat() if r.finished_at else None,
+                "old_grade": r.old_grade, "new_grade": r.new_grade,
+                "old_sharpe": r.old_sharpe, "new_sharpe": r.new_sharpe,
+                "swapped": r.swapped,
+                "error": r.error_message,
+            }
 
     # ── 5. Merge into one row per symbol ────────────────────────────────
     rows = []
