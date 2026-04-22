@@ -30,9 +30,13 @@ HIST_DATA_DIR = os.path.normpath(
 _results: dict[str, dict] = {}
 _status: dict = {"active": False, "symbol": None, "progress": ""}
 
-# Potential Agent backtest state (separate from legacy)
-_potential_results: dict[str, dict] = {}
-_potential_status: dict = {"active": False, "symbol": None, "progress": ""}
+# Potential Agent backtest state (separate from legacy).
+# Cache is keyed by (user_id, symbol) so two users running the same symbol
+# in parallel never see each other's results. Writes inside the background
+# worker use the user_id passed into _run_potential_backtest. Reads in the
+# route handlers must scope by current_user.id.
+_potential_results: dict[tuple[int, str], dict] = {}
+_potential_status: dict = {"active": False, "symbol": None, "progress": "", "user_id": None}
 
 
 class BacktestRequest(BaseModel):
@@ -430,7 +434,7 @@ def _run_potential_backtest(body: PotentialBacktestRequest, result_id: int = Non
 
                 if not own_adapters:
                     err = "No broker connected. Connect a broker in Settings first."
-                    _potential_results[symbol] = {"error": err}
+                    _potential_results[(user_id or 0, symbol)] = {"error": err}
                     if result_id:
                         _update_backtest_record(result_id, status="error", error_message=err)
                     return
@@ -476,7 +480,7 @@ def _run_potential_backtest(body: PotentialBacktestRequest, result_id: int = Non
 
                 if m5.empty or len(m5) < 300:
                     err = f"{broker_name} returned only {len(m5)} M5 bars (need 300+). This broker's per-call cap is {m5_cap:,} — try Dukascopy for longer history."
-                    _potential_results[symbol] = {"error": err}
+                    _potential_results[(user_id or 0, symbol)] = {"error": err}
                     if result_id:
                         _update_backtest_record(result_id, status="error", error_message=err)
                     return
@@ -496,7 +500,7 @@ def _run_potential_backtest(body: PotentialBacktestRequest, result_id: int = Non
 
             except Exception as e:
                 err = f"Broker data fetch failed: {e}"
-                _potential_results[symbol] = {"error": err}
+                _potential_results[(user_id or 0, symbol)] = {"error": err}
                 if result_id:
                     _update_backtest_record(result_id, status="error", error_message=err)
                 return
@@ -518,14 +522,14 @@ def _run_potential_backtest(body: PotentialBacktestRequest, result_id: int = Non
                 d1 = _normalize_ohlcv(bundle.d1) if bundle.d1 is not None else None
             except Exception as e:
                 err = f"Dukascopy fetch failed: {e}"
-                _potential_results[symbol] = {"error": err}
+                _potential_results[(user_id or 0, symbol)] = {"error": err}
                 if result_id:
                     _update_backtest_record(result_id, status="error", error_message=err)
                 return
 
             if m5 is None or len(m5) == 0:
                 err = f"Dukascopy returned no M5 data for {symbol}"
-                _potential_results[symbol] = {"error": err}
+                _potential_results[(user_id or 0, symbol)] = {"error": err}
                 if result_id:
                     _update_backtest_record(result_id, status="error", error_message=err)
                 return
@@ -546,7 +550,7 @@ def _run_potential_backtest(body: PotentialBacktestRequest, result_id: int = Non
             d1 = _load_tf(symbol, "D1")
             if m5 is None:
                 err = f"No M5 data for {symbol}"
-                _potential_results[symbol] = {"error": err}
+                _potential_results[(user_id or 0, symbol)] = {"error": err}
                 if result_id:
                     _update_backtest_record(result_id, status="error", error_message=err)
                 return
@@ -668,7 +672,7 @@ def _run_potential_backtest(body: PotentialBacktestRequest, result_id: int = Non
 
         if not models:
             err = f"No trained model found for {symbol}"
-            _potential_results[symbol] = {"error": err}
+            _potential_results[(user_id or 0, symbol)] = {"error": err}
             if result_id:
                 _update_backtest_record(result_id, status="error", error_message=err)
             return
@@ -970,7 +974,7 @@ def _run_potential_backtest(body: PotentialBacktestRequest, result_id: int = Non
         n_trades = len(trades)
         if n_trades == 0:
             err = "No trades in selected period"
-            _potential_results[symbol] = {"error": err, "total_trades": 0}
+            _potential_results[(user_id or 0, symbol)] = {"error": err, "total_trades": 0}
             if result_id:
                 _update_backtest_record(result_id, status="error", error_message=err)
             return
@@ -1157,7 +1161,7 @@ def _run_potential_backtest(body: PotentialBacktestRequest, result_id: int = Non
                 for t in trades[-50:]
             ],
         }
-        _potential_results[symbol] = result_data
+        _potential_results[(user_id or 0, symbol)] = result_data
 
         # Persist to DB
         if result_id:
@@ -1166,7 +1170,7 @@ def _run_potential_backtest(body: PotentialBacktestRequest, result_id: int = Non
     except Exception as e:
         logger.error(f"Potential backtest failed for {body.symbol}: {e}", exc_info=True)
         error_msg = str(e)
-        _potential_results[body.symbol] = {"error": error_msg}
+        _potential_results[(user_id or 0, body.symbol)] = {"error": error_msg}
         if result_id:
             _update_backtest_record(result_id, status="error", error_message=error_msg)
     finally:
@@ -1215,7 +1219,7 @@ def run_potential_backtest(
     # on its first tick (before the new simulation has overwritten it) and
     # displays data from the previous run — which made two different filter
     # configs look identical in the UI. Fixes the issue flagged 2026-04-21.
-    _potential_results.pop(body.symbol, None)
+    _potential_results.pop((int(current_user.id), body.symbol), None)
 
     # Create DB record before starting background task
     db_agent_type = "scout" if body.agent_type == "scout" else "potential"
@@ -1276,7 +1280,12 @@ def potential_status(
             "error_message": latest.error_message,
         }
 
-    return {"running": _potential_status, "results": _potential_results, "latest_db": db_info}
+    # Scope results to THIS user only. The cache is now keyed by
+    # (user_id, symbol); legacy clients polling this endpoint expect a
+    # symbol-keyed dict, so we re-project.
+    uid = int(current_user.id)
+    own_results = {sym: data for (u, sym), data in _potential_results.items() if u == uid}
+    return {"running": _potential_status, "results": own_results, "latest_db": db_info}
 
 
 @router.get("/potential/results/{symbol}")
@@ -1285,9 +1294,10 @@ def potential_result(
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
-    # First check in-memory cache
-    if symbol in _potential_results:
-        return _potential_results[symbol]
+    # First check in-memory cache — scoped to this user
+    key = (int(current_user.id), symbol)
+    if key in _potential_results:
+        return _potential_results[key]
 
     # Fall back to DB for latest completed backtest for this user + symbol
     latest = db.query(BacktestResult).filter(
@@ -1400,7 +1410,7 @@ async def analyze_backtest(
             result_data = rec.results
     if result_data is None and body.symbol:
         # Fall back to in-memory cache, then latest completed DB row for user.
-        result_data = _potential_results.get(body.symbol)
+        result_data = _potential_results.get((int(current_user.id), body.symbol))
         if not result_data or "error" in result_data:
             rec = db.query(BacktestResult).filter(
                 BacktestResult.user_id == current_user.id,

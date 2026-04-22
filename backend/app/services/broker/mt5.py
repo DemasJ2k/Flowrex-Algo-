@@ -94,16 +94,13 @@ class MT5Adapter(BrokerAdapter):
         password = credentials.get("password", "")
         server = credentials.get("server", "")
 
-        # Auto-fill from env if credentials not provided or empty
+        # NO env-var fallback (removed 2026-04-22) — same multi-user leak
+        # risk as Oanda. Require explicit per-user credentials.
         if not login or not password or str(login) == "0":
-            import os
-            login = login or os.getenv("MT5_LOGIN", "")
-            password = password or os.getenv("MT5_PASSWORD", "")
-            server = server or os.getenv("MT5_SERVER", "").strip()
-            path = path or os.getenv("MT5_PATH", "")
-
-        if not login or not password:
-            raise BrokerError("MT5 requires login and password. Set MT5_LOGIN and MT5_PASSWORD in .env or provide in credentials.")
+            raise BrokerError(
+                "MT5 requires login, password, and server in the connection "
+                "credentials. Fill them in Settings → Broker Connections → MT5."
+            )
 
         # Ensure login is numeric
         try:

@@ -127,16 +127,17 @@ class OandaAdapter(BrokerAdapter):
         self._account_id = credentials.get("account_id", "")
         practice = credentials.get("practice", True)
 
-        # Auto-fill from env if not provided
+        # NO env-var fallback. Previously we auto-filled from OANDA_API_KEY /
+        # OANDA_ACCOUNT_ID in .env when credentials were missing — convenient
+        # for single-user dev, but catastrophic in multi-user prod: every
+        # user who submitted an empty credentials form would silently end up
+        # on the sysadmin's shared demo account. Now we reject empty
+        # credentials and force per-user data via the UI.
         if not api_key or not self._account_id:
-            import os
-            api_key = api_key or os.getenv("OANDA_API_KEY", "")
-            self._account_id = self._account_id or os.getenv("OANDA_ACCOUNT_ID", "")
-            practice_env = os.getenv("OANDA_PRACTICE", "true")
-            practice = practice_env.lower() == "true" if isinstance(practice_env, str) else practice
-
-        if not api_key or not self._account_id:
-            raise BrokerError("Oanda requires api_key and account_id. Set OANDA_API_KEY and OANDA_ACCOUNT_ID in .env or provide in credentials.")
+            raise BrokerError(
+                "Oanda requires api_key and account_id in the connection credentials. "
+                "Fill them in Settings → Broker Connections → Oanda."
+            )
 
         base_url = (
             "https://api-fxpractice.oanda.com"

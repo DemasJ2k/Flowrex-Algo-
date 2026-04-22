@@ -87,24 +87,30 @@ class TradovateAdapter(BrokerAdapter):
         Previously (audit C30) the code only read `live`, so the frontend's
         `demo: true` toggle was silently ignored and everyone got demo mode.
         """
-        username = credentials.get("username", os.environ.get("TRADOVATE_USERNAME", ""))
-        password = credentials.get("password", os.environ.get("TRADOVATE_PASSWORD", ""))
-        app_id = credentials.get("app_id", os.environ.get("TRADOVATE_APP_ID", ""))
-        device_id = credentials.get("device_id", os.environ.get("TRADOVATE_DEVICE_ID", "flowrex-algo"))
-        cid = credentials.get("cid", os.environ.get("TRADOVATE_CID", ""))
-        sec = credentials.get("sec", os.environ.get("TRADOVATE_SEC", ""))
+        # NO env-var fallback (removed 2026-04-22) — same multi-user leak
+        # risk as Oanda. Require explicit per-user credentials. device_id
+        # keeps its static default since it's not a credential.
+        username = credentials.get("username", "")
+        password = credentials.get("password", "")
+        app_id = credentials.get("app_id", "")
+        device_id = credentials.get("device_id", "flowrex-algo")
+        cid = credentials.get("cid", "")
+        sec = credentials.get("sec", "")
 
         # ── Live/demo mode resolution (C30 fix) ──
-        # Priority order: explicit 'live' key > 'demo' inverted > env var > default demo
+        # Priority order: explicit 'live' key > 'demo' inverted > default demo.
         if "live" in credentials:
             self._is_live = bool(credentials["live"])
         elif "demo" in credentials:
             self._is_live = not bool(credentials["demo"])
         else:
-            self._is_live = os.environ.get("TRADOVATE_LIVE", "false").lower() == "true"
+            self._is_live = False  # default to demo for safety
 
         if not username or not password:
-            raise BrokerError("Tradovate credentials required (username, password)")
+            raise BrokerError(
+                "Tradovate requires username and password in the connection "
+                "credentials. Fill them in Settings → Broker Connections → Tradovate."
+            )
 
         # Snapshot credentials for token refresh
         self._creds_snapshot = {
