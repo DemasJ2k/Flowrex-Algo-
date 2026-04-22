@@ -44,7 +44,10 @@ class TestFeatureCount:
     def test_feature_count_range(self):
         bars = _make_bars(500)
         names, X = compute_potential_features(bars)
-        assert 70 <= len(names) <= 90, f"Expected 70-90 features, got {len(names)}"
+        # Upper bound raised from 90 to 100 to cover the 7 regime feature
+        # columns added 2026-04-21 (reg_trending_up/down/ranging/volatile +
+        # 3 interaction cols). Current expected count: ~85 base + 7 regime = 92.
+        assert 70 <= len(names) <= 100, f"Expected 70-100 features, got {len(names)}"
 
     def test_feature_names_unique(self):
         bars = _make_bars(500)
@@ -132,8 +135,13 @@ class TestFeatureGroups:
     def test_all_prefixed(self):
         bars = _make_bars(500)
         names, X = compute_potential_features(bars)
+        # Allow "reg_" prefix for the regime feature columns added
+        # 2026-04-21. Everything else must be "pot_" so the pipeline's
+        # feature namespace stays distinguishable from flowrex_v2's "fx_".
+        allowed_prefixes = ("pot_", "reg_")
         for name in names:
-            assert name.startswith("pot_"), f"Feature '{name}' missing 'pot_' prefix"
+            assert name.startswith(allowed_prefixes), \
+                f"Feature '{name}' missing allowed prefix {allowed_prefixes}"
 
 
 class TestHTFHandling:
