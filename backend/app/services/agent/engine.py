@@ -140,14 +140,24 @@ class AgentRunner:
                         db.commit()
                         return
 
-                # Feature count check — only if agent has EXPECTED_FEATURE_COUNT
+                # Feature count sanity check — loose range. Strict equality
+                # was a regression trap: it rejected valid models whenever the
+                # compute-pipeline got extended (regime feature column adds 7
+                # cols, so a 92-feat model fails a ==85 check). The agent's
+                # own inference path trims X to the trained feature count, so
+                # the only thing we need to gate here is grossly wrong
+                # models (corruption, wrong pipeline).
                 expected = getattr(self._agent, "EXPECTED_FEATURE_COUNT", None)
                 if expected:
+                    min_supported = max(expected - 30, 40)
+                    max_supported = expected + 60
                     model_features = getattr(self._agent, "feature_names", [])
-                    if len(model_features) != expected:
+                    n_feats = len(model_features)
+                    if n_feats < min_supported or n_feats > max_supported:
                         self._log_to_db(db, "error",
-                            f"Feature count mismatch: models have {len(model_features)} features, "
-                            f"pipeline expects {expected}. Agent will not start — models must be retrained.")
+                            f"Feature count out of range: models have {n_feats} features, "
+                            f"expected {min_supported}–{max_supported} (base={expected}). "
+                            f"Agent will not start — models must be retrained.")
                         db.commit()
                         return
             except Exception as pre_err:
