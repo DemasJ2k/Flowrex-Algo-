@@ -3,6 +3,7 @@ from sqlalchemy.orm import Session
 from pydantic import BaseModel
 from typing import Optional
 import os
+import time
 import glob as glob_mod
 
 from app.core.database import get_db
@@ -321,33 +322,117 @@ def trigger_retrain(
 
             pipeline = (body.pipeline or "flowrex_v2").lower()
             if pipeline == "potential":
-                # Potential pipeline: walk-forward training with no swap-guard.
-                # Writes directly to potential_{SYMBOL}_M5_*.joblib. Grade is
-                # stamped into the joblib; user checks Models list to verify.
-                _retrain_status["progress"] = f"training potential_{body.symbol}"
+                # Potential pipeline: walk-forward training + grade-gated
+                # swap (parity with flowrex_v2). The training script writes
+                # joblibs unconditionally during the run, so we:
+                #   1. snapshot the existing joblibs + old grade BEFORE training
+                #   2. run training (overwrites the files in place)
+                #   3. compare new grade vs old
+                #   4. if new < old, restore the snapshots so Grade A models
+                #      are never silently replaced by Grade F regressions
+                #
+                # This matches the regression I hit 2026-04-21 when ES + NAS100
+                # retrained to Grade F and overwrote Grade A Databento models
+                # until manual rollback.
+                import shutil
+                import joblib as _joblib
+                _retrain_status["progress"] = f"snapshotting existing {body.symbol} models"
+                sym = body.symbol
+                model_dir = _MODEL_DIR
+                snapshot_dir = os.path.join(model_dir, f"_retrain_snapshot_{sym}_{int(time.time())}")
+                os.makedirs(snapshot_dir, exist_ok=True)
+                prev_joblibs: list[tuple[str, str]] = []
+                prev_best_grade = "?"
+                prev_best_sharpe = -1e9
+                GRADE_RANK = {"A": 4, "B": 3, "C": 2, "D": 1, "F": 0, "?": -1}
+                for mtype in ("xgboost", "lightgbm", "catboost"):
+                    src = os.path.join(model_dir, f"potential_{sym}_M5_{mtype}.joblib")
+                    if os.path.exists(src):
+                        dst = os.path.join(snapshot_dir, f"potential_{sym}_M5_{mtype}.joblib")
+                        shutil.copy2(src, dst)
+                        prev_joblibs.append((src, dst))
+                        try:
+                            data = _joblib.load(src)
+                            g = data.get("grade", "?")
+                            s = float((data.get("oos_metrics") or {}).get("sharpe", 0) or 0)
+                            if GRADE_RANK.get(g, -1) > GRADE_RANK.get(prev_best_grade, -1) or (
+                                GRADE_RANK.get(g, -1) == GRADE_RANK.get(prev_best_grade, -1) and s > prev_best_sharpe
+                            ):
+                                prev_best_grade = g
+                                prev_best_sharpe = s
+                        except Exception:
+                            pass
+
+                _retrain_status["progress"] = f"training potential_{sym}"
                 from scripts.train_potential import run_potential_training
                 from datetime import datetime, timezone, timedelta
-                # Approximate months of training data. Potential runs
-                # walk-forward internally; train_start just trims the
-                # available data before the 4-fold split.
                 train_start = (datetime.now(timezone.utc)
                                - timedelta(days=int(body.train_months * 30.44))).strftime("%Y-%m-%d")
-                wf_results, oos_results = run_potential_training(
-                    body.symbol, n_trials=body.n_trials, n_folds=4,
-                    train_start=train_start,
+                run_potential_training(
+                    sym, n_trials=body.n_trials, n_folds=4, train_start=train_start,
                 )
-                # Synthesise a retrain-history record using OOS best-model grade
-                best_grade = "?"
-                best_sharpe = 0.0
-                if oos_results:
-                    best = max(oos_results, key=lambda x: x.get("sharpe", -999))
-                    best_grade = best.get("grade", "?")
-                    best_sharpe = float(best.get("sharpe", 0.0))
+
+                # Parse fresh grades from the newly-written joblibs
+                new_best_grade = "?"
+                new_best_sharpe = -1e9
+                for mtype in ("xgboost", "lightgbm"):
+                    p = os.path.join(model_dir, f"potential_{sym}_M5_{mtype}.joblib")
+                    if not os.path.exists(p):
+                        continue
+                    try:
+                        data = _joblib.load(p)
+                        g = data.get("grade", "?")
+                        s = float((data.get("oos_metrics") or {}).get("sharpe", 0) or 0)
+                        if GRADE_RANK.get(g, -1) > GRADE_RANK.get(new_best_grade, -1) or (
+                            GRADE_RANK.get(g, -1) == GRADE_RANK.get(new_best_grade, -1) and s > new_best_sharpe
+                        ):
+                            new_best_grade = g
+                            new_best_sharpe = s
+                    except Exception:
+                        pass
+                if new_best_sharpe < -1e8:
+                    new_best_sharpe = 0.0
+
+                # Grade-gate decision. Keep the new models if (a) no prior
+                # models existed, or (b) new grade >= old grade (Sharpe
+                # tiebreak). Otherwise restore the snapshots.
+                swapped = True
+                swap_reason = "improved or equal grade"
+                if prev_joblibs:
+                    prev_rank = GRADE_RANK.get(prev_best_grade, -1)
+                    new_rank = GRADE_RANK.get(new_best_grade, -1)
+                    if new_rank < prev_rank or (
+                        new_rank == prev_rank and new_best_sharpe < prev_best_sharpe
+                    ):
+                        _retrain_status["progress"] = (
+                            f"refused downgrade: {prev_best_grade}/{prev_best_sharpe:.2f} → "
+                            f"{new_best_grade}/{new_best_sharpe:.2f} — restoring"
+                        )
+                        for src, snap in prev_joblibs:
+                            shutil.copy2(snap, src)
+                        swapped = False
+                        swap_reason = (
+                            f"refused downgrade: new grade {new_best_grade} "
+                            f"(Sharpe {new_best_sharpe:.2f}) < old {prev_best_grade} "
+                            f"(Sharpe {prev_best_sharpe:.2f})"
+                        )
+                # Clean up snapshot dir regardless of outcome — we've either
+                # restored from it or accepted the new models.
+                try:
+                    shutil.rmtree(snapshot_dir, ignore_errors=True)
+                except Exception:
+                    pass
+
+                # The grade/sharpe reported in history is the NEW training's
+                # output, with swapped=True/False indicating whether it was
+                # kept (identical to the flowrex_v2 contract).
                 result = {
-                    "symbol": body.symbol, "triggered_by": "manual",
-                    "status": "completed", "swapped": True,
-                    "swap_reason": "potential pipeline writes unconditionally",
-                    "new_grade": best_grade, "new_sharpe": best_sharpe,
+                    "symbol": sym, "triggered_by": "manual",
+                    "status": "completed",
+                    "swapped": swapped, "swap_reason": swap_reason,
+                    "old_grade": prev_best_grade if prev_joblibs else None,
+                    "old_sharpe": prev_best_sharpe if prev_joblibs else None,
+                    "new_grade": new_best_grade, "new_sharpe": new_best_sharpe,
                     "training_config": {
                         "pipeline": "potential",
                         "n_trials": body.n_trials,
@@ -358,12 +443,17 @@ def trigger_retrain(
                 from scripts.retrain_monthly import _record_retrain_run as _rec
                 _rec(result)
                 _retrain_status["results"] = [result]
-                _retrain_status["progress"] = f"done (grade {best_grade}, sharpe {best_sharpe:.2f})"
-                try:
-                    from app.services.agent.engine import get_algo_engine
-                    get_algo_engine().reload_models_for_symbol(body.symbol)
-                except Exception:
-                    pass
+                _retrain_status["progress"] = (
+                    f"{'swapped' if swapped else 'held'} — grade {new_best_grade} "
+                    f"sharpe {new_best_sharpe:.2f}"
+                )
+                # Only hot-swap live agents if we kept the new models.
+                if swapped:
+                    try:
+                        from app.services.agent.engine import get_algo_engine
+                        get_algo_engine().reload_models_for_symbol(sym)
+                    except Exception:
+                        pass
             else:
                 # Default: flowrex_v2 retrain_monthly flow with grade-gated swap
                 from scripts.retrain_monthly import retrain_symbol, _record_retrain_run

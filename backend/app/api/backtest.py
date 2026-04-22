@@ -243,7 +243,7 @@ def _scout_check_triggers(
     direction = int(pending["direction"])
     ref_close = float(pending["ref_close"])
     ref_atr = float(pending["ref_atr"]) or 1.0
-    bars_waited = int(pending["bars_waited"])
+    bars_waited = int(pending.get("bars_waited", 0))
     pullback_distance = ref_atr * pullback_atr_fraction
 
     # Pullback: price moved against pending direction, current bar reverses.
@@ -401,13 +401,18 @@ def _load_tf(symbol: str, tf: str) -> Optional[pd.DataFrame]:
     return None
 
 
-def _run_potential_backtest(body: PotentialBacktestRequest, result_id: int = None,
-                            user_id: int = None):
+def _run_potential_backtest(body: PotentialBacktestRequest, result_id: int,
+                            user_id: int):
     """Background worker for Potential Agent backtest.
 
-    `user_id` must be passed in by the route handler so broker-mode can scope
-    adapter lookup to the logged-in user (see bug note on the broker branch).
+    Both `result_id` and `user_id` are REQUIRED (as of 2026-04-22). The
+    previous `user_id: int = None` signature let bugs silently rebucket
+    all anonymous runs into the shared `(0, symbol)` cache slot, where
+    they'd be readable by any other logged-in user. Now missing user_id
+    raises ValueError at call time.
     """
+    if user_id is None:
+        raise ValueError("_run_potential_backtest requires user_id")
     try:
         from app.services.ml.features_potential import compute_potential_features
         from app.services.ml.symbol_config import get_symbol_config
@@ -434,7 +439,7 @@ def _run_potential_backtest(body: PotentialBacktestRequest, result_id: int = Non
 
                 if not own_adapters:
                     err = "No broker connected. Connect a broker in Settings first."
-                    _potential_results[(user_id or 0, symbol)] = {"error": err}
+                    _potential_results[(user_id, symbol)] = {"error": err}
                     if result_id:
                         _update_backtest_record(result_id, status="error", error_message=err)
                     return
@@ -480,7 +485,7 @@ def _run_potential_backtest(body: PotentialBacktestRequest, result_id: int = Non
 
                 if m5.empty or len(m5) < 300:
                     err = f"{broker_name} returned only {len(m5)} M5 bars (need 300+). This broker's per-call cap is {m5_cap:,} — try Dukascopy for longer history."
-                    _potential_results[(user_id or 0, symbol)] = {"error": err}
+                    _potential_results[(user_id, symbol)] = {"error": err}
                     if result_id:
                         _update_backtest_record(result_id, status="error", error_message=err)
                     return
@@ -500,7 +505,7 @@ def _run_potential_backtest(body: PotentialBacktestRequest, result_id: int = Non
 
             except Exception as e:
                 err = f"Broker data fetch failed: {e}"
-                _potential_results[(user_id or 0, symbol)] = {"error": err}
+                _potential_results[(user_id, symbol)] = {"error": err}
                 if result_id:
                     _update_backtest_record(result_id, status="error", error_message=err)
                 return
@@ -522,14 +527,14 @@ def _run_potential_backtest(body: PotentialBacktestRequest, result_id: int = Non
                 d1 = _normalize_ohlcv(bundle.d1) if bundle.d1 is not None else None
             except Exception as e:
                 err = f"Dukascopy fetch failed: {e}"
-                _potential_results[(user_id or 0, symbol)] = {"error": err}
+                _potential_results[(user_id, symbol)] = {"error": err}
                 if result_id:
                     _update_backtest_record(result_id, status="error", error_message=err)
                 return
 
             if m5 is None or len(m5) == 0:
                 err = f"Dukascopy returned no M5 data for {symbol}"
-                _potential_results[(user_id or 0, symbol)] = {"error": err}
+                _potential_results[(user_id, symbol)] = {"error": err}
                 if result_id:
                     _update_backtest_record(result_id, status="error", error_message=err)
                 return
@@ -550,7 +555,7 @@ def _run_potential_backtest(body: PotentialBacktestRequest, result_id: int = Non
             d1 = _load_tf(symbol, "D1")
             if m5 is None:
                 err = f"No M5 data for {symbol}"
-                _potential_results[(user_id or 0, symbol)] = {"error": err}
+                _potential_results[(user_id, symbol)] = {"error": err}
                 if result_id:
                     _update_backtest_record(result_id, status="error", error_message=err)
                 return
@@ -672,7 +677,7 @@ def _run_potential_backtest(body: PotentialBacktestRequest, result_id: int = Non
 
         if not models:
             err = f"No trained model found for {symbol}"
-            _potential_results[(user_id or 0, symbol)] = {"error": err}
+            _potential_results[(user_id, symbol)] = {"error": err}
             if result_id:
                 _update_backtest_record(result_id, status="error", error_message=err)
             return
@@ -974,7 +979,7 @@ def _run_potential_backtest(body: PotentialBacktestRequest, result_id: int = Non
         n_trades = len(trades)
         if n_trades == 0:
             err = "No trades in selected period"
-            _potential_results[(user_id or 0, symbol)] = {"error": err, "total_trades": 0}
+            _potential_results[(user_id, symbol)] = {"error": err, "total_trades": 0}
             if result_id:
                 _update_backtest_record(result_id, status="error", error_message=err)
             return
@@ -1161,7 +1166,7 @@ def _run_potential_backtest(body: PotentialBacktestRequest, result_id: int = Non
                 for t in trades[-50:]
             ],
         }
-        _potential_results[(user_id or 0, symbol)] = result_data
+        _potential_results[(user_id, symbol)] = result_data
 
         # Persist to DB
         if result_id:
@@ -1170,7 +1175,7 @@ def _run_potential_backtest(body: PotentialBacktestRequest, result_id: int = Non
     except Exception as e:
         logger.error(f"Potential backtest failed for {body.symbol}: {e}", exc_info=True)
         error_msg = str(e)
-        _potential_results[(user_id or 0, body.symbol)] = {"error": error_msg}
+        _potential_results[(user_id, body.symbol)] = {"error": error_msg}
         if result_id:
             _update_backtest_record(result_id, status="error", error_message=error_msg)
     finally:

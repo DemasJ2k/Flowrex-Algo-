@@ -113,11 +113,14 @@ interface BacktestResult {
   filter_rejections?: {
     session: number;
     regime: number;
+    direction: number;
     session_filter_on: boolean;
     regime_filter_on: boolean;
     use_correlations: boolean;
     allowed_sessions: string[];
     allowed_regimes: string[];
+    allow_buy: boolean;
+    allow_sell: boolean;
   };
   error?: string;
 }
@@ -1180,10 +1183,10 @@ export default function BacktestPage() {
             </Glass>
           )}
 
-          {result.filter_rejections && (result.filter_rejections.session_filter_on || result.filter_rejections.regime_filter_on || !result.filter_rejections.use_correlations) && (
+          {result.filter_rejections && (result.filter_rejections.session_filter_on || result.filter_rejections.regime_filter_on || !result.filter_rejections.use_correlations || !result.filter_rejections.allow_buy || !result.filter_rejections.allow_sell) && (
             <Glass padding="md">
               <p className="text-xs font-medium mb-2" style={{ color: "var(--muted)" }}>Filter sandbox impact</p>
-              <div className="grid grid-cols-1 md:grid-cols-3 gap-3 text-xs">
+              <div className="grid grid-cols-2 md:grid-cols-4 gap-3 text-xs">
                 <div>
                   <span className="block text-[10px]" style={{ color: "var(--muted)" }}>Session rejections</span>
                   <span className="text-lg font-semibold tabular-nums">{result.filter_rejections.session.toLocaleString()}</span>
@@ -1200,6 +1203,19 @@ export default function BacktestPage() {
                     {result.filter_rejections.regime_filter_on
                       ? `allowed: ${result.filter_rejections.allowed_regimes.join(", ") || "(none)"}`
                       : "filter off"}
+                  </span>
+                </div>
+                <div>
+                  <span className="block text-[10px]" style={{ color: "var(--muted)" }}>Direction rejections</span>
+                  <span className="text-lg font-semibold tabular-nums">{(result.filter_rejections.direction ?? 0).toLocaleString()}</span>
+                  <span className="block text-[10px] mt-0.5" style={{ color: "var(--muted)" }}>
+                    {result.filter_rejections.allow_buy && result.filter_rejections.allow_sell
+                      ? "long + short"
+                      : result.filter_rejections.allow_buy
+                        ? "long only"
+                        : result.filter_rejections.allow_sell
+                          ? "short only"
+                          : "all blocked"}
                   </span>
                 </div>
                 <div>
