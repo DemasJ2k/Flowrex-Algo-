@@ -126,12 +126,23 @@ async def lifespan(app: FastAPI):
                     continue
                 for pos in broker_positions:
                     ticket = str(pos.id) if hasattr(pos, "id") else ""
-                    if not ticket:
-                        continue
-                    match = db.query(AgentTrade).filter(
-                        AgentTrade.broker_ticket == ticket,
-                        AgentTrade.status == "open",
-                    ).first()
+                    # Two-level match: exact ticket first, then symbol+direction
+                    # fallback for Oanda-style aggregate position identifiers
+                    # (which never match the per-trade IDs stored in
+                    # AgentTrade.broker_ticket — see engine.py reconcile note).
+                    match = None
+                    if ticket:
+                        match = db.query(AgentTrade).filter(
+                            AgentTrade.broker_ticket == ticket,
+                            AgentTrade.status == "open",
+                        ).first()
+                    if not match:
+                        direction = (pos.direction or "").upper()
+                        match = db.query(AgentTrade).filter(
+                            AgentTrade.symbol == pos.symbol,
+                            AgentTrade.direction == direction,
+                            AgentTrade.status == "open",
+                        ).first()
                     if not match:
                         logger.critical(
                             f"Orphaned broker position — "

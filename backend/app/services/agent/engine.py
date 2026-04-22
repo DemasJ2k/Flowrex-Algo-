@@ -511,17 +511,47 @@ class AgentRunner:
                     t.exit_time = datetime.now(timezone.utc)
                     t.pnl = t.pnl or 0
 
-            # Broker position without matching DB trade → orphan alert
-            db_tickets = {str(t.broker_ticket) for t in db_open if t.broker_ticket}
-            # Only check positions matching THIS agent's symbol
+            # Broker position without matching DB trade → orphan alert.
+            #
+            # Two layers of matching, in order:
+            #   1. Exact broker_ticket match (works for adapters that return
+            #      per-trade IDs like cTrader, Tradovate).
+            #   2. Symbol + direction fallback — Oanda's get_positions()
+            #      returns AGGREGATE position identifiers ("XAU_USD:long"),
+            #      not the individual trade IDs that DB.broker_ticket stores
+            #      ("393"). Without this fallback, every Oanda reconcile
+            #      falsely flags its own position as an orphan. The fallback
+            #      treats the position as matched if ANY open trade for the
+            #      user on this (symbol, direction) exists.
+            #
+            # Both layers scope to ALL agents under the same user so sibling
+            # agents don't spam orphan warnings about each other's positions.
+            sibling_open = (
+                db.query(AgentTrade)
+                .join(TradingAgent, AgentTrade.agent_id == TradingAgent.id)
+                .filter(
+                    TradingAgent.created_by == agent_record.created_by,
+                    TradingAgent.symbol == agent_record.symbol,
+                    TradingAgent.deleted_at.is_(None),
+                    AgentTrade.status == "open",
+                )
+                .all()
+            )
+            db_tickets = {str(t.broker_ticket) for t in sibling_open if t.broker_ticket}
+            db_directions = {(t.symbol, (t.direction or "").upper()) for t in sibling_open}
             for p in broker_positions:
                 if p.symbol != agent_record.symbol:
                     continue
                 ticket = str(p.id) if hasattr(p, "id") else ""
-                if ticket and ticket not in db_tickets:
-                    self._log_to_db(db, "error",
-                        f"RECONCILE: Orphan broker position {ticket} ({p.direction} {p.symbol}) "
-                        f"has no DB record. Manual intervention required.")
+                pos_key = (p.symbol, (p.direction or "").upper())
+                if ticket and ticket in db_tickets:
+                    continue
+                if pos_key in db_directions:
+                    continue  # matched by symbol+direction fallback
+                self._log_to_db(db, "error",
+                    f"RECONCILE: Orphan broker position {ticket or p.symbol} ({p.direction} {p.symbol}) "
+                    f"has no matching DB trade. Close it manually on the broker "
+                    f"or restart the originating agent to adopt it.")
         except Exception as e:
             self._log_to_db(db, "warn", f"Reconciliation error (non-fatal): {e}")
 
