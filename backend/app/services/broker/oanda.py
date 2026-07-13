@@ -421,6 +421,32 @@ class OandaAdapter(BrokerAdapter):
         except BrokerError as e:
             return CloseResult(success=False, message=e.message)
 
+    async def close_trade(self, trade_id: str) -> CloseResult:
+        """
+        Close a single trade by its Oanda trade ticket (e.g. "393").
+
+        Oanda distinguishes trades (individual fills, ticket IDs) from
+        positions (net exposure per instrument, "INSTRUMENT:side" IDs).
+        Engine trades store broker tickets, so this — not close_position —
+        is the correct close path for them.
+        """
+        try:
+            data = await self._request(
+                "PUT",
+                f"/v3/accounts/{self._account_id}/trades/{trade_id}/close",
+                json={"units": "ALL"},
+            )
+            pnl = 0.0
+            txn = data.get("orderFillTransaction", {})
+            if txn:
+                try:
+                    pnl = float(txn.get("pl", 0))
+                except (TypeError, ValueError):
+                    pnl = 0.0
+            return CloseResult(success=True, pnl=pnl, message="Trade closed")
+        except BrokerError as e:
+            return CloseResult(success=False, message=e.message)
+
     # ── Modify Order ───────────────────────────────────────────────────
 
     async def modify_order(

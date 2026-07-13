@@ -11,6 +11,47 @@ _Chronological record of all changes. Read this before starting any task._
 
 ---
 
+## 2026-07-13 — Reorg kickoff: five-agent review + Phase 0 risk fixes
+
+Five-agent repo review (`docs/TEAM-REVIEW-2026-07-13.md`) + reorg plan with
+owner decisions locked (`docs/REORG-PLAN-2026-07-13.md`): personal tool,
+H1/H4/D1 swing on US30+XAUUSD with overnight holds, rules-first, backtest
+UI frozen.
+
+### Phase 0 — risk/execution fixes (engine.py, oanda.py)
+
+- **`OandaAdapter.close_trade(ticket)`** — trade-level close via
+  `PUT /v3/accounts/{id}/trades/{ticket}/close`. Engine's force-flat,
+  max-hold, and hard-stop paths now close via `_close_broker_trade()`
+  (prefers `close_trade`, falls back to `close_position`). Previously
+  every ticket-based close on Oanda failed with "Invalid position ID
+  format" because `close_position` expects `"INSTRUMENT:side"`.
+- **Reconcile fix** — `_reconcile_closed_trade_from_broker` no longer
+  marks a DB trade closed while the broker reports it OPEN (or, on
+  non-Oanda brokers, while matching exposure still shows). The old
+  behavior left live, unmanaged positions on the broker with the DB
+  saying flat.
+- **Account-level daily risk state** — `_compute_daily_stats()` derives
+  today's realized P&L + opened-trade count from the DB across ALL of the
+  user's agents on the broker, plus account floating P&L. Replaces
+  per-agent in-memory counters that reset on every restart/deploy
+  (`_daily_reset_date` removed).
+- **Hard stop liquidates** — breaching `max_daily_loss_pct` now closes
+  all open positions (`_close_all_open_trades`, shared with force-flat)
+  and skips evaluation until next UTC day; previously nothing ever
+  closed losing positions.
+- **DB-backed duplicate-trade guard** — one open trade per symbol per
+  user across all agents, both directions, checked in `_create_trade`.
+  Replaces the in-memory `_active_direction` lock (reset on restart,
+  wiped on any ORDER FAILED — root cause of live duplicate trades).
+  Behavior change: opposite-direction entries on an open symbol are now
+  blocked too.
+- Tests: `tests/test_engine_risk_fixes.py` (13 new) + 56 targeted
+  existing tests green (broker_manager, risk_manager, engine, agents,
+  agent_lifecycle).
+
+---
+
 ## 2026-04-21 — Filter parity + Scout + regime features + filter sandbox
 
 User-requested sprint addressing: cross-user data leak on ML page (done

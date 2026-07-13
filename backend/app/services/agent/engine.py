@@ -6,6 +6,7 @@ import asyncio
 import logging
 from datetime import datetime, timezone, timedelta
 from typing import Optional
+from sqlalchemy import func
 from sqlalchemy.orm import Session
 
 from app.core.database import SessionLocal
@@ -38,7 +39,7 @@ class AgentRunner:
         self._signal_count = 0
         self._daily_pnl = 0.0
         self._daily_trade_count = 0
-        self._daily_reset_date: Optional[str] = None
+        self._hard_stop_logged_date: Optional[str] = None
         self._eval_lock = asyncio.Lock()
         self._last_reconciliation = 0.0  # wall time of last full broker reconciliation
         self._market_hours_cached: Optional[tuple[float, bool, str]] = None  # (expires_at, is_open, reason)
@@ -395,19 +396,23 @@ class AgentRunner:
                 db.commit()
                 return
 
-            # Reset daily counters
-            today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
-            if self._daily_reset_date != today:
-                self._daily_pnl = 0.0
-                self._daily_trade_count = 0
-                self._daily_reset_date = today
-
-            # Get account balance
+            # Get account balance + floating P&L
+            unrealized_pnl = 0.0
             try:
                 account = await adapter.get_account_info()
                 balance = account.balance
+                unrealized_pnl = getattr(account, "unrealized_pnl", 0.0) or 0.0
             except Exception:
                 balance = 10000.0  # Fallback
+
+            # Daily risk state is derived from the DB on every tick. The old
+            # in-memory counters were per-agent and reset to zero on every
+            # restart/deploy, so the daily stop could never be trusted.
+            # This aggregates across ALL of this user's agents on this broker
+            # and includes account floating P&L (prop firms count equity).
+            realized_today, opened_today = self._compute_daily_stats(db, agent_record)
+            self._daily_pnl = realized_today + unrealized_pnl
+            self._daily_trade_count = opened_today
 
             # Check for closed trades EVERY poll (not just on new bars)
             await self._check_closed_trades(adapter, agent_record, db)
@@ -422,6 +427,24 @@ class AgentRunner:
 
             # Max hold time: close any trade that's been open too long with negligible P&L.
             await self._enforce_max_hold_time(adapter, agent_record, db)
+
+            # Daily hard stop: on breach, liquidate this agent's open
+            # positions and skip evaluation until the next UTC day.
+            # Previously should_close_all() only blocked new entries —
+            # nothing ever closed the losing positions. Uses current balance
+            # (post-loss), which is slightly stricter than day-start balance.
+            hard_stop_pct = float((agent_record.risk_config or {}).get("max_daily_loss_pct", 0.03))
+            if hard_stop_pct > 0 and balance > 0 and self._daily_pnl <= -(balance * hard_stop_pct):
+                today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+                if self._hard_stop_logged_date != today:
+                    self._hard_stop_logged_date = today
+                    self._log_to_db(db, "error",
+                        f"DAILY HARD STOP: P&L ${self._daily_pnl:.2f} breached "
+                        f"-{hard_stop_pct:.1%} of ${balance:.2f} — liquidating open "
+                        f"positions, no new entries until next UTC day")
+                await self._close_all_open_trades(adapter, db, reason="DAILY_HARD_STOP")
+                db.commit()
+                return
 
             self._eval_count += 1
 
@@ -555,6 +578,51 @@ class AgentRunner:
         except Exception as e:
             self._log_to_db(db, "warn", f"Reconciliation error (non-fatal): {e}")
 
+    def _compute_daily_stats(self, db: Session, agent_record) -> tuple:
+        """
+        Account-level daily stats (realized P&L, trades opened) for the
+        current UTC day, aggregated across ALL of this user's agents on the
+        same broker. A per-agent daily budget multiplies account risk by the
+        number of agents, which is how a 3% stop becomes 9% exposure.
+        """
+        day_start = datetime.now(timezone.utc).replace(hour=0, minute=0, second=0, microsecond=0)
+        realized = (
+            db.query(func.coalesce(func.sum(AgentTrade.pnl), 0.0))
+            .join(TradingAgent, AgentTrade.agent_id == TradingAgent.id)
+            .filter(
+                TradingAgent.created_by == agent_record.created_by,
+                TradingAgent.broker_name == agent_record.broker_name,
+                AgentTrade.status == "closed",
+                AgentTrade.exit_time >= day_start,
+            )
+            .scalar()
+            or 0.0
+        )
+        opened = (
+            db.query(func.count(AgentTrade.id))
+            .join(TradingAgent, AgentTrade.agent_id == TradingAgent.id)
+            .filter(
+                TradingAgent.created_by == agent_record.created_by,
+                TradingAgent.broker_name == agent_record.broker_name,
+                AgentTrade.entry_time >= day_start,
+            )
+            .scalar()
+            or 0
+        )
+        return float(realized), int(opened)
+
+    async def _close_broker_trade(self, adapter, ticket) -> "object":
+        """
+        Close a single broker trade by ticket. Oanda's close_position()
+        expects "INSTRUMENT:side" position IDs, so passing a numeric trade
+        ticket to it always fails ("Invalid position ID format") — which
+        used to make force-flat/max-hold closes silently no-op. Prefer the
+        adapter's trade-level close when it exists.
+        """
+        if hasattr(adapter, "close_trade"):
+            return await adapter.close_trade(str(ticket))
+        return await adapter.close_position(str(ticket))
+
     async def _enforce_max_hold_time(self, adapter, agent_record, db: Session):
         """
         Close trades that have been open beyond the configured max_hold_hours.
@@ -579,7 +647,7 @@ class AgentRunner:
             if not t.broker_ticket:
                 continue
             try:
-                close_result = await adapter.close_position(t.broker_ticket)
+                close_result = await self._close_broker_trade(adapter, t.broker_ticket)
                 if close_result and getattr(close_result, "success", False):
                     t.status = "closed"
                     t.exit_reason = "MAX_HOLD_TIME"
@@ -613,71 +681,101 @@ class AgentRunner:
             adapter = manager.get_adapter(agent_record.created_by, agent_record.broker_name)
             if adapter is None:
                 return
-            open_trades = (
-                db.query(AgentTrade)
-                .filter(AgentTrade.agent_id == self.agent_id, AgentTrade.status == "open")
-                .all()
-            )
-            if not open_trades:
-                return
-            self._log_to_db(db, "info",
-                f"Force-flat cutoff reached — closing {len(open_trades)} open position(s)")
-            for t in open_trades:
-                if not t.broker_ticket:
-                    t.status = "closed"
-                    t.exit_time = datetime.now(timezone.utc)
-                    t.exit_reason = "FORCE_FLAT"
-                    continue
-                try:
-                    close_result = await adapter.close_position(t.broker_ticket)
-                    if close_result and getattr(close_result, "success", False):
-                        t.status = "closed"
-                        t.exit_reason = "FORCE_FLAT"
-                        t.exit_time = datetime.now(timezone.utc)
-                        t.pnl = getattr(close_result, "pnl", 0) or 0
-                        t.broker_pnl = t.pnl
-                        self._log_to_db(db, "trade",
-                            f"CLOSED (force-flat) {t.direction} {t.symbol} | "
-                            f"P&L: ${t.pnl:.2f} | Ticket: {t.broker_ticket}")
-                        if self._active_direction == t.direction:
-                            self._active_direction = None
-                    else:
-                        await self._reconcile_closed_trade_from_broker(adapter, t, db, reason="FORCE_FLAT_RECONCILED")
-                except Exception as e:
-                    self._log_to_db(db, "warn", f"Force-flat close failed for {t.broker_ticket}: {e}")
-                    await self._reconcile_closed_trade_from_broker(adapter, t, db, reason="FORCE_FLAT_RECONCILED")
-            db.commit()
+            closed = await self._close_all_open_trades(adapter, db, reason="FORCE_FLAT")
+            if closed:
+                db.commit()
         finally:
             db.close()
 
+    async def _close_all_open_trades(self, adapter, db: Session, reason: str) -> int:
+        """
+        Liquidate all of this agent's open trades on the broker and mark them
+        closed in the DB. Used by force-flat and the daily hard stop.
+        Returns the number of trades processed. Caller commits.
+        """
+        open_trades = (
+            db.query(AgentTrade)
+            .filter(AgentTrade.agent_id == self.agent_id, AgentTrade.status == "open")
+            .all()
+        )
+        if not open_trades:
+            return 0
+        self._log_to_db(db, "info",
+            f"{reason}: closing {len(open_trades)} open position(s)")
+        for t in open_trades:
+            if not t.broker_ticket:
+                t.status = "closed"
+                t.exit_time = datetime.now(timezone.utc)
+                t.exit_reason = reason
+                continue
+            try:
+                close_result = await self._close_broker_trade(adapter, t.broker_ticket)
+                if close_result and getattr(close_result, "success", False):
+                    t.status = "closed"
+                    t.exit_reason = reason
+                    t.exit_time = datetime.now(timezone.utc)
+                    t.pnl = getattr(close_result, "pnl", 0) or 0
+                    t.broker_pnl = t.pnl
+                    self._log_to_db(db, "trade",
+                        f"CLOSED ({reason}) {t.direction} {t.symbol} | "
+                        f"P&L: ${t.pnl:.2f} | Ticket: {t.broker_ticket}")
+                    if self._active_direction == t.direction:
+                        self._active_direction = None
+                else:
+                    await self._reconcile_closed_trade_from_broker(adapter, t, db, reason=f"{reason}_RECONCILED")
+            except Exception as e:
+                self._log_to_db(db, "warn", f"{reason} close failed for {t.broker_ticket}: {e}")
+                await self._reconcile_closed_trade_from_broker(adapter, t, db, reason=f"{reason}_RECONCILED")
+        return len(open_trades)
+
     async def _reconcile_closed_trade_from_broker(self, adapter, trade, db, reason: str):
         """
-        When close_position() fails, the broker may have already closed the trade.
-        Check broker positions — if not there, attempt to fetch realized PnL from
-        the broker's trade history (Oanda-specific) before marking as closed.
+        When a close attempt fails, the broker may have already closed the
+        trade — or the close may simply have failed while the position is
+        still live. Mark the DB trade closed ONLY when the broker confirms
+        it is no longer open; otherwise leave it open for the next attempt.
+        Marking a live position closed in the DB leaves it unmanaged on the
+        broker, which is the worst possible failure mode.
         """
         try:
-            broker_positions = await adapter.get_positions()
-            tickets = {str(p.id) for p in broker_positions if hasattr(p, "id")}
-            if str(trade.broker_ticket) in tickets:
-                return  # still open on broker — leave for next attempt
-
-            # Attempt to fetch realized PnL from Oanda trade endpoint.
-            # Other brokers don't have this API — fall back to 0.
+            state = None
             actual_pnl = None
             actual_exit = None
-            try:
-                if hasattr(adapter, "_request") and hasattr(adapter, "_account_id"):
+
+            # Oanda: per-ticket state is authoritative.
+            if hasattr(adapter, "_request") and hasattr(adapter, "_account_id"):
+                try:
                     data = await adapter._request(
                         "GET",
                         f"/v3/accounts/{adapter._account_id}/trades/{trade.broker_ticket}",
                     )
                     oanda_trade = data.get("trade", {})
-                    if oanda_trade.get("state") == "CLOSED":
+                    state = oanda_trade.get("state")
+                    if state == "CLOSED":
                         actual_pnl = float(oanda_trade.get("realizedPL", 0))
                         actual_exit = float(oanda_trade.get("averageClosePrice", 0)) or None
-            except Exception:
-                pass
+                except Exception:
+                    state = None
+
+            if state == "OPEN":
+                self._log_to_db(db, "warn",
+                    f"Ticket {trade.broker_ticket} still OPEN on broker — close failed, "
+                    f"leaving DB trade open for retry ({reason})")
+                return
+
+            if state is None:
+                # No per-ticket API (non-Oanda broker) or the fetch failed.
+                # Oanda position IDs are "INSTRUMENT:side", never trade
+                # tickets, so match by symbol+direction instead: if the
+                # broker still shows matching exposure, ours may be part of
+                # it — do not close the DB row.
+                broker_positions = await adapter.get_positions()
+                for p in broker_positions:
+                    if p.symbol == trade.symbol and p.direction == trade.direction:
+                        self._log_to_db(db, "warn",
+                            f"Broker still shows open {trade.direction} {trade.symbol} — cannot "
+                            f"confirm ticket {trade.broker_ticket} closed, leaving open ({reason})")
+                        return
 
             trade.status = "closed"
             trade.exit_reason = reason
@@ -840,8 +938,27 @@ class AgentRunner:
         """
         direction = signal["direction"]
 
-        # Check active direction (no duplicate positions)
-        if self._active_direction == direction:
+        # Duplicate-trade guard, DB-backed and restart-safe: one open trade
+        # per symbol per user, across ALL agents and both directions. The
+        # old in-memory _active_direction lock reset on every restart and
+        # was wiped whenever any order failed — the root cause of the
+        # duplicate live trades — and two agents on the same symbol never
+        # saw each other's positions.
+        existing = (
+            db.query(AgentTrade)
+            .join(TradingAgent, AgentTrade.agent_id == TradingAgent.id)
+            .filter(
+                TradingAgent.created_by == agent_record.created_by,
+                AgentTrade.symbol == agent_record.symbol,
+                AgentTrade.status == "open",
+            )
+            .first()
+        )
+        if existing:
+            if existing.agent_id != self.agent_id:
+                self._log_to_db(db, "info",
+                    f"Cross-agent guard: agent #{existing.agent_id} already holds "
+                    f"{existing.direction} {existing.symbol} — skipping {direction} entry")
             return
 
         self._signal_count += 1
@@ -972,13 +1089,11 @@ class AgentRunner:
                     f"Broker error: {result.message}",
                     signal,
                 )
-                self._active_direction = None
 
         except Exception as e:
             self._log_to_db(db, "error",
                 f"EXECUTION ERROR {direction} {agent_record.symbol} | {e}",
             )
-            self._active_direction = None
             # AI diagnosis of execution errors (rate-limited)
             try:
                 from app.services.llm.monitoring import on_error
