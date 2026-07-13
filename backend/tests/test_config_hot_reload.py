@@ -11,7 +11,6 @@ from unittest.mock import patch, MagicMock
 
 from app.services.agent.engine import AlgoEngine
 from app.services.agent.potential_agent import PotentialAgent
-from app.services.agent.flowrex_agent_v2 import FlowrexAgentV2
 
 
 def test_potential_agent_default_risk_is_0_001_not_0_01():
@@ -33,20 +32,6 @@ def test_potential_agent_uses_config_value_not_default():
         config={"risk_per_trade": 0.005}
     )
     assert agent.risk_config["risk_per_trade_pct"] == 0.005
-
-
-def test_flowrex_v2_default_risk_is_0_001_not_0_01():
-    """REGRESSION: H1 — same bug, same fix on FlowrexAgentV2."""
-    agent = FlowrexAgentV2(agent_id=1, symbol="US30", broker_name="fake", config={})
-    assert agent.risk_config["risk_per_trade_pct"] == 0.001
-
-
-def test_flowrex_v2_uses_config_value_not_default():
-    agent = FlowrexAgentV2(
-        agent_id=1, symbol="US30", broker_name="fake",
-        config={"risk_per_trade": 0.0075}
-    )
-    assert agent.risk_config["risk_per_trade_pct"] == 0.0075
 
 
 def test_potential_agent_max_lot_size_in_config():
@@ -107,17 +92,16 @@ def test_reload_agent_config_returns_false_for_unknown_agent():
     assert engine.reload_agent_config(99999) is False
 
 
-def test_reload_models_for_symbol_calls_load_for_v2_agent():
+def test_reload_models_for_symbol_calls_load_for_agent():
     """
-    REGRESSION: C3 — reload_models_for_symbol used to only support legacy
-    FlowrexAgent (which had _ensemble_scalping). Now it must call agent.load()
-    on FlowrexAgentV2 and PotentialAgent.
+    REGRESSION: C3 — reload_models_for_symbol must call agent.load() on
+    PotentialAgent (the only agent type after the 2026-07-13 reorg).
     """
     engine = AlgoEngine()
     from app.services.agent.engine import AgentRunner
 
-    # Mock a v2 agent — override load() to track calls
-    agent = FlowrexAgentV2(agent_id=1, symbol="US30", broker_name="fake", config={})
+    # Mock an agent — override load() to track calls
+    agent = PotentialAgent(agent_id=1, symbol="US30", broker_name="fake", config={})
     load_call_count = [0]
     def mock_load():
         load_call_count[0] += 1
@@ -139,12 +123,12 @@ def test_reload_models_for_symbol_skips_other_symbols():
     engine = AlgoEngine()
     from app.services.agent.engine import AgentRunner
 
-    us30_agent = FlowrexAgentV2(agent_id=1, symbol="US30", broker_name="fake", config={})
+    us30_agent = PotentialAgent(agent_id=1, symbol="US30", broker_name="fake", config={})
     us30_load_called = []
     us30_agent.load = lambda: (us30_load_called.append(1), True)[1]
     us30_agent._log_fn = lambda *a, **k: None
 
-    btc_agent = FlowrexAgentV2(agent_id=2, symbol="BTCUSD", broker_name="fake", config={})
+    btc_agent = PotentialAgent(agent_id=2, symbol="BTCUSD", broker_name="fake", config={})
     btc_load_called = []
     btc_agent.load = lambda: (btc_load_called.append(1), True)[1]
     btc_agent._log_fn = lambda *a, **k: None

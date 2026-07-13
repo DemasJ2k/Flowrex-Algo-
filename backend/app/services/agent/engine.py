@@ -13,7 +13,7 @@ from app.core.database import SessionLocal
 from app.core.websocket import get_ws_manager
 from app.models.agent import TradingAgent, AgentLog, AgentTrade
 from app.services.broker.manager import get_broker_manager
-from app.services.agent.flowrex_agent import FlowrexAgent
+from app.services.agent.potential_agent import PotentialAgent
 
 logger = logging.getLogger("flowrex.engine")
 
@@ -29,7 +29,7 @@ class AgentRunner:
         self._task: Optional[asyncio.Task] = None
         self._running = False
         self._paused = False
-        self._agent: Optional[FlowrexAgent] = None
+        self._agent: Optional[PotentialAgent] = None
         self._active_direction: Optional[str] = None
         self._bar_buffer: list[dict] = []
         self._last_bar_time: int = 0
@@ -64,28 +64,16 @@ class AgentRunner:
 
             try:
                 if agent_type == "potential":
-                    from app.services.agent.potential_agent import PotentialAgent
                     self._agent = PotentialAgent(*agent_args)
-                elif agent_type == "flowrex_v2":
-                    from app.services.agent.flowrex_agent_v2 import FlowrexAgentV2
-                    self._agent = FlowrexAgentV2(*agent_args)
-                elif agent_type == "scout":
-                    # Scout = PotentialAgent with a 40-bar lookback + pullback/BOS
-                    # entry state machine. Reuses the potential_{SYMBOL} models
-                    # on disk — no separate training required.
-                    from app.services.agent.scout_agent import ScoutAgent
-                    self._agent = ScoutAgent(*agent_args)
-                elif agent_type in ("scalping", "expert"):
-                    # Deprecated agent types — removed in Batch 11 (2026-04-16).
-                    # Models were archived, test files deleted. If a user has a stale
-                    # DB record with one of these types, refuse to start with a clear error.
+                else:
+                    # All other agent types (scalping, expert, flowrex,
+                    # flowrex_v2, scout) were removed in the 2026-07-13 reorg.
+                    # Stale DB records refuse to start with a clear error.
                     self._log_to_db(db, "error",
-                        f"Agent type '{agent_type}' is deprecated. "
-                        f"Please create a new agent with type 'flowrex_v2' or 'potential'.")
+                        f"Agent type '{agent_type}' was removed in the reorg. "
+                        f"Please create a new agent with type 'potential'.")
                     db.commit()
                     return
-                else:
-                    self._agent = FlowrexAgent(*agent_args)
             except Exception as e:
                 self._log_to_db(db, "error", f"Failed to create agent: {e}")
                 db.commit()
@@ -1298,10 +1286,8 @@ class AlgoEngine:
         """
         Hot-reload models for all running agents trading a specific symbol.
 
-        Supports every agent type:
-        - PotentialAgent and FlowrexAgentV2 expose a parameterless `load()` method
-          that rebuilds self.models from disk — preferred path.
-        - Legacy FlowrexAgent uses _ensemble_scalping / _ensemble_expert — fallback.
+        PotentialAgent exposes a parameterless `load()` that rebuilds
+        self.models from disk.
         """
         reloaded = 0
         for runner in self._runners.values():
@@ -1310,7 +1296,6 @@ class AlgoEngine:
                 continue
             try:
                 if hasattr(agent, "load") and callable(agent.load):
-                    # Modern agents: PotentialAgent, FlowrexAgentV2
                     if agent.load():
                         reloaded += 1
                         # Clear feature cache — old features may mismatch new model shape
@@ -1319,13 +1304,6 @@ class AlgoEngine:
                                 setattr(agent, attr, None)
                         if hasattr(agent, "_log_fn") and agent._log_fn:
                             agent._log_fn("info", f"Models hot-reloaded for {symbol}")
-                elif hasattr(agent, "_ensemble_scalping"):
-                    # Legacy FlowrexAgent
-                    agent._ensemble_scalping.load_models()
-                    reloaded += 1
-                elif hasattr(agent, "_ensemble_expert"):
-                    agent._ensemble_expert.load_models()
-                    reloaded += 1
             except Exception as e:
                 logger.warning(f"reload_models_for_symbol failed for agent {runner.agent_id}: {e}", exc_info=True)
         return reloaded

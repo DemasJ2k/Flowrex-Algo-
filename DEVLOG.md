@@ -11,6 +11,59 @@ _Chronological record of all changes. Read this before starting any task._
 
 ---
 
+## 2026-07-13 (later) — Phase 1: the cut
+
+44 files deleted (~13,300 lines). One agent type survives: **potential**.
+
+### Deleted
+- **Agents:** scalping_agent, expert_agent, flowrex_agent (v1),
+  flowrex_agent_v2, scout_agent, m5_signal_generator, ict_signal_generator,
+  trade_monitor (zero importers — was already dead).
+- **ML stacks:** features_flowrex, features_mtf, features_williams,
+  features_quant, features_cot, features_correlation, smc_features,
+  features_tier1, meta_labeler (v1), ensemble_engine.
+  Kept: features_potential, features_ict (Phase-2 salvage), symbol_config,
+  regime_detector, feature_monitor, meta_labeler_v2, model_utils.
+- **Backtest:** services/backtest/engine.py (BacktestEngine) + the legacy
+  `/api/backtest/run`+`/results` endpoints. The potential backtest path is
+  untouched.
+- **Scripts:** train_flowrex, train_walkforward, train_swing (broken
+  import since features_swing was deleted), train_expert_agent,
+  train_scalping_pipeline, train_strategy_model, retrain_monthly,
+  compare_agents, walk_forward_analysis, full_walk_forward,
+  eval_saved_models, ablate_d1_filter, strategy_labels, fetch_cot_data.
+  `_record_retrain_run` moved to new scripts/retrain_history.py (the
+  potential retrain path still records history).
+- **Tests of deleted modules:** 12 files.
+
+### Changed
+- **engine.py** dispatch: potential-only; stale DB records with removed
+  types refuse to start with a clear log line. Legacy ensemble hot-reload
+  shims removed.
+- **NEW app/services/agent/filters.py** — shared `classify_session()`
+  consumed by potential_agent AND api/backtest (was 4 verbatim copies;
+  backtest-live parity is now structural).
+- **api/ml.py**: /train + /retrain/all disabled with explanatory payload;
+  /retrain is potential-only; synthetic scout pipeline rows removed.
+- **retrain_scheduler**: monthly cron job disabled (logs and skips) until
+  the swing trainer exists.
+- **api/backtest.py**: scout state machine + knobs removed from the
+  potential simulation; request model slimmed (extra fields from the old
+  frozen UI are ignored by pydantic).
+- **AgentWizard.tsx**: potential is the only offered type; scout knobs and
+  flowrex_v2 entry removed. `tsc --noEmit` clean.
+- Fixed 4 pre-existing test_backtest_data_fetcher failures (stale mocks
+  from the 04-19 delta-merge rewrite + tests now isolate HIST_DATA_DIR so
+  runs can't write back into the repo's History Data CSVs).
+- M5 joblibs left in place on disk (inert); archiving deferred.
+
+### Tests
+- New tests/test_engine_cut.py (18): potential-only dispatch refusal per
+  legacy type, max-hold via trade-level close, session classifier buckets.
+- Full backend suite: **461 passed, 0 failed** (locally with full deps).
+
+---
+
 ## 2026-07-13 — Reorg kickoff: five-agent review + Phase 0 risk fixes
 
 Five-agent repo review (`docs/TEAM-REVIEW-2026-07-13.md`) + reorg plan with

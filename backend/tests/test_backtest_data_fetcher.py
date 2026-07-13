@@ -18,8 +18,15 @@ from app.services.backtest.data_fetcher import (
 
 
 @pytest.fixture
-def fetcher(tmp_path):
-    """A fresh BacktestDataFetcher (with module singleton bypassed)."""
+def fetcher(tmp_path, monkeypatch):
+    """A fresh BacktestDataFetcher (with module singleton bypassed).
+
+    HIST_DATA_DIR is pointed at an empty tmp dir so the delta-merge path
+    never sees the repo's real History Data CSVs — these tests exercise
+    the pure Dukascopy-fetch flow the mocks were written for.
+    """
+    import app.services.backtest.data_fetcher as _df
+    monkeypatch.setattr(_df, "HIST_DATA_DIR", str(tmp_path / "hist"))
     return BacktestDataFetcher()
 
 
@@ -40,7 +47,7 @@ def _make_csv(path, rows=10):
 def test_cache_hit_returns_same_bundle(fetcher, tmp_path, monkeypatch):
     """Two consecutive fetches for the same params should hit the cache."""
 
-    def mock_run_node(symbol, days, tempdir):
+    def mock_run_node(symbol, days, tempdir, **kwargs):
         os.makedirs(tempdir, exist_ok=True)
         _make_csv(os.path.join(tempdir, f"{symbol}_M5.csv"))
         _make_csv(os.path.join(tempdir, f"{symbol}_H1.csv"))
@@ -63,7 +70,7 @@ def test_cache_miss_after_ttl(fetcher, tmp_path):
 
     call_count = [0]
 
-    def mock_run_node(symbol, days, tempdir):
+    def mock_run_node(symbol, days, tempdir, **kwargs):
         call_count[0] += 1
         os.makedirs(tempdir, exist_ok=True)
         _make_csv(os.path.join(tempdir, f"{symbol}_M5.csv"))
@@ -87,7 +94,7 @@ def test_tempdir_cleaned_up_after_fetch(fetcher, tmp_path):
 
     captured_tempdir = [None]
 
-    def mock_run_node(symbol, days, tempdir):
+    def mock_run_node(symbol, days, tempdir, **kwargs):
         captured_tempdir[0] = tempdir
         os.makedirs(tempdir, exist_ok=True)
         _make_csv(os.path.join(tempdir, f"{symbol}_M5.csv"))
@@ -106,7 +113,7 @@ def test_tempdir_cleaned_up_after_fetch(fetcher, tmp_path):
 def test_fetcher_propagates_node_failure(fetcher, tmp_path):
     """If the Node fetcher fails, fetch() must raise (not silently return empty)."""
 
-    def mock_run_node(symbol, days, tempdir):
+    def mock_run_node(symbol, days, tempdir, **kwargs):
         raise RuntimeError("Dukascopy unreachable")
 
     fetcher._run_node_fetcher = mock_run_node
@@ -116,7 +123,7 @@ def test_fetcher_propagates_node_failure(fetcher, tmp_path):
 
 
 def test_invalidate_cache_per_symbol(fetcher, tmp_path):
-    def mock_run_node(symbol, days, tempdir):
+    def mock_run_node(symbol, days, tempdir, **kwargs):
         os.makedirs(tempdir, exist_ok=True)
         _make_csv(os.path.join(tempdir, f"{symbol}_M5.csv"))
 

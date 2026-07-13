@@ -254,28 +254,14 @@ def trigger_training(
     background_tasks: BackgroundTasks,
     current_user: User = Depends(get_current_user),
 ):
-    if _training_status["active"]:
-        return {"status": "busy", "message": f"Already training {_training_status['symbol']} ({_training_status['pipeline']})"}
-
-    _training_status.update({"active": True, "symbol": body.symbol, "pipeline": body.pipeline, "progress": "starting"})
-
-    def run_training():
-        try:
-            _training_status["progress"] = "training"
-            if body.pipeline == "scalping":
-                from scripts.train_scalping_pipeline import train_symbol
-                train_symbol(body.symbol, n_trials=30)
-            else:
-                from scripts.train_expert_agent import train_symbol
-                train_symbol(body.symbol, n_trials=30)
-            _training_status["progress"] = "done"
-        except Exception as e:
-            _training_status["progress"] = f"error: {e}"
-        finally:
-            _training_status["active"] = False
-
-    background_tasks.add_task(run_training)
-    return {"status": "started", "symbol": body.symbol, "pipeline": body.pipeline}
+    # The scalping/expert training pipelines were removed in the 2026-07-13
+    # reorg. Full training runs happen via scripts/train_potential.py; the
+    # UI-facing retrain path is POST /api/ml/retrain (pipeline 'potential').
+    return {
+        "status": "disabled",
+        "message": "Legacy training pipelines were removed in the reorg — "
+                   "use POST /api/ml/retrain with pipeline 'potential'.",
+    }
 
 
 @router.get("/training-status")
@@ -440,7 +426,7 @@ def trigger_retrain(
                         "train_start": train_start,
                     },
                 }
-                from scripts.retrain_monthly import _record_retrain_run as _rec
+                from scripts.retrain_history import _record_retrain_run as _rec
                 _rec(result)
                 _retrain_status["results"] = [result]
                 _retrain_status["progress"] = (
@@ -455,25 +441,11 @@ def trigger_retrain(
                     except Exception:
                         pass
             else:
-                # Default: flowrex_v2 retrain_monthly flow with grade-gated swap
-                from scripts.retrain_monthly import retrain_symbol, _record_retrain_run
-                result = retrain_symbol(
-                    body.symbol,
-                    n_trials=body.n_trials,
-                    train_months=body.train_months,
-                    holdout_days=body.holdout_days,
-                    triggered_by="manual",
-                    progress_callback=lambda msg: _retrain_status.update({"progress": msg}),
+                # flowrex_v2 / legacy pipelines were removed in the
+                # 2026-07-13 reorg — only the potential pipeline remains.
+                _retrain_status["progress"] = (
+                    f"error: pipeline '{body.pipeline}' was removed — use 'potential'"
                 )
-                _record_retrain_run(result)
-                _retrain_status["results"] = [result]
-                _retrain_status["progress"] = "done"
-                if result.get("swapped"):
-                    try:
-                        from app.services.agent.engine import get_algo_engine
-                        get_algo_engine().reload_models_for_symbol(body.symbol)
-                    except Exception:
-                        pass
         except Exception as e:
             _retrain_status["progress"] = f"error: {e}"
         finally:
@@ -495,37 +467,13 @@ def trigger_retrain_all(
     if _retrain_status["active"] or _training_status["active"]:
         return {"status": "busy", "message": "Training already in progress"}
 
-    _retrain_status.update({"active": True, "symbol": "ALL", "progress": "starting", "results": []})
-
-    def _run_all():
-        from scripts.retrain_monthly import retrain_symbol, _record_retrain_run, ALL_SYMBOLS
-        try:
-            for sym in ALL_SYMBOLS:
-                _retrain_status["symbol"] = sym
-                _retrain_status["progress"] = f"retraining {sym}"
-                result = retrain_symbol(
-                    sym, n_trials=n_trials, train_months=train_months,
-                    holdout_days=holdout_days, triggered_by="manual",
-                    progress_callback=lambda msg: _retrain_status.update({"progress": f"{sym}: {msg}"}),
-                )
-                _record_retrain_run(result)
-                _retrain_status["results"].append(result)
-
-                if result.get("swapped"):
-                    try:
-                        from app.services.agent.engine import get_algo_engine
-                        get_algo_engine().reload_models_for_symbol(sym)
-                    except Exception:
-                        pass
-
-            _retrain_status["progress"] = "done"
-        except Exception as e:
-            _retrain_status["progress"] = f"error: {e}"
-        finally:
-            _retrain_status["active"] = False
-
-    background_tasks.add_task(_run_all)
-    return {"status": "started", "symbols": ["BTCUSD", "XAUUSD", "US30"]}
+    # The flowrex_v2 monthly retrain-all flow was removed in the 2026-07-13
+    # reorg. Retrain potential models one symbol at a time via /retrain.
+    return {
+        "status": "disabled",
+        "message": "Retrain-all was removed in the reorg — retrain per symbol "
+                   "with pipeline 'potential' via POST /api/ml/retrain.",
+    }
 
 
 @router.get("/retrain/status")
@@ -724,22 +672,12 @@ def list_symbols_unified(
             }
 
     # ── 5. Merge into one row per symbol ────────────────────────────────
-    # ScoutAgent reuses Potential's deployed joblibs (same 85 features, same
-    # xgb/lgb/catboost artifacts, no separate training). Surface it as a
-    # synthetic "scout" pipeline entry cloning the potential models so the ML
-    # page shows a Scout card and the AgentWizard can display grade badges
-    # without a separate training artefact on disk.
     rows = []
     all_syms = set(per_symbol.keys()) | set(per_symbol_agents.keys())
     for sym in all_syms:
         base = per_symbol.get(sym, [])
-        potential_models = [m for m in base if m["pipeline"] == "potential"]
-        scout_proxies = [
-            {**m, "pipeline": "scout", "proxy_for": "potential"}
-            for m in potential_models
-        ]
         models = sorted(
-            base + scout_proxies,
+            base,
             key=lambda m: (m["pipeline"], m["model_type"]),
         )
         live = per_symbol_live.get(sym, {})

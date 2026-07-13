@@ -191,8 +191,8 @@ def test_change_password_not_in_url(client):
 
 # ── Backtest endpoint tests ───────────────────────────────────────────
 
-def test_backtest_results_empty(client):
-    resp = client.get("/api/backtest/results")
+def test_backtest_status_requires_no_error(client):
+    resp = client.get("/api/backtest/potential/status")
     assert resp.status_code == 200
 
 

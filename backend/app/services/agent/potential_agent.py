@@ -405,12 +405,8 @@ class PotentialAgent:
 
         # Session filter — only trade during user-selected sessions.
         if self.session_filter and self.allowed_sessions:
-            _hour = datetime.now(timezone.utc).hour
-            if _hour < 8:         _sess = "asian"
-            elif _hour < 13:      _sess = "london"
-            elif _hour < 17:      _sess = "ny_open"
-            elif _hour < 21:      _sess = "ny_close"
-            else:                 _sess = "off_hours"
+            from app.services.agent.filters import classify_session
+            _sess = classify_session(datetime.now(timezone.utc).hour)
             if _sess not in self.allowed_sessions:
                 self._log_reject(f"Session '{_sess}' not in allowed {self.allowed_sessions}")
                 return None

@@ -56,13 +56,6 @@ def test_request_defaults_safe():
     assert r.use_correlations is True  # default on — mirrors live agent default
     assert r.allow_buy is True
     assert r.allow_sell is True
-    assert r.agent_type == "potential"
-    # Scout knobs carry their defaults even for non-scout agents (harmless)
-    assert r.lookback_bars == 40
-    assert r.instant_entry_confidence == 0.85
-    assert r.max_pending_bars == 10
-    assert r.pullback_atr_fraction == 0.50
-    assert r.dedupe_window_bars == 20
 
 
 def test_request_accepts_filter_overrides():
@@ -76,7 +69,6 @@ def test_request_accepts_filter_overrides():
         use_correlations=False,
         allow_buy=True,
         allow_sell=False,
-        agent_type="scout",
     )
     assert r.session_filter is True
     assert r.allowed_sessions == ["london", "ny_open"]
@@ -84,18 +76,6 @@ def test_request_accepts_filter_overrides():
     assert r.allowed_regimes == ["ranging", "volatile"]
     assert r.use_correlations is False
     assert r.allow_sell is False
-    assert r.agent_type == "scout"
-
-
-def test_request_rejects_invalid_agent_type():
-    """Only 'potential' and 'scout' are supported. Pydantic allows any
-    string at the model layer — validation is done in the simulation.
-    Document this with a test anyway."""
-    # No exception raised; strings pass through. The simulation branch
-    # does `is_scout = (body.agent_type == "scout")`, so anything else
-    # follows the potential path.
-    r = PotentialBacktestRequest(symbol="US30", agent_type="whatever")
-    assert r.agent_type == "whatever"
 
 
 # ── Cache isolation (the critical fix from commit 1634d61) ────────────

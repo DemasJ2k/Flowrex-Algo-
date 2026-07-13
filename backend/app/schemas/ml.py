@@ -31,11 +31,10 @@ class RetrainRequest(BaseModel):
     # longer window, set this explicitly.
     train_months: int = 6
     holdout_days: int = 14
-    # Which pipeline to retrain. "flowrex_v2" uses the 120-feature
-    # retrain_monthly flow with grade-gated swap. "potential" uses the
-    # 85-feature train_potential.py walk-forward and writes unconditionally
-    # (no swap guard — check the new grade before re-enabling the agent).
-    pipeline: str = "flowrex_v2"
+    # Which pipeline to retrain. Only "potential" remains after the
+    # 2026-07-13 reorg (85-feature train_potential.py walk-forward with
+    # grade-gated swap).
+    pipeline: str = "potential"
     # If True, delta-merge Dukascopy into the persistent CSV before training
     # so the last bars the model sees match what's actually happening now.
     # Off by default — saves 5-25s of Dukascopy latency on each retrain.

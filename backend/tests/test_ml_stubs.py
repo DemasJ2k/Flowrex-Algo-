@@ -11,7 +11,8 @@ def test_ml_train_starts(client):
         "pipeline": "scalping",
     })
     assert resp.status_code == 200
-    assert resp.json()["status"] in ("started", "busy")
+    # Legacy pipelines were removed in the 2026-07-13 reorg
+    assert resp.json()["status"] == "disabled"
 
 
 def test_ml_training_status(client):

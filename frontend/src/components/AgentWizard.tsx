@@ -28,9 +28,7 @@ const ALL_REGIMES = [
 // deprecated FlowrexAgent runtime that lacks today's filters / risk
 // manager and kept showing up as options despite being unmaintained.
 const AGENT_TYPES = [
-  { value: "flowrex_v2", label: "Flowrex v2", desc: "120 features, 3-model ensemble (XGB+LGB+CatBoost), 4-layer MTF.", pipelineKey: "flowrex", color: "#f59e0b" },
   { value: "potential", label: "Potential Agent", desc: "85 institutional features (VWAP, ADX, ORB, anchored VWAPs). Walk-forward trained.", pipelineKey: "potential", color: "#22c55e" },
-  { value: "scout", label: "Scout Agent", desc: "Potential + 40-bar lookback. Waits for pullback / break-of-structure before entering (or instant entry if confidence ≥ 0.85).", pipelineKey: "potential", color: "#8b5cf6" },
 ];
 
 // Per-symbol model metadata from /api/ml/symbols (fetched on open).
@@ -97,7 +95,7 @@ export default function AgentWizard({
   const [maxLotSize, setMaxLotSize] = useState(5);
   const [maxDailyLoss, setMaxDailyLoss] = useState(FALLBACK_LOSS);
   const [cooldownBars, setCooldownBars] = useState(FALLBACK_COOLDOWN);
-  const [agentType, setAgentType] = useState("flowrex_v2");
+  const [agentType, setAgentType] = useState("potential");
   const [mode, setMode] = useState("paper");
   const [sessionFilter, setSessionFilter] = useState(true);
   const [regimeFilter, setRegimeFilter] = useState(true);
@@ -112,12 +110,6 @@ export default function AgentWizard({
     "trending_up", "trending_down", "ranging", "volatile",
   ]);
   const [useCorrelations, setUseCorrelations] = useState(true);
-  // Scout-only state machine knobs (mirror AgentConfigEditor defaults)
-  const [lookbackBars, setLookbackBars] = useState(40);
-  const [instantEntryConfidence, setInstantEntryConfidence] = useState(0.85);
-  const [maxPendingBars, setMaxPendingBars] = useState(10);
-  const [pullbackAtrFraction, setPullbackAtrFraction] = useState(0.50);
-  const [dedupeWindowBars, setDedupeWindowBars] = useState(20);
   const [loading, setLoading] = useState(false);
   // Dynamic per-symbol model metadata. Populated from /api/ml/symbols so the
   // wizard can show the deployed grade for each symbol under the selected
@@ -162,8 +154,6 @@ export default function AgentWizard({
     setAllowedSessions(["london", "ny_open", "ny_close"]);
     setAllowedRegimes(["trending_up", "trending_down", "ranging", "volatile"]);
     setUseCorrelations(true);
-    setLookbackBars(40); setInstantEntryConfidence(0.85);
-    setMaxPendingBars(10); setPullbackAtrFraction(0.50); setDedupeWindowBars(20);
   };
 
   const agentName = customName || `${symbol} Flowrex`;
@@ -195,13 +185,6 @@ export default function AgentWizard({
             "trending_up", "trending_down", "ranging", "volatile",
           ],
           use_correlations: useCorrelations,
-          ...(agentType === "scout" ? {
-            lookback_bars: lookbackBars,
-            instant_entry_confidence: instantEntryConfidence,
-            max_pending_bars: maxPendingBars,
-            pullback_atr_fraction: pullbackAtrFraction,
-            dedupe_window_bars: dedupeWindowBars,
-          } : {}),
         },
       });
       toast.success(`Agent "${agentName}" created`);
@@ -560,48 +543,6 @@ export default function AgentWizard({
             </label>
           </div>
 
-          {agentType === "scout" && (
-            <div className="pt-3 border-t" style={{ borderColor: "var(--border)" }}>
-              <p className="text-xs font-medium mb-2" style={{ color: "var(--muted)" }}>
-                Scout entry state machine
-              </p>
-              <p className="text-[10px] mb-3" style={{ color: "var(--muted)" }}>
-                Stash signal → wait for pullback / BOS / instant-conf / expiry before entering.
-              </p>
-              <div className="grid grid-cols-2 gap-3">
-                <label className="space-y-1 text-xs">
-                  <span style={{ color: "var(--muted)" }}>Lookback bars</span>
-                  <input type="number" min={10} max={120} step={1} value={lookbackBars}
-                    onChange={(e) => setLookbackBars(Math.max(10, Math.min(120, parseInt(e.target.value) || 40)))}
-                    className="w-full px-2 py-1.5 rounded-lg border bg-transparent" style={{ borderColor: "var(--border)" }} />
-                </label>
-                <label className="space-y-1 text-xs">
-                  <span style={{ color: "var(--muted)" }}>Instant-entry conf</span>
-                  <input type="number" min={0.5} max={0.99} step={0.01} value={instantEntryConfidence}
-                    onChange={(e) => setInstantEntryConfidence(Math.max(0.5, Math.min(0.99, parseFloat(e.target.value) || 0.85)))}
-                    className="w-full px-2 py-1.5 rounded-lg border bg-transparent" style={{ borderColor: "var(--border)" }} />
-                </label>
-                <label className="space-y-1 text-xs">
-                  <span style={{ color: "var(--muted)" }}>Max pending bars</span>
-                  <input type="number" min={2} max={60} step={1} value={maxPendingBars}
-                    onChange={(e) => setMaxPendingBars(Math.max(2, Math.min(60, parseInt(e.target.value) || 10)))}
-                    className="w-full px-2 py-1.5 rounded-lg border bg-transparent" style={{ borderColor: "var(--border)" }} />
-                </label>
-                <label className="space-y-1 text-xs">
-                  <span style={{ color: "var(--muted)" }}>Pullback (× ATR)</span>
-                  <input type="number" min={0.1} max={2} step={0.05} value={pullbackAtrFraction}
-                    onChange={(e) => setPullbackAtrFraction(Math.max(0.1, Math.min(2, parseFloat(e.target.value) || 0.5)))}
-                    className="w-full px-2 py-1.5 rounded-lg border bg-transparent" style={{ borderColor: "var(--border)" }} />
-                </label>
-                <label className="space-y-1 text-xs col-span-2">
-                  <span style={{ color: "var(--muted)" }}>Dedupe window (bars, 0 = off)</span>
-                  <input type="number" min={0} max={100} step={1} value={dedupeWindowBars}
-                    onChange={(e) => setDedupeWindowBars(Math.max(0, Math.min(100, parseInt(e.target.value) || 0)))}
-                    className="w-full px-2 py-1.5 rounded-lg border bg-transparent" style={{ borderColor: "var(--border)" }} />
-                </label>
-              </div>
-            </div>
-          )}
         </div>
       )}
 
@@ -654,14 +595,6 @@ export default function AgentWizard({
           <div className="flex justify-between py-1 border-b" style={{ borderColor: "var(--border)" }}>
             <span style={{ color: "var(--muted)" }}>Prop Firm</span><span>{propFirmEnabled ? "On" : "Off"}</span>
           </div>
-          {agentType === "scout" && (
-            <div className="flex justify-between py-1 border-b" style={{ borderColor: "var(--border)" }}>
-              <span style={{ color: "var(--muted)" }}>Scout</span>
-              <span className="text-xs text-right">
-                lookback={lookbackBars} · instant≥{instantEntryConfidence.toFixed(2)} · pull={pullbackAtrFraction.toFixed(2)}×ATR · max={maxPendingBars}b · dedupe={dedupeWindowBars}b
-              </span>
-            </div>
-          )}
           <div className="flex justify-between py-1">
             <span style={{ color: "var(--muted)" }}>Mode</span><span>{mode}</span>
           </div>

@@ -138,25 +138,12 @@ def _add_job(cron_expression: str):
 
 def _run_scheduled_retrain():
     """Executed by APScheduler on cron trigger."""
-    logger.info("Scheduled monthly retrain starting...")
-    try:
-        from scripts.retrain_monthly import retrain_symbol, _record_retrain_run, ALL_SYMBOLS
-
-        for sym in ALL_SYMBOLS:
-            logger.info(f"Retraining {sym}...")
-            result = retrain_symbol(sym, triggered_by="schedule")
-            _record_retrain_run(result)
-
-            if result.get("swapped"):
-                try:
-                    from app.services.agent.engine import get_algo_engine
-                    get_algo_engine().reload_models_for_symbol(sym)
-                except Exception:
-                    pass
-
-        logger.info("Scheduled monthly retrain complete.")
-    except Exception as e:
-        logger.error(f"Scheduled retrain failed: {e}")
+    # The flowrex_v2 monthly retrain flow was removed in the 2026-07-13
+    # reorg, and the M5 potential models are being replaced by the H1/H4/D1
+    # swing system. Automated retrains stay off until the swing trainer
+    # lands; retrain manually via POST /api/ml/retrain (pipeline
+    # 'potential') in the meantime.
+    logger.info("Scheduled monthly retrain is disabled during the reorg — skipping.")
 
 
 def get_schedule_info() -> dict:

@@ -52,7 +52,7 @@ Still open from the review (Phase 0.5, before live money):
 - `DEBUG=True` auth bypass landmine; compose memory limits exceed the
   2GB droplet.
 
-## Phase 1 — The cut
+## Phase 1 — The cut — DONE 2026-07-13
 
 Delete/freeze so one person can maintain what remains:
 

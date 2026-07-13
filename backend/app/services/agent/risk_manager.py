@@ -219,8 +219,8 @@ class RiskManager:
         session_multiplier: float = 1.0,
     ) -> RiskCheck:
         """
-        Legacy risk gate -- existing callers (scalping_agent, expert_agent,
-        flowrex_agent, backtest engine) rely on this signature.
+        Legacy risk gate — kept for its signature stability; the modern
+        prop-firm path is check_trade_allowed().
         """
         if balance <= 0:
             return RiskCheck(approved=False, reason="Zero or negative balance")

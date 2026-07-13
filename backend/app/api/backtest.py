@@ -17,7 +17,7 @@ from app.core.auth import get_current_user
 from app.core.database import get_db, SessionLocal
 from app.models.user import User
 from app.models.backtest import BacktestResult
-from app.services.backtest.engine import BacktestEngine
+from app.services.agent.filters import classify_session
 
 router = APIRouter(prefix="/api/backtest", tags=["backtest"])
 
@@ -27,148 +27,13 @@ HIST_DATA_DIR = os.path.normpath(
     os.path.join(os.path.dirname(__file__), "..", "..", "..", "History Data", "data")
 )
 
-_results: dict[str, dict] = {}
-_status: dict = {"active": False, "symbol": None, "progress": ""}
-
-# Potential Agent backtest state (separate from legacy).
+# Potential Agent backtest state.
 # Cache is keyed by (user_id, symbol) so two users running the same symbol
 # in parallel never see each other's results. Writes inside the background
 # worker use the user_id passed into _run_potential_backtest. Reads in the
 # route handlers must scope by current_user.id.
 _potential_results: dict[tuple[int, str], dict] = {}
 _potential_status: dict = {"active": False, "symbol": None, "progress": "", "user_id": None}
-
-
-class BacktestRequest(BaseModel):
-    symbol: str
-    agent_type: str = "scalping"
-    risk_per_trade: float = 0.005
-    spread_pips: Optional[float] = None
-    slippage_pips: Optional[float] = None
-    commission_per_lot: float = 0.0
-    prime_hours_only: bool = True
-    include_monte_carlo: bool = True
-
-
-@router.post("/run")
-def run_backtest(
-    body: BacktestRequest,
-    background_tasks: BackgroundTasks,
-    current_user: User = Depends(get_current_user),
-):
-    if _status["active"]:
-        return {"status": "busy", "message": f"Backtest running for {_status['symbol']}"}
-
-    _status.update({"active": True, "symbol": body.symbol, "progress": "updating Dukascopy data..."})
-
-    def _run():
-        bundle_run_id = None
-        try:
-            # Backtest data is ALWAYS fetched fresh from Dukascopy — never reads
-            # the persistent History Data files that training uses. Tempdir is
-            # cleaned up after load; DataFrames live only in-memory for ~10 min
-            # via the fetcher's cache.
-            from app.services.backtest.data_fetcher import get_backtest_fetcher
-            fetcher = get_backtest_fetcher()
-            try:
-                bundle = fetcher.fetch(body.symbol, days=2500, timeframes=["M5", "H1"])
-                bundle_run_id = bundle.run_id
-            except Exception as e:
-                _results[body.symbol] = {"error": f"Dukascopy fetch failed: {e}"}
-                return
-
-            if bundle.m5 is None or len(bundle.m5) == 0:
-                _results[body.symbol] = {"error": "Dukascopy returned no M5 data"}
-                return
-
-            _status["progress"] = "loaded data"
-            m5 = bundle.m5
-            h1 = bundle.h1
-
-            _status["progress"] = "running simulation"
-            engine = BacktestEngine()
-            result = engine.run(
-                symbol=body.symbol,
-                agent_type=body.agent_type,
-                risk_config={"risk_per_trade": body.risk_per_trade, "max_daily_loss_pct": 0.04, "cooldown_bars": 3},
-                m5_data=m5,
-                h1_data=h1,
-                spread_pips=body.spread_pips,
-                slippage_pips=body.slippage_pips,
-                commission_per_lot=body.commission_per_lot,
-                prime_hours_only=body.prime_hours_only,
-                include_monte_carlo=body.include_monte_carlo,
-            )
-
-            # Serialize trade list (limit to last 200 for API response size)
-            trade_list = [
-                {
-                    "direction": t.direction, "entry_price": round(t.entry_price, 5),
-                    "exit_price": round(t.exit_price, 5), "lot_size": t.lot_size,
-                    "gross_pnl": round(t.gross_pnl, 2), "pnl": round(t.pnl, 2),
-                    "spread_cost": round(t.spread_cost, 2), "commission": round(t.commission, 2),
-                    "exit_reason": t.exit_reason, "confidence": round(t.confidence, 3),
-                    "duration_bars": t.duration_bars, "entry_time": t.entry_time, "exit_time": t.exit_time,
-                }
-                for t in result.trades[-200:]
-            ]
-
-            _results[body.symbol] = {
-                "gross_pnl": result.gross_pnl,
-                "net_pnl": result.net_pnl,
-                "total_costs": result.total_costs,
-                "total_spread_cost": result.total_spread_cost,
-                "total_slippage_cost": result.total_slippage_cost,
-                "total_commission": result.total_commission,
-                "win_rate": result.win_rate,
-                "profit_factor": result.profit_factor,
-                "max_drawdown": result.max_drawdown,
-                "sharpe_ratio": result.sharpe_ratio,
-                "expectancy": result.expectancy,
-                "risk_reward_ratio": result.risk_reward_ratio,
-                "calmar_ratio": result.calmar_ratio,
-                "avg_win": result.avg_win,
-                "avg_loss": result.avg_loss,
-                "avg_trade_duration_bars": result.avg_trade_duration_bars,
-                "max_consecutive_wins": result.max_consecutive_wins,
-                "max_consecutive_losses": result.max_consecutive_losses,
-                "total_trades": result.total_trades,
-                "winning_trades": result.winning_trades,
-                "losing_trades": result.losing_trades,
-                "equity_curve": result.equity_curve[-200:],
-                "drawdown_curve": result.drawdown_curve[-200:],
-                "monthly_returns": result.monthly_returns,
-                "trades": trade_list,
-                "monte_carlo": asdict(result.monte_carlo) if result.monte_carlo else None,
-            }
-        except Exception as e:
-            _results[body.symbol] = {"error": str(e)}
-        finally:
-            _status["active"] = False
-            _status["progress"] = "done"
-            # Best-effort cleanup of the tempdir (fetch() already removes it
-            # after load but we call cleanup in case of crash mid-fetch)
-            if bundle_run_id:
-                try:
-                    from app.services.backtest.data_fetcher import get_backtest_fetcher
-                    get_backtest_fetcher().cleanup(bundle_run_id)
-                except Exception:
-                    pass
-
-    background_tasks.add_task(_run)
-    return {"status": "started", "symbol": body.symbol}
-
-
-@router.get("/results")
-def list_results(current_user: User = Depends(get_current_user)):
-    return {"results": _results, "running": _status}
-
-
-@router.get("/results/{symbol}")
-def get_result(symbol: str, current_user: User = Depends(get_current_user)):
-    if symbol not in _results:
-        raise HTTPException(status_code=404, detail="No backtest result for this symbol")
-    return _results[symbol]
 
 
 # ── Potential Agent Backtest ──────────────────────────────────────────────
@@ -196,16 +61,6 @@ class PotentialBacktestRequest(BaseModel):
     # connected broker is used). Agents already track their own broker; the
     # backtest UI can pass this when the user has multiple connections.
     broker: Optional[str] = None
-    # Agent behaviour. "potential" = immediate entry on signal (original).
-    # "scout" = lookback + pullback/BOS entry state machine (mirrors
-    # ScoutAgent runtime). Scout reuses the same deployed potential_* models;
-    # only the entry gating differs.
-    agent_type: str = "potential"
-    lookback_bars: int = 40
-    instant_entry_confidence: float = 0.85
-    max_pending_bars: int = 10
-    pullback_atr_fraction: float = 0.50
-    dedupe_window_bars: int = 20
     # Direction gate — matches live agent's allow_buy / allow_sell toggles.
     allow_buy: bool = True
     allow_sell: bool = True
@@ -219,58 +74,6 @@ class PotentialBacktestRequest(BaseModel):
     regime_filter: bool = False
     allowed_regimes: Optional[list[str]] = None
     use_correlations: bool = True
-
-
-def _scout_check_triggers(
-    pending: dict,
-    i: int,
-    closes: np.ndarray,
-    highs: np.ndarray,
-    lows: np.ndarray,
-    lookback_bars: int,
-    pullback_atr_fraction: float,
-    instant_entry_confidence: float,
-) -> Optional[str]:
-    """Return the first Scout trigger that fires at bar i, or None.
-
-    Mirrors `ScoutAgent._check_triggers` so backtest behaviour matches live.
-    Order matters: instant > pullback > break-of-structure.
-    """
-    conf = float(pending["confidence"])
-    if conf >= instant_entry_confidence:
-        return "instant_confidence"
-
-    direction = int(pending["direction"])
-    ref_close = float(pending["ref_close"])
-    ref_atr = float(pending["ref_atr"]) or 1.0
-    bars_waited = int(pending.get("bars_waited", 0))
-    pullback_distance = ref_atr * pullback_atr_fraction
-
-    # Pullback: price moved against pending direction, current bar reverses.
-    start_idx = max(0, i - bars_waited)
-    if direction > 0:
-        lowest_since = float(np.min(lows[start_idx:i + 1]))
-        if (ref_close - lowest_since) >= pullback_distance and float(closes[i]) > float(closes[i - 1]):
-            return "pullback"
-    else:
-        highest_since = float(np.max(highs[start_idx:i + 1]))
-        if (highest_since - ref_close) >= pullback_distance and float(closes[i]) < float(closes[i - 1]):
-            return "pullback"
-
-    # Break-of-structure: current bar extends past lookback extreme.
-    win_start = max(0, i - lookback_bars)
-    win_end = i
-    if win_end > win_start:
-        if direction > 0:
-            prior_high = float(np.max(highs[win_start:win_end]))
-            if float(highs[i]) > prior_high:
-                return "break_of_structure"
-        else:
-            prior_low = float(np.min(lows[win_start:win_end]))
-            if float(lows[i]) < prior_low:
-                return "break_of_structure"
-
-    return None
 
 
 # Per-broker hard ceilings on bars returned by `get_candles` in a single call.
@@ -623,7 +426,7 @@ def _run_potential_backtest(body: PotentialBacktestRequest, result_id: int,
         atr_vals = atr_fn(highs, lows, closes, 14)
 
         # Regime filter sandbox. Computes regime bar-by-bar using the same
-        # rule tree as ScoutAgent / PotentialAgent runtime so backtest
+        # rule tree as PotentialAgent runtime so backtest
         # rejection behaviour matches live.
         regime_by_bar: Optional[np.ndarray] = None
         if body.regime_filter and body.allowed_regimes:
@@ -742,9 +545,6 @@ def _run_potential_backtest(body: PotentialBacktestRequest, result_id: int,
         daily_pnl = {}
         equity_history = [(timestamps[oos_idx] if oos_idx < len(timestamps) else 0, balance)]
 
-        is_scout = (body.agent_type == "scout")
-        pending_scout: Optional[dict] = None
-        scout_entry_reason: Optional[str] = None
         allowed_sessions_set = set(body.allowed_sessions or []) if body.session_filter else None
         allowed_regimes_set = set(body.allowed_regimes or []) if body.regime_filter else None
         # Direction gate parity — the live agent honours allow_buy/allow_sell;
@@ -754,21 +554,15 @@ def _run_potential_backtest(body: PotentialBacktestRequest, result_id: int,
         rejected_counts = {"session": 0, "regime": 0, "direction": 0}
 
         def _session_for_ts(ts: int) -> str:
-            hr = int(pd.to_datetime(ts, unit="s", utc=True).hour)
-            if hr < 8:    return "asian"
-            if hr < 13:   return "london"
-            if hr < 17:   return "ny_open"
-            if hr < 21:   return "ny_close"
-            return "off_hours"
+            return classify_session(int(pd.to_datetime(ts, unit="s", utc=True).hour))
 
         i = oos_idx
         while i < min(end_idx, len(closes) - hold_bars - 1):
             sig = preds[i]
-            scout_entry_reason = None
 
-            # Filter-sandbox gates (shared across potential + scout): check
-            # BEFORE any entry decision. If the agent's live config would
-            # reject this bar, the backtest should too.
+            # Filter-sandbox gates: check BEFORE any entry decision. If the
+            # agent's live config would reject this bar, the backtest
+            # should too.
             if sig in (0, 2):
                 # Direction gate — mirror live agent's allow_buy/allow_sell.
                 is_long_sig = sig == 2
@@ -789,68 +583,9 @@ def _run_potential_backtest(body: PotentialBacktestRequest, result_id: int,
                         i += 1
                         continue
 
-            if is_scout:
-                if pending_scout is None:
-                    # No pending — look for a fresh signal to stash.
-                    if sig not in (0, 2):
-                        i += 1
-                        continue
-                    direction_int = 1 if sig == 2 else -1
-
-                    # Dedupe: skip if last trade was same-direction within
-                    # `dedupe_window_bars` × 5min. Keeps scout from stacking
-                    # in chop when the model re-emits the same side.
-                    if trades:
-                        last_ts = trades[-1].get("entry_ts", 0)
-                        bars_since = (int(timestamps[i]) - int(last_ts)) // 300
-                        if bars_since < body.dedupe_window_bars:
-                            last_dir_int = 1 if trades[-1]["direction"] == "BUY" else -1
-                            if last_dir_int == direction_int:
-                                i += 1
-                                continue
-
-                    conf_i = float(probas[i][int(sig)]) if probas is not None else 0.0
-                    if conf_i >= body.instant_entry_confidence:
-                        scout_entry_reason = "instant_confidence"
-                        # fall through to execute below
-                    else:
-                        atr_ref = float(atr_vals[i]) if not np.isnan(atr_vals[i]) else 0.0
-                        pending_scout = {
-                            "direction": direction_int,
-                            "confidence": conf_i,
-                            "ref_close": float(closes[i]),
-                            "ref_high": float(highs[i]),
-                            "ref_low": float(lows[i]),
-                            "ref_atr": atr_ref,
-                            "ref_idx": i,
-                            "bars_waited": 0,
-                        }
-                        i += 1
-                        continue
-                else:
-                    # Pending exists — check expiry first, then triggers.
-                    pending_scout["bars_waited"] += 1
-                    if pending_scout["bars_waited"] > body.max_pending_bars:
-                        pending_scout = None
-                        i += 1
-                        continue
-                    trigger = _scout_check_triggers(
-                        pending_scout, i, closes, highs, lows,
-                        body.lookback_bars, body.pullback_atr_fraction,
-                        body.instant_entry_confidence,
-                    )
-                    if trigger is None:
-                        i += 1
-                        continue
-                    scout_entry_reason = trigger
-                    # Override sig to match pending direction so shared code
-                    # below picks the right side.
-                    sig = 2 if pending_scout["direction"] == 1 else 0
-                    pending_scout = None
-            else:
-                if sig not in (0, 2):
-                    i += 1
-                    continue
+            if sig not in (0, 2):
+                i += 1
+                continue
 
             entry = opens[i + 1] if opens[i + 1] > 0 else closes[i]
             if entry <= 0 or np.isnan(atr_vals[i]) or atr_vals[i] <= 0:
@@ -962,7 +697,7 @@ def _run_potential_backtest(body: PotentialBacktestRequest, result_id: int,
                 "confidence": round(conf, 3),
                 "session": session,
                 "is_oos": bool(int(entry_time) >= oos_start_ts),
-                "entry_reason": scout_entry_reason or "signal",
+                "entry_reason": "signal",
             }
             trades.append(trade)
 
@@ -1227,11 +962,10 @@ def run_potential_backtest(
     _potential_results.pop((int(current_user.id), body.symbol), None)
 
     # Create DB record before starting background task
-    db_agent_type = "scout" if body.agent_type == "scout" else "potential"
     bt_record = BacktestResult(
         user_id=current_user.id,
         symbol=body.symbol,
-        agent_type=db_agent_type,
+        agent_type="potential",
         config={
             "start_date": body.start_date,
             "end_date": body.end_date,
@@ -1239,12 +973,6 @@ def run_potential_backtest(
             "max_lot": body.max_lot,
             "risk_pct": body.risk_pct,
             "data_source": body.data_source,
-            "agent_type": body.agent_type,
-            "lookback_bars": body.lookback_bars if body.agent_type == "scout" else None,
-            "instant_entry_confidence": body.instant_entry_confidence if body.agent_type == "scout" else None,
-            "max_pending_bars": body.max_pending_bars if body.agent_type == "scout" else None,
-            "pullback_atr_fraction": body.pullback_atr_fraction if body.agent_type == "scout" else None,
-            "dedupe_window_bars": body.dedupe_window_bars if body.agent_type == "scout" else None,
         },
         status="running",
     )

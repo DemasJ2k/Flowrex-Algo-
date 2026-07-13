@@ -652,7 +652,7 @@ async def _build_chat_context(user_id: int, db: Session) -> dict:
             "agent_type": a.agent_type or "flowrex",
             "status": a.status,
             "broker": a.broker_name,
-            "model_type": "flowrex_v2" if a.agent_type == "flowrex_v2" else "potential",
+            "model_type": "potential",
         })
 
     trades = (
