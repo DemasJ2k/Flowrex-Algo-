@@ -65,6 +65,9 @@ class AgentRunner:
             try:
                 if agent_type == "potential":
                     self._agent = PotentialAgent(*agent_args)
+                elif agent_type == "swing":
+                    from app.services.agent.swing_agent import SwingAgent
+                    self._agent = SwingAgent(*agent_args)
                 else:
                     # All other agent types (scalping, expert, flowrex,
                     # flowrex_v2, scout) were removed in the 2026-07-13 reorg.
@@ -153,7 +156,8 @@ class AgentRunner:
                 self._log_to_db(db, "warn", f"Pre-flight check error (non-fatal): {pre_err}")
 
             self._running = True
-            self._log_to_db(db, "info", f"Agent started — polling {agent_record.broker_name} every {POLL_INTERVAL}s for {agent_record.symbol}/M5")
+            _tf = getattr(self._agent, "primary_timeframe", "M5")
+            self._log_to_db(db, "info", f"Agent started — polling {agent_record.broker_name} every {POLL_INTERVAL}s for {agent_record.symbol}/{_tf}")
             db.commit()
         except Exception as e:
             self._log_to_db(db, "error", f"Start failed: {e}")
@@ -326,11 +330,12 @@ class AgentRunner:
                 db.commit()
                 return
 
-            # Fetch M5 candles — ALWAYS use broker (real-time) for signal generation.
-            # Databento has ~2hr delay which is unacceptable for M5 scalping.
-            # Databento is only used for chart display, not agent signals.
+            # Fetch primary-timeframe candles — ALWAYS from the broker
+            # (real-time). M5 for the potential agent, H1 for the swing
+            # agent (the agent class declares its own primary_timeframe).
             data_source = "BROKER"
-            candles = await adapter.get_candles(agent_record.symbol, "M5", 500)
+            primary_tf = getattr(self._agent, "primary_timeframe", "M5")
+            candles = await adapter.get_candles(agent_record.symbol, primary_tf, 500)
 
             if not candles:
                 return
@@ -373,7 +378,7 @@ class AgentRunner:
             # Log data source on first bar (once)
             if not self._warmup_done:
                 self._log_to_db(db, "info",
-                    f"Data source: {data_source} | {len(bars)} bars loaded for {agent_record.symbol}/M5")
+                    f"Data source: {data_source} | {len(bars)} bars loaded for {agent_record.symbol}/{primary_tf}")
 
             # Warm-up: first fetch loads the bar buffer but does NOT evaluate.
             # This ensures we wait for the NEXT new bar close before trading.
@@ -617,7 +622,9 @@ class AgentRunner:
         Default: 24 hours. Prevents capital being stuck on stale, range-bound trades.
         """
         cfg = agent_record.risk_config or {}
-        max_hold_hours = cfg.get("max_hold_hours", 24)
+        # Swing agents hold overnight — their class declares a longer default.
+        default_hold = getattr(self._agent, "default_max_hold_hours", 24)
+        max_hold_hours = cfg.get("max_hold_hours", default_hold)
         if max_hold_hours <= 0:
             return  # disabled
 
@@ -861,7 +868,9 @@ class AgentRunner:
                     if trade.entry_time:
                         delta = now - trade.entry_time
                         trade.time_to_exit_seconds = int(delta.total_seconds())
-                        trade.bars_to_exit = int(delta.total_seconds() / 300)  # M5 bars
+                        _tf_sec = {"M5": 300, "M15": 900, "H1": 3600, "H4": 14400}.get(
+                            getattr(self._agent, "primary_timeframe", "M5"), 300)
+                        trade.bars_to_exit = int(delta.total_seconds() / _tf_sec)
 
                     pnl_str = f"P&L:{trade.pnl}"
                     self._log_to_db(db, "trade",

@@ -28,7 +28,8 @@ const ALL_REGIMES = [
 // deprecated FlowrexAgent runtime that lacks today's filters / risk
 // manager and kept showing up as options despite being unmaintained.
 const AGENT_TYPES = [
-  { value: "potential", label: "Potential Agent", desc: "85 institutional features (VWAP, ADX, ORB, anchored VWAPs). Walk-forward trained.", pipelineKey: "potential", color: "#22c55e" },
+  { value: "swing", label: "Swing Agent", desc: "Rules-based H1/H4/D1 swing: D1 trend + H4 supply/demand zones + H1 trigger. No ML model — every trade is explainable. Holds overnight.", pipelineKey: "swing", color: "#3b82f6" },
+  { value: "potential", label: "Potential Agent", desc: "85 institutional features (VWAP, ADX, ORB, anchored VWAPs). Walk-forward trained (M5).", pipelineKey: "potential", color: "#22c55e" },
 ];
 
 // Per-symbol model metadata from /api/ml/symbols (fetched on open).
@@ -95,7 +96,7 @@ export default function AgentWizard({
   const [maxLotSize, setMaxLotSize] = useState(5);
   const [maxDailyLoss, setMaxDailyLoss] = useState(FALLBACK_LOSS);
   const [cooldownBars, setCooldownBars] = useState(FALLBACK_COOLDOWN);
-  const [agentType, setAgentType] = useState("potential");
+  const [agentType, setAgentType] = useState("swing");
   const [mode, setMode] = useState("paper");
   const [sessionFilter, setSessionFilter] = useState(true);
   const [regimeFilter, setRegimeFilter] = useState(true);
@@ -146,7 +147,7 @@ export default function AgentWizard({
 
   const reset = () => {
     setStep(0); setSymbol("XAUUSD"); setCustomName(""); setBroker(FALLBACK_BROKER);
-    setTimeframe("M5"); setAgentType("potential"); setSizingMode("risk_pct");
+    setTimeframe("M5"); setAgentType("swing"); setSizingMode("risk_pct");
     setRiskPerTrade(FALLBACK_RISK); setMaxLotSize(5);
     setMaxDailyLoss(FALLBACK_LOSS); setCooldownBars(FALLBACK_COOLDOWN); setMode("paper");
     setSessionFilter(true); setRegimeFilter(true); setNewsFilter(true);
@@ -164,7 +165,7 @@ export default function AgentWizard({
       await api.post("/api/agents/", {
         name: agentName,
         symbol,
-        timeframe,
+        timeframe: agentType === "swing" ? "H1" : timeframe,
         agent_type: agentType,
         broker_name: broker,
         mode,

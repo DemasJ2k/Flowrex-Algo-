@@ -75,7 +75,15 @@ Delete/freeze so one person can maintain what remains:
 - **Tests first:** ~20 tests on engine tick-loop + trade_monitor before
   the swing agent lands (trade_monitor currently has zero).
 
-## Phase 2 — The swing system (rules-first)
+## Phase 2 — The swing system (rules-first) — DONE 2026-07-13
+
+Shipped: `swing_rules.py` (shared rules), `swing_agent.py` (live,
+agent_type "swing", H1 primary), `scripts/backtest_swing.py` (same rule
+code, pessimistic fills). Tuning: variants A–F on 2010–2021, F verified
+once OOS on 2022–2026 — XAUUSD +0.30R/trade PF 1.45; US30 flat. Shipped
+defaults = F. Next: Phase 3 paper-trade XAUUSD one full quarter.
+
+Original spec:
 
 - One agent: H1/H4/D1, US30 + XAUUSD.
 - ~15–25 structural features max (Vega's sample-size cliff: H4 ≈ 1,500

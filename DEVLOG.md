@@ -11,6 +11,53 @@ _Chronological record of all changes. Read this before starting any task._
 
 ---
 
+## 2026-07-13 (later still) — Phase 2: rules-first swing system
+
+### New components
+- **`app/services/agent/swing_rules.py`** — the single source of truth for
+  the H1/H4/D1 swing rules: D1 EMA(50)+slope trend gate, H4 order-block
+  zones (last opposite candle before a ≥2×ATR displacement; FVGs
+  available but off by default), zone lifecycle (close-through kills,
+  max 1 touch, 250-bar ageout), H1 micro-BOS + zone-rejection trigger,
+  SL beyond zone edge + 0.25×ATR buffer, fixed 3R target, SL-distance
+  sanity bounds. Pure numpy; no broker/DB/ML deps.
+- **`app/services/agent/swing_agent.py`** — live wrapper. `primary_timeframe
+  = "H1"` (engine feeds H1), fetches H4+D1 context itself (30-min cache),
+  wall-clock cooldown recovered from DB, `default_max_hold_hours = 240`
+  (overnight holds by design), sizing via `calc_lot_size`. `load()` is a
+  no-op — rules-based, nothing on disk.
+- **`scripts/backtest_swing.py`** — drives the SAME swing_rules code over
+  History Data H1 (H4/D1 resampled UTC-anchored). Pessimistic execution:
+  next-bar-open fills, spread+slippage, SL-before-TP, gap-through fills
+  at open, 240-bar max hold. Wilson CI + breakeven-WR verdict baked into
+  the report.
+- **Engine**: agents now declare `primary_timeframe` (H1 fetch for swing,
+  M5 unchanged for potential); max-hold default comes from the agent
+  class; `bars_to_exit` uses the primary TF. `agent_type="swing"`
+  registered. AgentWizard offers Swing (default) + Potential.
+
+### Tuning protocol (multiple-comparisons honest)
+Six variants (A–F) evaluated on **2010–2021 only**; 2022+ untouched.
+A: baseline 2R (pooled −0.058R full-period). B: OB-only + D1 slope
+(−0.00R). C: B + cooldown 24 (−0.00R). D: B + displacement 2.0 (+0.03R).
+E: B + 3R target (+0.02R). **F: D+E combined (+0.086R) — winner.**
+Single OOS verification of F on 2022–2026: **XAUUSD +0.302R/trade,
+PF 1.45, maxDD 3%** (45 trades); US30 −0.007R (flat, 79 trades); pooled
++0.105R with WR CI floor NOT clearing breakeven (n=124 — expected; live
+validation takes quarters, per the team review).
+Full-period canonical run with shipped defaults (`data/backtests/
+swing_v1_backtest.json` + `swing_v1_oos.json`): pooled 420 trades,
++0.099R/trade, XAUUSD PF 1.32 / maxDD 8.2%, US30 ≈ flat.
+**Conclusion: paper-trade XAUUSD first; US30 stays paper-only skeptic.**
+
+### Tests
+19 new (`tests/test_swing_rules.py`): OB/FVG detection, displacement
+threshold, zone invalidation/touch-spend/consumption, trend+slope gate,
+micro-BOS requirement, SL bounds, cooldown, SwingAgent signal contract
+via fake adapter, engine dispatch. Full suite: **478 passed, 0 failed.**
+
+---
+
 ## 2026-07-13 (later) — Phase 1: the cut
 
 44 files deleted (~13,300 lines). One agent type survives: **potential**.

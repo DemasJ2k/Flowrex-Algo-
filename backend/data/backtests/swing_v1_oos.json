@@ -1,0 +1,110 @@
+{
+  "config": {
+    "d1_ema_period": 50,
+    "zone_lookback_bars": 250,
+    "displacement_atr_mult": 2.0,
+    "displacement_span": 2,
+    "max_touches": 1,
+    "touch_window_h1_bars": 3,
+    "sl_buffer_atr_mult": 0.25,
+    "min_sl_atr_mult": 0.25,
+    "max_sl_atr_mult": 2.0,
+    "target_rr": 3.0,
+    "cooldown_h1_bars": 12,
+    "atr_period": 14,
+    "ob_only": true,
+    "d1_slope_bars": 5
+  },
+  "risk_pct": 0.005,
+  "run_at": "2026-07-14T01:59:14.380568+00:00",
+  "results": [
+    {
+      "symbol": "US30",
+      "years": 4.3,
+      "trades": 79,
+      "trades_per_year": 18.5,
+      "win_rate": 0.2658,
+      "win_rate_ci95": [
+        0.1809,
+        0.3724
+      ],
+      "avg_r": -0.0072,
+      "expectancy_note": "avg_r is expectancy in R per trade after costs",
+      "profit_factor": 0.99,
+      "max_dd_pct": 7.85,
+      "end_balance": 9942.8,
+      "total_r": -0.6,
+      "exit_reasons": {
+        "TP": 20,
+        "SL": 56,
+        "MAX_HOLD": 1,
+        "SL_GAP": 2
+      },
+      "per_year": {
+        "2022": {
+          "n": 13,
+          "r": -9.0
+        },
+        "2023": {
+          "n": 24,
+          "r": 11.0
+        },
+        "2024": {
+          "n": 18,
+          "r": -4.7
+        },
+        "2025": {
+          "n": 19,
+          "r": 7.6
+        },
+        "2026": {
+          "n": 5,
+          "r": -5.4
+        }
+      }
+    },
+    {
+      "symbol": "XAUUSD",
+      "years": 4.3,
+      "trades": 45,
+      "trades_per_year": 10.5,
+      "win_rate": 0.3333,
+      "win_rate_ci95": [
+        0.2136,
+        0.4793
+      ],
+      "avg_r": 0.3021,
+      "expectancy_note": "avg_r is expectancy in R per trade after costs",
+      "profit_factor": 1.453,
+      "max_dd_pct": 2.96,
+      "end_balance": 10682.67,
+      "total_r": 13.6,
+      "exit_reasons": {
+        "SL": 30,
+        "TP": 15
+      },
+      "per_year": {
+        "2022": {
+          "n": 9,
+          "r": 6.5
+        },
+        "2023": {
+          "n": 14,
+          "r": 1.5
+        },
+        "2024": {
+          "n": 14,
+          "r": -2.3
+        },
+        "2025": {
+          "n": 6,
+          "r": 5.9
+        },
+        "2026": {
+          "n": 2,
+          "r": 2.0
+        }
+      }
+    }
+  ]
+}
