@@ -38,9 +38,16 @@ HIST_DIR = os.path.normpath(os.path.join(os.path.dirname(__file__), "..", "..", 
 OUT_DIR = os.path.join(os.path.dirname(__file__), "..", "data", "backtests")
 
 # Execution costs (points), mirroring api/backtest.py _EXEC_COSTS (Oanda paper)
+# where available; conservative estimates for the rest.
 COSTS = {
     "US30":   {"spread": 3.0, "slippage": 1.0},
     "XAUUSD": {"spread": 0.30, "slippage": 0.10},
+    "ES":     {"spread": 0.50, "slippage": 0.25},
+    "NAS100": {"spread": 1.0, "slippage": 0.50},
+    "BTCUSD": {"spread": 50.0, "slippage": 10.0},
+    "XAGUSD": {"spread": 0.025, "slippage": 0.010},
+    "AUS200": {"spread": 2.0, "slippage": 1.0},
+    "ETHUSD": {"spread": 2.0, "slippage": 0.50},
 }
 
 MAX_HOLD_H1_BARS = 240
